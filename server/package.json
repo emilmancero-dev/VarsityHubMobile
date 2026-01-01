@@ -34,7 +34,7 @@
     "expo": "~54.0.25",
     "expo-apple-authentication": "~8.0.7",
     "expo-server-sdk": "^4.0.0",
-    "express": "^4.19.2",
+    "express": "^4.22.0",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
