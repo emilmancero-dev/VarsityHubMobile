@@ -488,6 +488,7 @@ eventsRouter.get(
               status: 'active',
             },
             select: { team_id: true },
+            take: 500,
           }),
           prisma.organizationMembership.findMany({
             where: {
@@ -496,6 +497,7 @@ eventsRouter.get(
               status: 'active',
             },
             select: { organization_id: true },
+            take: 500,
           }),
         ]);
 

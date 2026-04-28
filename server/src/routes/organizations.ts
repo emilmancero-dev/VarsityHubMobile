@@ -1048,6 +1048,7 @@ organizationsRouter.post(
             prisma.organizationInvite.findMany({
               where: { organization_id: organization.id, email: { in: invites.map(i => i.email) } },
               select: { id: true, email: true },
+              take: invites.length,
             }),
           ]);
           const tokenByEmail = Object.fromEntries(createdInvites.map(i => [i.email, i.id]));
