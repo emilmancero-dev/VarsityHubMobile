@@ -1838,12 +1838,12 @@ postsRouter.delete(
       if (isAdminUser && !isAuthor && post.author_id) {
         try {
           const { sendPushNotification } = await import('../lib/notifications.js');
-          await sendPushNotification(
+          sendPushNotification(
             post.author_id,
             'Post Removed',
             'Your post was removed by a moderator for violating community guidelines.',
             { type: 'post_removed', post_id: postId }
-          );
+          ).catch(() => {});
           await prisma.notification.create({
             data: {
               user_id: post.author_id,

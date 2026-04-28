@@ -1660,7 +1660,7 @@ teamsRouter.post('/:id/invite', requireAuth as any, requireVerified as any, requ
       const prefs = (invitedUser.preferences || {}) as any;
       if (prefs?.notifications?.team_updates !== false) {
         const inviterName = inviter?.display_name || 'A coach';
-        await sendPushNotification(
+        sendPushNotification(
           invitedUser.id,
           `${inviterName} invited you to join ${team.name}`,
           'Tap to view',
@@ -1671,7 +1671,7 @@ teamsRouter.post('/:id/invite', requireAuth as any, requireVerified as any, requ
             invite_id: invite.id,
             screen: 'team-invites',
           }
-        );
+        ).catch(() => {});
       }
     } catch (error) {
       console.error('Failed to create team invite notification:', error);

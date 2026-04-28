@@ -1966,12 +1966,12 @@ organizationsRouter.post(
 
       // Push notification so coach knows they were approved
       try {
-        await sendPushNotification(
+        sendPushNotification(
           joinRequest.user_id,
           'Join Request Approved',
           `Your request to join ${joinRequest.organization.name} was approved!`,
           { type: 'join_request_approved', organization_id: joinRequest.organization_id }
-        );
+        ).catch(() => {});
         console.log(`[notif] push sent JOIN_REQUEST_APPROVED to user=${joinRequest.user_id}`);
       } catch (err) {
         console.error(
@@ -2130,12 +2130,12 @@ organizationsRouter.post(
 
       // Push notification so the coach sees the denial immediately
       try {
-        await sendPushNotification(
+        sendPushNotification(
           joinRequest.user.id,
           'Join Request Declined',
           `Your request to join ${joinRequest.organization.name} was not approved.${reason ? ` Reason: ${reason}` : ''}`,
           { type: 'join_request_denied', organization_id: joinRequest.organization_id }
-        );
+        ).catch(() => {});
         console.log(`[notif] push sent JOIN_REQUEST_DENIED to user=${joinRequest.user.id}`);
       } catch (err) {
         console.error(
@@ -2297,12 +2297,12 @@ async function _executeJoinRequestApprovalByToken(
     );
   }
   try {
-    await sendPushNotification(
+    sendPushNotification(
       joinRequest.user_id,
       'Join Request Approved',
       `Your request to join ${joinRequest.organization.name} was approved!`,
       { type: 'join_request_approved', organization_id: joinRequest.organization_id }
-    );
+    ).catch(() => {});
   } catch (err) {
     reportApprovalNotificationFailure('push', 'join_request_approval_push_failed', err, {
       organizationId: joinRequest.organization_id,
@@ -2408,12 +2408,12 @@ async function _executeJoinRequestDenialByToken(
     );
   }
   try {
-    await sendPushNotification(
+    sendPushNotification(
       joinRequest.user.id,
       'Join Request Declined',
       `Your request to join ${joinRequest.organization.name} was not approved.${reason ? ` Reason: ${reason}` : ''}`,
       { type: 'join_request_denied', organization_id: joinRequest.organization_id }
-    );
+    ).catch(() => {});
   } catch (err) {
     console.error(
       '[notif] Failed to send push for JOIN_REQUEST_DENIED:',

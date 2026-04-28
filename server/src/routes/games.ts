@@ -111,12 +111,12 @@ async function applyGameApprovalDecision(
 
       const { sendPushNotification } = await import('../lib/notifications.js');
       if (approvalStatus === 'approved') {
-        await sendPushNotification(
+        sendPushNotification(
           updatedGame.created_by_id,
           'Event Approved!',
           `Your event "${updatedGame.title}" has been approved and is now live.`,
           { type: 'event_approved', game_id: id, event_id: eventId }
-        );
+        ).catch(() => {});
         await prisma.notification.create({
           data: {
             user_id: updatedGame.created_by_id,
@@ -148,12 +148,12 @@ async function applyGameApprovalDecision(
           });
         }
       } else {
-        await sendPushNotification(
+        sendPushNotification(
           updatedGame.created_by_id,
           'Event Not Approved',
           `Your event "${updatedGame.title}" was not approved.${reason ? ` Reason: ${reason}` : ''}`,
           { type: 'event_rejected', game_id: id, event_id: eventId }
-        );
+        ).catch(() => {});
         await prisma.notification.create({
           data: {
             user_id: updatedGame.created_by_id,
@@ -1573,11 +1573,11 @@ gamesRouter.delete(
             },
           });
 
-          await sendPushNotification(uid, `Game cancelled`, `${gameTitle} has been cancelled`, {
+          sendPushNotification(uid, `Game cancelled`, `${gameTitle} has been cancelled`, {
             type: 'game_cancelled',
             game_id: id,
             screen: 'games',
-          });
+          }).catch(() => {});
         }
       } catch (notifErr) {
         console.error('[games] Failed to send game cancelled notifications:', notifErr);
