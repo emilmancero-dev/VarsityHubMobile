@@ -64,7 +64,7 @@ describe('calculateDistanceMiles', () => {
   });
 
   it('calculates small distance correctly (under 1 mile)', () => {
-    // ~0.069 miles apart (0.001 degree latitude ≈ 69 miles, so 0.0001 ≈ 0.069)
+    // ~0.007 miles apart (0.0001 degree latitude ≈ 0.007 miles)
     const dist = calculateDistanceMiles(40.7128, -74.006, 40.7129, -74.006);
     expect(dist).toBeGreaterThan(0);
     expect(dist).toBeLessThan(1);
