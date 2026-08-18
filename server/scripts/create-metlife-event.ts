@@ -10,11 +10,23 @@
  *
  * Requires DATABASE_URL in environment (or .env file).
  * Safe to re-run — skips creation if the event already exists.
+ *
+ * Banner image: defaults to a MetLife Stadium photo. Override with your own
+ * hosted image (e.g. a Cloudinary URL) via the METLIFE_BANNER_URL env var:
+ *   METLIFE_BANNER_URL="https://res.cloudinary.com/.../metlife.jpg" \
+ *     npx tsx scripts/create-metlife-event.ts
  */
 import { PrismaClient } from '@prisma/client';
 import 'dotenv/config';
 
 const prisma = new PrismaClient();
+
+// MetLife Stadium banner. Filename-based Wikimedia redirect resolves without a
+// hash-prefixed path; swap in your own Cloudinary-hosted asset for production
+// reliability via METLIFE_BANNER_URL.
+const BANNER_URL =
+  process.env.METLIFE_BANNER_URL ||
+  'https://commons.wikimedia.org/wiki/Special:FilePath/MetLife_Stadium_(Aug_2014).jpg';
 
 const EVENT = {
   title: 'NY & NJ Sports & Entertainment Career Expo',
@@ -72,6 +84,7 @@ async function main() {
         date: eventDate,
         location: EVENT.location,
         event_type: EVENT.event_type,
+        banner_url: BANNER_URL,
         creator_id: creator.id,
         approval_status: 'approved',
         status: 'approved',
@@ -83,6 +96,7 @@ async function main() {
     console.log(`✅ Event created: "${EVENT.title}"`);
     console.log(`   Event ID: ${event.id}`);
     console.log(`   Where: ${EVENT.location}`);
+    console.log(`   Banner: ${BANNER_URL}`);
     console.log(`   Date: ${eventDate.toLocaleDateString()} at ${eventDate.toLocaleTimeString()}\n`);
     console.log('Done! The event is live and will appear in the feed.');
   } catch (err) {
