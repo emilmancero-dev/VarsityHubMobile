@@ -1,0 +1,7 @@
+npm warn exec The following package was not found and will be installed: snyk@1.1306.4
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+{
+  "ok": false,
+  "error": "Use `snyk auth` to authenticate.",
+  "path": "/home/runner/work/VarsityHubMobile/VarsityHubMobile"
+}
