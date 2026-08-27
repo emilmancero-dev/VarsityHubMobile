@@ -1097,6 +1097,64 @@ function CreatePostScreen() {
       ? 'Share Highlight'
       : 'Post';
 
+  // Web guard: posting is camera/capture-first and the web app can't drive the
+  // native camera, so the upload screen rendered blank on web (owner report).
+  // Show a clear message instead of a dead screen, and point users to the app.
+  if (Platform.OS === 'web') {
+    return (
+      <SafeAreaView
+        style={[
+          styles.container,
+          {
+            backgroundColor: Colors[colorScheme].background,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 32,
+            gap: 12,
+          },
+        ]}
+      >
+        <Stack.Screen options={{ headerShown: false }} />
+        <Ionicons name="camera-outline" size={52} color={Colors[colorScheme].mutedText} />
+        <Text
+          style={{
+            color: Colors[colorScheme].text,
+            fontSize: 20,
+            fontWeight: '800',
+            textAlign: 'center',
+          }}
+        >
+          Camera not available on web
+        </Text>
+        <Text
+          style={{
+            color: Colors[colorScheme].mutedText,
+            fontSize: 15,
+            lineHeight: 21,
+            textAlign: 'center',
+          }}
+        >
+          Sorry — posting with the camera isn&apos;t available on the web app. Please use the
+          VarsityHub mobile app to capture and share.
+        </Text>
+        <Pressable
+          onPress={() => safeGoBack(router)}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          style={{
+            marginTop: 8,
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 12,
+            backgroundColor: Colors[colorScheme].tint,
+          }}
+        >
+          <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 15 }}>Go back</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
+
   // Hard guard: never render the composer for a signed-out user. The useEffect
   // above redirects guests to /create, but that runs AFTER the first render —
   // without this a guest reaching create-post directly (e.g. an event page's
