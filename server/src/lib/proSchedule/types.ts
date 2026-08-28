@@ -64,7 +64,7 @@ export type ProScheduleAdapter = {
 
 /**
  * Hours after start that the geofenced posting window stays open, per league.
- * The window always opens 1 hour before start (server/src/lib/geofencing.ts);
+ * The window always opens 12 hours before start / game day (server/src/lib/geofencing.ts);
  * only the after-start bound is tunable, via Event.live_window_hours_after_start.
  *
  * Football gets the longest tail because tailgating outlasts the game itself;

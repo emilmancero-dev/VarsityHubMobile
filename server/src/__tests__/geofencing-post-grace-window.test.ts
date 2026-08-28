@@ -40,7 +40,7 @@ const {
 } = await import('../lib/geofencing.js');
 
 const EVENT_DATE = new Date('2026-05-10T18:00:00.000Z');
-// Default live window: -1h → +3h around event start (owner rule 2026-07-15).
+// Default live window: -12h → +3h around event start (owner rule 2026-08-28).
 const LIVE_CUTOFF = new Date(EVENT_DATE.getTime() + 3 * 60 * 60 * 1000);
 const GRACE_END = new Date(LIVE_CUTOFF.getTime() + 7 * 24 * 60 * 60 * 1000);
 const BASE_EVENT = {
@@ -87,8 +87,8 @@ describe('first-post-unlocks-7-days posting rule', () => {
   });
 
   describe('regular posts — live window (geofenced first posts)', () => {
-    it('denies posting before the window opens (more than 1h before start)', async () => {
-      jest.setSystemTime(new Date(EVENT_DATE.getTime() - 60 * 60 * 1000 - 1));
+    it('denies posting before the window opens (more than 12h before start)', async () => {
+      jest.setSystemTime(new Date(EVENT_DATE.getTime() - 12 * 60 * 60 * 1000 - 1));
 
       const result = await verifyEventPostingPermission('event-1', 'user-1', VENUE.lat, VENUE.lon);
 
@@ -97,8 +97,8 @@ describe('first-post-unlocks-7-days posting rule', () => {
       expect(mockUnlockFindUnique).not.toHaveBeenCalled();
     });
 
-    it('allows a geofenced post 30 minutes BEFORE start (window opens -1h)', async () => {
-      jest.setSystemTime(new Date(EVENT_DATE.getTime() - 30 * 60 * 1000));
+    it('allows a geofenced post on game-day morning, hours BEFORE start (window opens -12h)', async () => {
+      jest.setSystemTime(new Date(EVENT_DATE.getTime() - 8 * 60 * 60 * 1000));
 
       const result = await verifyEventPostingPermission('event-1', 'user-1', VENUE.lat, VENUE.lon);
 
@@ -301,7 +301,7 @@ describe('first-post-unlocks-7-days posting rule', () => {
     });
 
     it('denies once the unlock is older than 7 days, even inside the grace window', async () => {
-      // Unlock earned 1h before start (window opens -1h); exactly 7 days after
+      // Unlock earned 1h before start (inside the game-day window); exactly 7 days after
       // event start the personal week is up (anchor + 7d passed 1h ago), while
       // the event-level grace window (LIVE_CUTOFF + 7d) is still open.
       jest.setSystemTime(new Date(EVENT_DATE.getTime() + 7 * 24 * 60 * 60 * 1000));
@@ -351,7 +351,7 @@ describe('first-post-unlocks-7-days posting rule', () => {
     });
 
     it('still tells a user BEFORE the window opens when it opens', async () => {
-      jest.setSystemTime(new Date(EVENT_DATE.getTime() - 6 * 60 * 60 * 1000));
+      jest.setSystemTime(new Date(EVENT_DATE.getTime() - 13 * 60 * 60 * 1000));
 
       const result = await verifyEventPostingPermission('event-1', 'user-1', VENUE.lat, VENUE.lon);
 
@@ -372,9 +372,12 @@ describe('first-post-unlocks-7-days posting rule', () => {
     // anywhere. Both are deliberately reversed here.
     const STORY_TIME = new Date('2026-05-10T19:00:00.000Z'); // 1h into the event
 
-    it('opens 1h before start and closes at the live cutoff — not +48h', () => {
-      jest.setSystemTime(new Date('2026-05-10T16:59:59.000Z')); // >1h before
+    it('opens on game day (12h before start) and closes at the live cutoff — not +48h', () => {
+      jest.setSystemTime(new Date('2026-05-10T05:59:59.000Z')); // >12h before
       expect(isStoryPostingWindowOpen(EVENT_DATE)).toBe(false);
+
+      jest.setSystemTime(new Date('2026-05-10T06:30:00.000Z')); // game-day morning, ~11.5h before
+      expect(isStoryPostingWindowOpen(EVENT_DATE)).toBe(true);
 
       jest.setSystemTime(new Date('2026-05-10T17:30:00.000Z')); // 30m before
       expect(isStoryPostingWindowOpen(EVENT_DATE)).toBe(true);

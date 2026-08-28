@@ -31,7 +31,7 @@ const JAVITS = { latitude: 40.75687, longitude: -74.001762 };
 const FEST_DAY1 = {
   date: '2026-07-17T03:39:26.960Z',
   starts_at: '2026-07-16T17:00:00.000Z',
-  live_from: '2026-07-16T16:00:00.000Z',
+  live_from: '2026-07-16T05:00:00.000Z', // start − 12h (game day, owner rule 2026-08-28)
   live_until: '2026-07-17T11:00:00.000Z',
   ...JAVITS,
 };
@@ -57,10 +57,11 @@ describe('server-computed bounds win over the game row date', () => {
     expect(isGameOver(FEST_DAY1, at('2026-07-17T11:00:01Z'))).toBe(true);
   });
 
-  it('is not LIVE before it starts, but posting opens an hour early', () => {
+  it('is not LIVE before it starts, but posting opens on game day (12h early)', () => {
     expect(isGameLive(FEST_DAY1, at('2026-07-16T16:30:00Z'))).toBe(false);
     expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T16:30:00Z'))).toBe(true);
-    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T15:59:00Z'))).toBe(false);
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T05:30:00Z'))).toBe(true);
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T04:59:00Z'))).toBe(false);
   });
 });
 

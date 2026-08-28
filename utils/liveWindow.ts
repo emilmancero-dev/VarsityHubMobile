@@ -1,6 +1,6 @@
 /**
  * The live posting window is a SERVER rule (server/src/lib/geofencing.ts): it
- * opens 1h before the event starts and closes `live_window_hours_after_start`
+ * opens 12h before the event starts (game day) and closes `live_window_hours_after_start`
  * hours after (default 3, per-event override — the Fanatics Fest day events run
  * 18h so fans can post all day).
  *
@@ -16,8 +16,8 @@
  * lack them.
  */
 
-/** Matches REGULAR_POST_OPEN_BEFORE_MS in server/src/lib/geofencing.ts. */
-const OPEN_BEFORE_MS = 60 * 60 * 1000;
+/** Matches REGULAR_POST_OPEN_BEFORE_MS in server/src/lib/geofencing.ts (12h / game day). */
+const OPEN_BEFORE_MS = 12 * 60 * 60 * 1000;
 /**
  * Only for payloads predating the server-computed bounds. Mirrors the server's
  * DEFAULT_LIVE_WINDOW_HOURS_AFTER_START (3h) rather than the old 2h feed
@@ -70,8 +70,9 @@ export function isGameLive(game: LiveWindowFields | null | undefined, now = Date
 }
 
 /**
- * Geofenced posting is open (opens an hour before start, unlike the LIVE
- * badge). A user at the venue can post during this window.
+ * Geofenced posting is open (opens 12h before start / game day, unlike the LIVE
+ * badge which only lights once the event has started). A user at the venue can
+ * post during this window.
  */
 export function isPostingWindowOpen(
   game: LiveWindowFields | null | undefined,

@@ -21,9 +21,11 @@ const FEST_DAY1_START = new Date('2026-07-16T17:00:00.000Z');
 
 describe('serializeLiveWindow', () => {
   it('honors an 18h per-event override', () => {
+    // live_from is start − 12h (game day, owner rule 2026-08-28); live_until is
+    // the 18h after-start override.
     expect(serializeLiveWindow(FEST_DAY1_START, 18)).toEqual({
       starts_at: '2026-07-16T17:00:00.000Z',
-      live_from: '2026-07-16T16:00:00.000Z',
+      live_from: '2026-07-16T05:00:00.000Z',
       live_until: '2026-07-17T11:00:00.000Z',
     });
   });

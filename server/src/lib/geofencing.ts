@@ -8,8 +8,10 @@
  *   uploading (stories AND posts) to that same event page without re-passing
  *   the geofence.
  * - Story Posts: window opens on game day (UTC) and stays open until +48h.
- * - Regular Posts: the geofenced live window opens 1 hour before event start
- *   and closes `live_window_hours_after_start` hours after start (default 3;
+ * - Regular Posts: the geofenced live window opens 12 hours before event start
+ *   (owner rule 2026-08-28 — posting is open on game day so fans already at the
+ *   venue can post the moment they arrive, not just an hour before kickoff) and
+ *   closes `live_window_hours_after_start` hours after start (default 3;
  *   the Fanatics Fest day events set 18 so fans can post geofenced all day).
  *   After the live window, a 7-day grace window remains open only for
  *   unlocked users (posting recaps from anywhere); then it closes for everyone.
@@ -22,11 +24,16 @@ import { prisma } from './prisma.js';
 
 const EARTH_RADIUS_KM = 6371;
 const EARTH_RADIUS_MILES = 3959;
-// Owner rule (2026-07-15): live post window is -1h → +3h around event start by
-// default. Events may lengthen the after-start bound via the
-// live_window_hours_after_start column (Fanatics Fest day events: 18h) so
-// all-day festivals keep geofenced first posts working the whole day.
-const REGULAR_POST_OPEN_BEFORE_MS = 60 * 60 * 1000;
+// Owner rule (2026-08-28): live post window is -12h → +3h around event start by
+// default. It opens on game day (12h before start) so fans already at the venue
+// can post as soon as they arrive — the earlier "-1h" locked out everyone who
+// showed up before the final hour. The 3km geofence is unchanged and remains
+// the real authenticity gate; only the TIME the window opens moved. Events may
+// still lengthen the after-start bound via the live_window_hours_after_start
+// column (Fanatics Fest day events: 18h) so all-day festivals keep geofenced
+// first posts working the whole day.
+export const REGULAR_POST_OPEN_BEFORE_HOURS = 12;
+const REGULAR_POST_OPEN_BEFORE_MS = REGULAR_POST_OPEN_BEFORE_HOURS * 60 * 60 * 1000;
 export const DEFAULT_LIVE_WINDOW_HOURS_AFTER_START = 3;
 // Product rule (2026-07-14, owner decision, verbatim): "When a user posts to
 // an event while they are there, they can continue to post to the event for
@@ -141,10 +148,10 @@ export function isWithinGeofence(
  *    LOCATION", "USERS CANT UPLOAD TO STORIES AFTER THEY HAVE LEFT THE GAME",
  *   "STORY POST, do not get the same 7 days after the fact".
  *
- * So a story uses exactly the same live window as a regular post — opening 1h
- * before start and closing `liveWindowHoursAfterStart` after (per-event
- * override; the fest day events run 18h) — and never the 'grace' state that
- * keeps regular posting open for a week.
+ * So a story uses exactly the same live window as a regular post — opening on
+ * game day (12h before start) and closing `liveWindowHoursAfterStart` after
+ * (per-event override; the fest day events run 18h) — and never the 'grace'
+ * state that keeps regular posting open for a week.
  *
  * This previously opened at UTC midnight on the event's day and ran for 48h
  * after start, which both let people post before the event and kept stories
@@ -160,7 +167,7 @@ export function isStoryPostingWindowOpen(
 
 /**
  * Check if posting window is open for regular posts
- * Posts: the live window opens 1 hour before event start and closes
+ * Posts: the live window opens 12 hours before event start (game day) and closes
  * `liveWindowHoursAfterStart` hours after (default 3; per-event override).
  * After that, posting remains open for a 7-day grace window only for users
  * holding a posting unlock.
@@ -230,7 +237,7 @@ export function getPostPostingWindowState(
 export type SerializedLiveWindow = {
   /** Authoritative event start — a linked game row's own `date` can disagree. */
   starts_at: string | null;
-  /** Geofenced posting opens (start − 1h). */
+  /** Geofenced posting opens (start − 12h, i.e. game day). */
   live_from: string | null;
   /** Geofenced posting closes (start + the per-event window, default 3h). */
   live_until: string | null;
@@ -533,7 +540,7 @@ export async function verifyStoryPostingPermission(
       allowed: false,
       code: 'POSTING_WINDOW_CLOSED',
       reason: isBeforeOpen
-        ? `Stories open at ${formatWindowDateTime(windowStart)}, an hour before the event starts.`
+        ? `Stories open at ${formatWindowDateTime(windowStart)}, on game day before the event starts.`
         : `Stories could be posted from the venue until ${formatWindowDateTime(liveCutoff)}. That window has closed.`,
     };
   }
@@ -600,7 +607,7 @@ export async function verifyStoryPostingPermission(
 
 /**
  * Verify user can post to an event based on location and time
- * Posts: the geofenced live window runs -1h → +Nh around event start (N =
+ * Posts: the geofenced live window runs -12h → +Nh around event start (N =
  * live_window_hours_after_start, default 3; fest all-day events use 18). A
  * first geofence pass earns a 7-day unlock; unlocked users post without
  * location from anywhere, including through the post-event grace window.

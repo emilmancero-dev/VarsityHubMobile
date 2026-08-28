@@ -83,10 +83,10 @@ describe('pro event / geofence parity', () => {
     expect(isWithinGeofence(34.5, -118.9, v.latitude!, v.longitude!)).toBe(false);
   });
 
-  it('opens the live window 1h before tip and closes it on the league bound', () => {
+  it('opens the live window on game day (12h before tip) and closes it on the league bound', () => {
     const v = resolved();
 
-    const beforeOpen = new Date(tipoff.getTime() - 90 * 60 * 1000);
+    const beforeOpen = new Date(tipoff.getTime() - 13 * 60 * 60 * 1000);
     const justOpen = new Date(tipoff.getTime() - 30 * 60 * 1000);
     const during = new Date(tipoff.getTime() + 60 * 60 * 1000);
     const afterClose = new Date(

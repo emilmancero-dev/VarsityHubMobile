@@ -651,7 +651,7 @@ function CreatePostScreen() {
     // so don't warn.
     if (hasPostingUnlock) return null;
     // Posting window (server rule in server/src/lib/geofencing.ts): the
-    // geofenced live window opens 1h before start and closes
+    // geofenced live window opens 12h before start (game day) and closes
     // `live_window_hours_after_start` after (default 3; fest day events run
     // 18h). The server ships the computed bounds on the payload — this used to
     // re-derive them from the game's own date with a hardcoded 3h, which both
@@ -662,7 +662,7 @@ function CreatePostScreen() {
     const now = Date.now();
     if (now < bounds.liveFrom) {
       const openDate = new Date(bounds.liveFrom);
-      return `Posting opens ${openDate.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${openDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (1 hour before start). You can still draft your post now.`;
+      return `Posting opens ${openDate.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${openDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (game day). You can still draft your post now.`;
     }
     if (now > bounds.liveUntil) {
       return 'This event has ended. If you posted here while it was live you can keep posting for a week from anywhere.';
