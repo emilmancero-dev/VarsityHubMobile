@@ -1,12 +1,11 @@
 /**
  * Open Fanatics Fest NYC 2026 — Day 1 for geofenced highlight-posting NOW.
  *
- * The geofenced post window opens 1h before the event's start. Day 1 was set
- * to 1:00 PM EDT (17:00 UTC), so posting wouldn't open until noon EDT. Fans are
- * already inside the Javits Center and posting must be live immediately, so we
- * move Day 1's `date` back to the current time — the window then opens at
- * (now - 1h), i.e. already open. The 18h live window keeps it open all day and
- * overnight. Story posting (game-day + geofence) is unaffected (same UTC day).
+ * NOTE (owner rule 2026-08-28): posting no longer has an early cutoff, so this
+ * date-nudge is no longer needed to "open" posting — a fan at the venue can post
+ * any time up to the live cutoff regardless of start time. This script is kept
+ * only to keep the event map-pinned (the map shows events with date >= now).
+ * The 18h live window keeps it open all day and overnight.
  *
  * Prints the ORIGINAL date so this is trivially reversible:
  *   prisma.event.update({ where:{id}, data:{ date: new Date('<printed ISO>') }})
@@ -37,8 +36,8 @@ async function main() {
   const now = new Date();
   // Set the start ~50 min into the future: the map ("Nearby Games") only shows
   // events with date >= now, so a live event needs a near-future start to stay
-  // pinned. Posting is already open because the window opens 1h before start
-  // (date - 1h = ~10 min ago). Discoverable on map + feed immediately.
+  // pinned. Posting is open regardless (no early cutoff). Discoverable on map +
+  // feed immediately.
   const target = new Date(now.getTime() + 50 * 60 * 1000);
   const updated = await prisma.event.update({
     where: { id: DAY1_EVENT_ID },
@@ -48,11 +47,14 @@ async function main() {
   console.log(`[open-day1] AFTER:`);
   console.log(`  date:  ${updated.date.toISOString()}  (map-visible; posting opened ~10 min ago)`);
 
-  // Verify the geofenced post window is now open.
-  const windowStartMs = updated.date.getTime() - 60 * 60 * 1000;
-  const isOpen = Date.now() >= windowStartMs;
+  // Verify the geofenced post window is open. There is no early cutoff (owner
+  // rule 2026-08-28): posting is open any time up to the live cutoff (start +
+  // live_window_hours_after_start, default 3h).
+  const afterHours = before.live_window_hours_after_start ?? 3;
+  const liveCutoffMs = updated.date.getTime() + afterHours * 60 * 60 * 1000;
+  const isOpen = Date.now() <= liveCutoffMs;
   if (!isOpen) {
-    console.error('[open-day1] VERIFY FAILED — window still not open. Investigate.');
+    console.error('[open-day1] VERIFY FAILED — window already closed. Investigate.');
     process.exit(1);
   }
   console.log('[open-day1] ✓ Day 1 geofenced post window is now OPEN. Fans at the venue can post highlights.');

@@ -170,10 +170,10 @@ function parseArgs() {
   };
 }
 
-function windowState(kickoff: Date, now: Date): 'before_open' | 'live' | 'grace' | 'closed' {
+function windowState(kickoff: Date, now: Date): 'live' | 'grace' | 'closed' {
+  // No early cutoff (owner rule 2026-08-28): posting is open any time up to the
+  // live cutoff, so there is no 'before_open' state — an early arrival is live.
   const t = kickoff.getTime();
-  const openAt = t - 2 * 24 * 60 * 60 * 1000;
-  if (now.getTime() < openAt) return 'before_open';
   if (now.getTime() <= t + LIVE_WINDOW_MS) return 'live';
   if (now.getTime() <= t + GRACE_WINDOW_MS) return 'grace';
   return 'closed';

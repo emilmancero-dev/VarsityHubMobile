@@ -75,22 +75,22 @@ async function main() {
   const other = await makeUser('other');
   const nico = await makeUser('nico');
 
-  // ── 1. Window-state math (pure, no DB): −1h → +3h default ────────────────
+  // ── 1. Window-state math (pure, no DB): no early cutoff → +3h default ─────
   const start = new Date();
   check(
-    'window: 90min before start = before_open',
-    getPostPostingWindowState(new Date(start.getTime() + 90 * 60000), start) === 'before_open',
-    'window has not opened yet (>1h before start)'
+    'window: 90min before start = live (no early cutoff)',
+    getPostPostingWindowState(new Date(start.getTime() + 90 * 60000), start) === 'live',
+    'posting has no early cutoff — early arrivals are never blocked'
   );
   check(
-    'window: exactly 1h before start = live (open boundary)',
-    getPostPostingWindowState(new Date(start.getTime() + 60 * 60000), start) === 'live',
-    'opens precisely 1h before start'
+    'window: a full day before start = live (no early cutoff)',
+    getPostPostingWindowState(new Date(start.getTime() + 24 * 3600000), start) === 'live',
+    'even far before start, posting is open (geofence is the only presence gate)'
   );
   check(
     'window: 45min before start = live',
     getPostPostingWindowState(new Date(start.getTime() - 45 * 60000), start) === 'live',
-    'opens 1h before'
+    'open before start'
   );
   check(
     'window: +2h after start (default) = live',

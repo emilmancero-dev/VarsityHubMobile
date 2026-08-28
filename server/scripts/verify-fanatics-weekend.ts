@@ -10,7 +10,8 @@
  *   5. Linked game is teamless + approved + opponent_approval not blocking
  *      (feed-eligible) and its date is not nudged away from the event start.
  *   6. Computed posting-window state right now, and the full open/close timeline
- *      for each day (posts: -1h..+18h live then +7d grace; stories: -1h..+18h).
+ *      for each day (posts: open..+18h live then +7d grace; stories: open..+18h).
+ *      There is no early cutoff — posting is open any time up to the live close.
  *
  * No writes. Mirrors server/src/lib/geofencing.ts window math exactly.
  * Run via CI with PRODUCTION_DATABASE_URL.
@@ -19,7 +20,6 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const OPEN_BEFORE_MS = 60 * 60 * 1000; // 1h
 const DEFAULT_HOURS = 3;
 const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 const JAVITS = { lat: 40.75687, lng: -74.001762 };
@@ -49,16 +49,15 @@ const FEST_DAYS = [
 ];
 
 function windowState(date: Date, hours: number | null, now: Date) {
-  const windowStart = new Date(date.getTime() - OPEN_BEFORE_MS);
   const afterHours = typeof hours === 'number' && hours > 0 ? hours : DEFAULT_HOURS;
   const liveCutoff = new Date(date.getTime() + afterHours * 60 * 60 * 1000);
   const graceEnd = new Date(liveCutoff.getTime() + GRACE_MS);
+  // No early cutoff (owner rule 2026-08-28): open any time up to liveCutoff.
   let state: string;
-  if (now < windowStart) state = 'before_open';
-  else if (now <= liveCutoff) state = 'LIVE (geofenced post + story)';
+  if (now <= liveCutoff) state = 'LIVE (geofenced post + story)';
   else if (now <= graceEnd) state = 'grace (posts: unlocked users only; stories closed)';
   else state = 'closed';
-  return { windowStart, liveCutoff, graceEnd, afterHours, state };
+  return { liveCutoff, graceEnd, afterHours, state };
 }
 
 const near = (a: number | null | undefined, b: number, tol = 0.01) =>
@@ -145,13 +144,13 @@ async function main() {
         warn(`game.date drifts ${driftH.toFixed(1)}h from event.date (was it left nudged?)`);
     }
 
-    const { windowStart, liveCutoff, afterHours, state } = windowState(
+    const { liveCutoff, afterHours, state } = windowState(
       event.date,
       event.live_window_hours_after_start,
       now
     );
     console.log(`   start:  ${event.date.toISOString()}  (window ${afterHours}h)`);
-    console.log(`   posts/stories open:  ${windowStart.toISOString()}`);
+    console.log(`   posts/stories open:  (no early cutoff — open until close)`);
     console.log(`   live cutoff (+${afterHours}h): ${liveCutoff.toISOString()}`);
     console.log(`   STATE NOW: ${state}`);
     console.log('');

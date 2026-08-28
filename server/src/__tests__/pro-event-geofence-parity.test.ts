@@ -83,20 +83,22 @@ describe('pro event / geofence parity', () => {
     expect(isWithinGeofence(34.5, -118.9, v.latitude!, v.longitude!)).toBe(false);
   });
 
-  it('opens the live window on game day (12h before tip) and closes it on the league bound', () => {
+  it('has no early cutoff before tip and closes the live window on the league bound', () => {
     const v = resolved();
 
-    const beforeOpen = new Date(tipoff.getTime() - 13 * 60 * 60 * 1000);
-    const justOpen = new Date(tipoff.getTime() - 30 * 60 * 1000);
+    // No early cutoff (owner rule 2026-08-28): even long before tip the state is
+    // already 'live' — presence is enforced by the geofence, not by start time.
+    const wayEarly = new Date(tipoff.getTime() - 13 * 60 * 60 * 1000);
+    const justBefore = new Date(tipoff.getTime() - 30 * 60 * 1000);
     const during = new Date(tipoff.getTime() + 60 * 60 * 1000);
     const afterClose = new Date(
       tipoff.getTime() + (v.live_window_hours_after_start + 1) * 3600_000
     );
 
-    expect(getPostPostingWindowState(v.date, beforeOpen, v.live_window_hours_after_start)).toBe(
-      'before_open'
+    expect(getPostPostingWindowState(v.date, wayEarly, v.live_window_hours_after_start)).toBe(
+      'live'
     );
-    expect(getPostPostingWindowState(v.date, justOpen, v.live_window_hours_after_start)).toBe(
+    expect(getPostPostingWindowState(v.date, justBefore, v.live_window_hours_after_start)).toBe(
       'live'
     );
     expect(getPostPostingWindowState(v.date, during, v.live_window_hours_after_start)).toBe('live');

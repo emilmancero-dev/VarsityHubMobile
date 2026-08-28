@@ -31,7 +31,7 @@ const JAVITS = { latitude: 40.75687, longitude: -74.001762 };
 const FEST_DAY1 = {
   date: '2026-07-17T03:39:26.960Z',
   starts_at: '2026-07-16T17:00:00.000Z',
-  live_from: '2026-07-16T05:00:00.000Z', // start − 12h (game day, owner rule 2026-08-28)
+  live_from: null, // no early cutoff — posting open up to live_until (owner rule 2026-08-28)
   live_until: '2026-07-17T11:00:00.000Z',
   ...JAVITS,
 };
@@ -57,11 +57,16 @@ describe('server-computed bounds win over the game row date', () => {
     expect(isGameOver(FEST_DAY1, at('2026-07-17T11:00:01Z'))).toBe(true);
   });
 
-  it('is not LIVE before it starts, but posting opens on game day (12h early)', () => {
+  it('is not LIVE before it starts, but posting has no early cutoff (open before start)', () => {
+    // The LIVE badge only lights at start, but posting is open well before it —
+    // no early cutoff (owner rule 2026-08-28), geofence is the only presence gate.
     expect(isGameLive(FEST_DAY1, at('2026-07-16T16:30:00Z'))).toBe(false);
     expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T16:30:00Z'))).toBe(true);
     expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T05:30:00Z'))).toBe(true);
-    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T04:59:00Z'))).toBe(false);
+    // Even a full day early, posting is open (it only closes at live_until).
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-15T12:00:00Z'))).toBe(true);
+    // Past the cutoff it closes.
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-17T11:00:01Z'))).toBe(false);
   });
 });
 
