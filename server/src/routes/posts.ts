@@ -37,6 +37,7 @@ import { requireOnboarded } from '../middleware/requireOnboarded.js';
 import { requireVerified } from '../middleware/requireVerified.js';
 import { registerIdValidation } from '../middleware/validateParams.js';
 import { sendError } from '../lib/http/sendError.js';
+import { captureMessage } from '../lib/sentry.js';
 
 export const postsRouter = Router();
 registerIdValidation(postsRouter);
@@ -947,6 +948,26 @@ postsRouter.post(
           deviceLng
         );
         if (!verification.allowed) {
+          // Emit a lightweight Sentry/info message so spikes in geofence denials
+          // become visible in Sentry (alerts/metrics) and include context useful
+          // for debugging without exposing sensitive request bodies.
+          try {
+            // captureMessage is a thin wrapper that tags the event and scrubs
+            // request data per lib/sentry.ts policies.
+            captureMessage('Geofence denial during POST /posts', 'info', {
+              context: 'geofence_denial',
+              route: req.originalUrl || req.path,
+              user_id: req.user.id,
+              event_id: targetEventId,
+              code: verification.code || null,
+              reason: verification.reason || null,
+              distance_km: typeof verification.distance === 'number' ? verification.distance : null,
+            });
+          } catch (e) {
+            // Best-effort logging only; do not fail the request on Sentry errors.
+            console.warn('[posts] failed to emit geofence denial telemetry', e);
+          }
+
           return res.status(403).json({
             error: verification.code || 'LOCATION_VERIFICATION_FAILED',
             message: verification.reason,
