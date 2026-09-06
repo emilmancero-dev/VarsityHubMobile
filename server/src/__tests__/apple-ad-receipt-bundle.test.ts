@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { z } from 'zod';
 import { sendError } from '../lib/http/sendError.js';
+import { appleAdTransactionSchema } from '../lib/appleAdTransaction.js';
 const source = readFileSync(new URL('../routes/payments.ts', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('payments.ts', source, ts.ScriptTarget.Latest, true);
 let handler: ts.Node | undefined;
@@ -27,13 +28,19 @@ if (!handler) throw new Error('Live Apple ad receipt handler not found');
 const executable = ts.transpileModule(`exports.handler = ${handler.getText(ast)}`, {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
 }).outputText;
-async function verify(tokens: string[], totalCents = 200) {
+async function verify(
+  tokens: string[],
+  totalCents = 200,
+  signedFields: Record<string, unknown> = {}
+) {
   let finalized = 0,
     status = 200;
   let body: any;
+  const failures: unknown[] = [];
   const context: any = {
     exports: {},
     sendError,
+    appleAdTransactionSchema,
     z,
     adDateSchema: z.string(),
     process: { env: { NODE_ENV: 'production' } },
@@ -56,6 +63,7 @@ async function verify(tokens: string[], totalCents = 200) {
       productId: 'MOND_THURS',
       quantity: 1,
       transactionId: token === 'missing-id' ? undefined : token,
+      ...signedFields,
     }),
     ensureApplePendingTransactionLog: async () => {},
     normalizeAppleTransactionIds: (ids: string[]) => [...new Set(ids)],
@@ -65,7 +73,7 @@ async function verify(tokens: string[], totalCents = 200) {
     },
     debugLog: () => {},
     console,
-    captureException: () => {},
+    captureException: (_error: unknown, context: unknown) => failures.push(context),
     isUniqueConstraintError: () => false,
   };
   vm.runInNewContext(executable, context);
@@ -90,9 +98,30 @@ async function verify(tokens: string[], totalCents = 200) {
     },
     response
   );
-  return { status, body, finalized };
+  return { status, body, finalized, failures };
 }
 describe('Apple ad receipt value boundaries', () => {
+  it.each([
+    { revocationDate: 1 },
+    { quantity: 'not-a-number' },
+    { quantity: 1.5 },
+    { quantity: 0 },
+    { quantity: -1 },
+    { quantity: Infinity },
+  ])('rejects invalid or revoked signed payment data before fulfillment: %j', async fields => {
+    const result = await verify(['first'], 100, fields);
+    expect(result.status).toBe(400);
+    expect(result.finalized).toBe(0);
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({
+        context: 'apple_ad_receipt_boundary',
+        failure_code:
+          fields.revocationDate !== undefined
+            ? 'REVOKED_TRANSACTION'
+            : 'INVALID_SIGNED_TRANSACTION',
+      })
+    );
+  });
   it('rejects repeated transaction IDs before fulfillment, including concurrent requests', async () => {
     const results = await Promise.all(Array.from({ length: 5 }, () => verify(['same', 'same'])));
     for (const result of results) {

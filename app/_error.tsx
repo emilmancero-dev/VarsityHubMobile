@@ -5,7 +5,7 @@ import { captureException } from '@/utils/sentry';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Updates from 'expo-updates';
+import { requestOtaReload } from '@/utils/runtimeReload';
 
 const RESETTABLE_STORAGE_KEYS = [
   '@onboarding_completed_once',
@@ -32,7 +32,7 @@ export default function GlobalError({ error, retry }: ErrorBoundaryProps) {
     try {
       await auth.clearTokensOnly();
       await AsyncStorage.multiRemove(RESETTABLE_STORAGE_KEYS);
-      await Updates.reloadAsync();
+      if (!(await requestOtaReload())) void retry();
     } catch {
       // If Updates.reloadAsync fails (e.g. in dev), retry as fallback
       void retry();

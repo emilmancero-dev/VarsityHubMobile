@@ -12,6 +12,7 @@ import {
   verifyAppleRenewalJws,
 } from '../lib/appleSignedJws.js';
 import { releaseAdPurchaseHolds } from '../lib/adInventory.js';
+import { appleAdTransactionSchema } from '../lib/appleAdTransaction.js';
 import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import expressPkg, { Router, type Response } from 'express';
@@ -3854,6 +3855,21 @@ paymentsRouter.post(
             captureException(error, { context: 'apple_jws_verify_ad' });
             return res.status(400).json({ error: 'Invalid Apple transaction signature' });
           }
+          // A valid Apple signature also authenticates refunds/revocations; it
+          // does not mean that the transaction can still fund a new booking.
+          const signedAd = appleAdTransactionSchema.safeParse(signedTransaction);
+          if (!signedAd.success) {
+            captureException(new Error('Invalid signed Apple ad payment data'), {
+              context: 'apple_ad_receipt_boundary',
+              failure_code:
+                signedTransaction.revocationDate !== undefined
+                  ? 'REVOKED_TRANSACTION'
+                  : 'INVALID_SIGNED_TRANSACTION',
+            });
+            return sendError(res, 400, 'This Apple transaction cannot fund an ad booking', {
+              code: 'INVALID_SIGNED_AD_TRANSACTION',
+            });
+          }
           if (signedTransaction.appAccountToken) {
             const token = z.string().uuid().safeParse(signedTransaction.appAccountToken);
             if (
@@ -3868,25 +3884,14 @@ paymentsRouter.post(
               });
             }
           }
-          const signedProductId = String(
-            signedTransaction.productId || signedTransaction.product_id || ''
-          ).trim();
+          const signedProductId = signedAd.data.productId;
           if (signedProductId !== productId) {
             return res
               .status(400)
               .json({ error: 'Signed Apple transaction does not match requested product' });
           }
-          purchasedQty = Math.max(
-            1,
-            Number(signedTransaction.quantity || signedTransaction.quantityIOS || 1)
-          );
-          transactionId = String(
-            signedTransaction.transactionId ||
-              signedTransaction.id ||
-              signedTransaction.originalTransactionId ||
-              signedTransaction.originalTransactionIdentifierIOS ||
-              ''
-          ).trim();
+          purchasedQty = signedAd.data.quantity;
+          transactionId = signedAd.data.transactionId;
         } else {
           let result = await verifyAppleReceipt(receipt!, false);
           if (result.status === 21007) result = await verifyAppleReceipt(receipt!, true);

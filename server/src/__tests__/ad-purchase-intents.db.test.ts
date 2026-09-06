@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, expect, it, jest } from '@jest/globals';
+import { beforeAll, afterAll, afterEach, describe, expect, it, jest } from '@jest/globals';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -64,7 +64,7 @@ beforeAll(async () => {
   );
   expect(marker.value).toBe('on');
 });
-afterAll(async () => {
+afterEach(async () => {
   await prisma.$executeRawUnsafe(
     'DROP TRIGGER IF EXISTS intent_test_failure ON "AdPurchaseIntent"'
   );
@@ -74,9 +74,159 @@ afterAll(async () => {
   await prisma.transactionLog.deleteMany({ where: { user_id: { in: users } } });
   await prisma.ad.deleteMany({ where: { id: { in: ads } } });
   await prisma.user.deleteMany({ where: { id: { in: users } } });
+  users.length = 0;
+  ads.length = 0;
+});
+afterAll(async () => {
   await prisma.$disconnect();
 });
 describe('durable ad purchase recovery against PostgreSQL', () => {
+  it('rotates a failing Apple batch so a later recoverable purchase still completes', async () => {
+    const failing = await fixture(),
+      healthy = await fixture();
+    const prefix = randomUUID();
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const expiry = new Date(Date.now() + 86400000).toISOString();
+    await prisma.transactionLog.createMany({
+      data: Array.from({ length: 50 }, (_, n) => ({
+        user_id: failing.user.id,
+        transaction_type: 'SUBSCRIPTION_PURCHASE',
+        status: 'PENDING',
+        order_id: `retry-original-${prefix}-${n}`,
+        apple_transaction_id: `retry-${prefix}-${n}`,
+        metadata: { source: 'apple_iap_jws', productId: 'MIDTIER', apple_expires_date: expiry },
+        created_at: old,
+        updated_at: old,
+      })),
+    });
+    const pending = await prisma.transactionLog.create({
+      data: {
+        user_id: healthy.user.id,
+        transaction_type: 'SUBSCRIPTION_PURCHASE',
+        status: 'PENDING',
+        order_id: `retry-original-${prefix}`,
+        apple_transaction_id: `retry-${prefix}`,
+        metadata: { source: 'apple_iap_jws', productId: 'MIDTIER', apple_expires_date: expiry },
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    });
+    await prisma.$executeRawUnsafe(
+      `CREATE FUNCTION recovery_test_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='${failing.user.id}' THEN RAISE EXCEPTION 'injected account write failure'; END IF; RETURN NEW; END $$`
+    );
+    try {
+      await prisma.$executeRawUnsafe(
+        'CREATE TRIGGER recovery_test_failure BEFORE UPDATE ON "User" FOR EACH ROW EXECUTE FUNCTION recovery_test_failure()'
+      );
+      const { reconcileAppleIapOrphans } = await import('../lib/appleIapReconciliation.js');
+      await reconcileAppleIapOrphans();
+      await reconcileAppleIapOrphans();
+      expect(
+        (await prisma.transactionLog.findUniqueOrThrow({ where: { id: pending.id } })).status
+      ).toBe('COMPLETED');
+      expect(
+        await prisma.transactionLog.count({
+          where: { user_id: failing.user.id, status: 'PENDING' },
+        })
+      ).toBe(50);
+      expect(capture).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ context: 'apple_iap_reconciliation_recovery_failed' })
+      );
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS recovery_test_failure ON "User"');
+      await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS recovery_test_failure()');
+    }
+  });
+  it('quarantines legacy rows with missing evidence so they cannot starve recoverable purchases', async () => {
+    const { user } = await fixture();
+    const prefix = randomUUID();
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    await prisma.transactionLog.createMany({
+      data: Array.from({ length: 50 }, (_, n) => ({
+        user_id: user.id,
+        transaction_type: 'AD_PURCHASE',
+        status: 'PENDING',
+        order_id: `missing-evidence-${prefix}-${n}`,
+        metadata: { source: 'apple_iap' },
+        created_at: old,
+        updated_at: old,
+      })),
+    });
+    const orphan = await prisma.transactionLog.create({
+      data: {
+        user_id: user.id,
+        transaction_type: 'SUBSCRIPTION_PURCHASE',
+        status: 'PENDING',
+        apple_transaction_id: `apple-${prefix}`,
+        order_id: `apple-original-${prefix}`,
+        metadata: {
+          source: 'apple_iap_jws',
+          productId: 'MIDTIER',
+          apple_expires_date: new Date(Date.now() + 86400000).toISOString(),
+        },
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    });
+    const { reconcileAppleIapOrphans } = await import('../lib/appleIapReconciliation.js');
+    await reconcileAppleIapOrphans();
+    await reconcileAppleIapOrphans();
+    expect(
+      (await prisma.transactionLog.findUniqueOrThrow({ where: { id: orphan.id } })).status
+    ).toBe('COMPLETED');
+    expect(
+      await prisma.transactionLog.count({
+        where: {
+          user_id: user.id,
+          order_id: { startsWith: `missing-evidence-${prefix}-` },
+          status: 'NEEDS_REVIEW',
+        },
+      })
+    ).toBe(50);
+  });
+  it('recovers an Apple orphan even when more than one batch of older Stripe purchases is pending', async () => {
+    const { user } = await fixture();
+    const prefix = randomUUID();
+    await prisma.transactionLog.createMany({
+      data: Array.from({ length: 55 }, (_, n) => ({
+        user_id: user.id,
+        transaction_type: 'SUBSCRIPTION_PURCHASE',
+        status: 'PENDING',
+        stripe_session_id: `stripe-pending-${prefix}-${n}`,
+        metadata: { plan: 'veteran' },
+        created_at: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      })),
+    });
+    const orphan = await prisma.transactionLog.create({
+      data: {
+        user_id: user.id,
+        transaction_type: 'SUBSCRIPTION_PURCHASE',
+        status: 'PENDING',
+        apple_transaction_id: `apple-${prefix}`,
+        order_id: `apple-original-${prefix}`,
+        metadata: {
+          source: 'apple_iap_jws',
+          productId: 'MIDTIER',
+          apple_expires_date: new Date(Date.now() + 86400000).toISOString(),
+        },
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    });
+    const { reconcileAppleIapOrphans } = await import('../lib/appleIapReconciliation.js');
+    await reconcileAppleIapOrphans();
+    expect(
+      (await prisma.transactionLog.findUniqueOrThrow({ where: { id: orphan.id } })).status
+    ).toBe('COMPLETED');
+    expect(
+      await prisma.transactionLog.count({
+        where: {
+          user_id: user.id,
+          stripe_session_id: { startsWith: `stripe-pending-${prefix}-` },
+          status: 'PENDING',
+        },
+      })
+    ).toBe(55);
+  });
   it('moves an expired fully paid intent and five concurrent retries fulfill only once', async () => {
     const { user, ad, intent, receipt } = await fixture();
     await service.recordAdPurchaseReceipt(user.id, intent.id, receipt('MOND_THURS'));

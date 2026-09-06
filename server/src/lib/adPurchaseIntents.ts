@@ -5,6 +5,7 @@ import { prisma } from './prisma.js';
 import { reserveAdSlots } from './adInventory.js';
 import { AD_PRODUCT_CENTS, finalizeAppleAdPurchase } from './paymentInternals.js';
 import { verifyAppleSignedJws } from './appleSignedJws.js';
+import { appleAdTransactionSchema } from './appleAdTransaction.js';
 import { adDateSchema, calculateAdPriceCents } from '../utils/adPricing.js';
 import { getDatesPastBookingHorizon } from '../utils/bookingHorizon.js';
 import { captureException } from './sentry.js';
@@ -261,12 +262,8 @@ export async function reconcileAdPurchaseIntent(id: string, userId?: string) {
     throw error;
   }
 }
-const signedReceiptSchema = z.object({
+const signedReceiptSchema = appleAdTransactionSchema.extend({
   appAccountToken: z.string().uuid(),
-  transactionId: z.string().min(1).max(100),
-  productId: z.enum(['MOND_THURS', 'FRI_SUN']),
-  quantity: z.number().int().min(1).max(9).default(1),
-  revocationDate: z.number().optional(),
 });
 export async function recordAdPurchaseReceipt(
   userId: string | undefined,
@@ -274,10 +271,7 @@ export async function recordAdPurchaseReceipt(
   jws: string
 ) {
   const verified = signedReceiptSchema.parse(await verifyAppleSignedJws(jws));
-  if (
-    verified.appAccountToken.toLowerCase() !== intentId.toLowerCase() ||
-    verified.revocationDate !== undefined
-  )
+  if (verified.appAccountToken.toLowerCase() !== intentId.toLowerCase())
     throw new AdIntentError('INVALID_INTENT_RECEIPT', 400);
   await serializable(async tx => {
     const intent = await lockedIntent(tx, intentId, userId);

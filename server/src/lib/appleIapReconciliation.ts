@@ -62,6 +62,17 @@ export async function reconcileAppleIapOrphans(): Promise<AppleIapReconciliation
       status: 'PENDING',
       created_at: { lt: pendingCutoff },
       transaction_type: { in: ['SUBSCRIPTION_PURCHASE', 'AD_PURCHASE'] },
+      // Filter by payment rail BEFORE taking the bounded batch. Otherwise 50
+      // abandoned Stripe checkouts permanently starve every later Apple orphan
+      // and emit misleading Apple manual-review alerts for Stripe purchases.
+      stripe_session_id: null,
+      stripe_payment_intent_id: null,
+      OR: [
+        { apple_transaction_id: { not: null } },
+        ...['apple_iap', 'apple_iap_jws', 'apple_iap_receipt'].map(source => ({
+          metadata: { path: ['source'], equals: source },
+        })),
+      ],
     },
     select: {
       id: true,
@@ -73,8 +84,9 @@ export async function reconcileAppleIapOrphans(): Promise<AppleIapReconciliation
       created_at: true,
       order_id: true,
       metadata: true,
+      updated_at: true,
     },
-    orderBy: { created_at: 'asc' },
+    orderBy: [{ updated_at: 'asc' }, { id: 'asc' }],
     take: STUCK_ROW_REPORT_LIMIT,
   });
 
@@ -88,6 +100,14 @@ export async function reconcileAppleIapOrphans(): Promise<AppleIapReconciliation
       row.metadata && typeof row.metadata === 'object'
         ? (row.metadata as Record<string, unknown>)
         : {};
+    const requireReview = async (reason: string) => {
+      // Do not overwrite fresh evidence or a completion from another worker.
+      const result = await prisma.transactionLog.updateMany({
+        where: { id: row.id, status: 'PENDING', updated_at: row.updated_at },
+        data: { status: 'NEEDS_REVIEW', metadata: { ...meta, recovery_reason: reason } as any },
+      });
+      return result.count > 0;
+    };
 
     try {
       if (row.transaction_type === 'SUBSCRIPTION_PURCHASE') {
@@ -98,6 +118,7 @@ export async function reconcileAppleIapOrphans(): Promise<AppleIapReconciliation
         const expiresAtIso = readString(meta.apple_expires_date);
 
         if (!row.user_id || !row.order_id || !productId) {
+          if (!(await requireReview('missing_subscription_metadata'))) continue;
           manualReviewNeeded++;
           captureMessage(
             'Apple IAP reconciliation could not auto-recover subscription purchase',
@@ -145,6 +166,7 @@ export async function reconcileAppleIapOrphans(): Promise<AppleIapReconciliation
           dates.length === 0 ||
           appleTransactionIds.length === 0
         ) {
+          if (!(await requireReview('missing_ad_metadata'))) continue;
           manualReviewNeeded++;
           captureMessage('Apple IAP reconciliation could not auto-recover ad purchase', 'error', {
             context: 'apple_iap_reconciliation_manual_review',
@@ -197,6 +219,19 @@ export async function reconcileAppleIapOrphans(): Promise<AppleIapReconciliation
         `[apple-iap-reconcile] FAILED ${row.transaction_type} txlog=${row.id} apple_tx=${row.apple_transaction_id ?? '-'} age=${ageMin}min`,
         error
       );
+      // Keep transient failures retryable but rotate them behind other pending
+      // purchases. Failure to record the attempt must not hide the original error.
+      await prisma.transactionLog
+        .updateMany({
+          where: { id: row.id, status: 'PENDING', updated_at: row.updated_at },
+          data: { updated_at: new Date() },
+        })
+        .catch(() => {
+          captureException(new Error('Apple reconciliation attempt could not be recorded'), {
+            context: 'apple_iap_reconciliation_attempt_write',
+            transaction_log_id: row.id,
+          });
+        });
     }
   }
 
