@@ -23,6 +23,7 @@ import { runDatabaseHealthcheck } from '../lib/healthProbe.js';
 import { runEgressProbe } from '../lib/egressProbe.js';
 import { getObjectStorageAdapter } from '../lib/objectStorage.js';
 import { resolveHealthCheckSecret } from '../lib/healthCheckSecret.js';
+import { getSchedulerHeartbeatReport } from '../lib/schedulerHeartbeat.js';
 import type { AuthedRequest } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
@@ -211,6 +212,42 @@ healthRouter.get(
       // Per-target detail only when authorized — avoids leaking provider/Sentry hosts.
       ...(authorized ? { results } : {}),
       timestamp: new Date().toISOString(),
+    });
+  })
+);
+
+/**
+ * /health/scheduler — aggregate "did every scheduled job run this cycle" signal.
+ *
+ * Detects a job that silently STOPS being scheduled — which Sentry failure
+ * alerts cannot see (they only fire when a job runs and throws). Each monitored
+ * run stamps a per-job lastRunAt; this reports 503 when any enabled job is
+ * overdue relative to its own cron cadence, or when the heartbeat store is
+ * configured but unreachable (fail-closed). Needs no paid Sentry cron seats.
+ *
+ * Mirrors /health/egress: the 200/503 status + overdue/total counts are public
+ * (a monitor watches the status code with zero secret management); per-job
+ * detail requires HEALTH_CHECK_SECRET.
+ *
+ * Usage (monitor): GET /health/scheduler  → alert when status code is 503
+ * Usage (debug):   curl -H "x-health-check-secret: $S" .../health/scheduler
+ */
+healthRouter.get(
+  '/scheduler',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const report = await getSchedulerHeartbeatReport();
+    const secret = resolveHealthCheckSecret();
+    const provided = String(req.headers['x-health-check-secret'] || '').trim();
+    const authorized = !!secret && !!provided && provided === secret;
+
+    const storeUnreachable = report.reason?.startsWith('heartbeat store');
+    res.status(report.ok ? 200 : 503).json({
+      status: report.ok ? 'ok' : storeUnreachable ? 'unverified' : 'stale',
+      overdue: report.overdueCount,
+      total: report.total,
+      // Per-job detail (reveals job names) only when authorized.
+      ...(authorized ? { jobs: report.jobs, stale: report.stale, reason: report.reason } : {}),
+      timestamp: report.generatedAt,
     });
   })
 );
