@@ -15,6 +15,7 @@
 
 import { Queue } from 'bullmq';
 import { captureException, captureMessage } from '../lib/sentry.js';
+import { runMonitoredJob } from '../lib/schedulerMonitoring.js';
 
 // In-memory dedup for event reminder emails — used as fallback when Redis is unavailable
 const eventRemindersSentFallback = new Set<string>();
@@ -162,6 +163,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         console.log(`[Scheduler] End-of-day transaction report for ${report.date}`);
       } catch (error) {
         console.error('[Scheduler] Failed to generate end-of-day transaction report:', error);
+        throw error;
       }
     },
   },
@@ -225,6 +227,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
           primaryTotal: result.primaryTotal,
           backupTotal: result.backupTotal,
         });
+        throw new Error(`DR backup is stale: ${result.reason}`);
       } catch (error) {
         console.error('[Scheduler] DB backup freshness check error:', error);
         captureException(
@@ -233,6 +236,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'db_backup_freshness_check_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -269,6 +273,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'coach_approval_drift_probe_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -283,6 +288,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await remindPendingCoachApprovals(prisma);
       } catch (error) {
         console.error('[Scheduler] Coach approval reminder failed:', error);
+        throw error;
       }
     },
   },
@@ -297,6 +303,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await autoExpirePendingCoaches(prisma);
       } catch (error) {
         console.error('[Scheduler] Coach approval auto-expire failed:', error);
+        throw error;
       }
     },
   },
@@ -311,6 +318,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await autoExpireStaleEvents(prisma);
       } catch (error) {
         console.error('[Scheduler] Stale event auto-reject failed:', error);
+        throw error;
       }
     },
   },
@@ -326,6 +334,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await reconcileStuckAdRefunds(prisma);
       } catch (error) {
         console.error('[Scheduler] Ad refund reconcile failed:', error);
+        throw error;
       }
     },
   },
@@ -349,6 +358,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
           error as Error,
           withJobTags('coach-state-drift-probe', { context: 'coach_state_drift_probe_failed' })
         );
+        throw error;
       }
     },
   },
@@ -377,6 +387,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'stripe_webhook_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -410,6 +421,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'apple_iap_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -439,6 +451,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'google_play_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -469,6 +482,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'veteran_quantity_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -507,7 +521,7 @@ export async function setupScheduler(): Promise<boolean> {
         job.name,
         { description: job.description },
         {
-          repeat: { pattern: job.cron },
+          repeat: { pattern: job.cron, tz: 'UTC' },
           removeOnComplete: true,
           removeOnFail: { count: 10 },
         }
@@ -519,7 +533,7 @@ export async function setupScheduler(): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('[Scheduler] Failed to setup:', error);
-    return false;
+    throw error;
   }
 }
 
@@ -544,18 +558,22 @@ async function setupFallbackCron(): Promise<boolean> {
   // SCHEDULED_JOBS can never be missing here again.
   const { default: cron } = await import('node-cron');
   for (const job of SCHEDULED_JOBS) {
-    cron.schedule(job.cron, async () => {
-      try {
-        console.log(`[Scheduler] (fallback) Running ${job.name}: ${job.description}`);
-        await job.handler();
-      } catch (error) {
-        console.error(`[Scheduler] (fallback) ${job.name} failed:`, error);
-        captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          withJobTags(job.name, { context: 'scheduler_fallback_job_failed', cron: job.cron })
-        );
-      }
-    });
+    cron.schedule(
+      job.cron,
+      async () => {
+        try {
+          console.log(`[Scheduler] (fallback) Running ${job.name}: ${job.description}`);
+          await runMonitoredJob(job);
+        } catch (error) {
+          console.error(`[Scheduler] (fallback) ${job.name} failed:`, error);
+          captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            withJobTags(job.name, { context: 'scheduler_fallback_job_failed', cron: job.cron })
+          );
+        }
+      },
+      { timezone: 'UTC' }
+    );
   }
   console.log(`[Scheduler] Fallback cron armed for ${SCHEDULED_JOBS.length} jobs via node-cron`);
   return true;
@@ -587,7 +605,7 @@ export async function startSchedulerWorker(): Promise<void> {
         if (scheduledJob) {
           console.log(`[Scheduler] Running ${job.name}: ${scheduledJob.description}`);
           try {
-            await scheduledJob.handler();
+            await runMonitoredJob(scheduledJob);
           } catch (error) {
             captureException(
               error instanceof Error ? error : new Error(String(error)),
@@ -619,6 +637,7 @@ export async function startSchedulerWorker(): Promise<void> {
     console.log('[Scheduler] Worker started');
   } catch (error) {
     console.error('[Scheduler] Failed to start worker:', error);
+    throw error;
   }
 }
 
