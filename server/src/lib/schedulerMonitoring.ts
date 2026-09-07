@@ -1,4 +1,5 @@
 import { captureSchedulerCheckIn } from './sentry.js';
+import { recordHeartbeat } from './schedulerHeartbeat.js';
 
 export interface MonitoredJob {
   name: string;
@@ -55,5 +56,9 @@ export async function runMonitoredJob(job: MonitoredJob): Promise<void> {
         duration: Math.max(0, (performance.now() - started) / 1000),
       });
     }
+    // Aggregate heartbeat — stamps that this job actually ran this cycle so
+    // /health/scheduler can detect a job that silently stops being scheduled
+    // (which failure alerts can't see). Best-effort; never fails the job.
+    void recordHeartbeat(job.name, status).catch(() => {});
   }
 }

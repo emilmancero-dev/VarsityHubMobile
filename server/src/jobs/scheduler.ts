@@ -16,6 +16,7 @@
 import { Queue, type Worker } from 'bullmq';
 import { captureException, captureMessage } from '../lib/sentry.js';
 import { runMonitoredJob } from '../lib/schedulerMonitoring.js';
+import { closeHeartbeatStore } from '../lib/schedulerHeartbeat.js';
 
 // In-memory dedup for event reminder emails — used as fallback when Redis is unavailable
 const eventRemindersSentFallback = new Set<string>();
@@ -720,6 +721,11 @@ async function drainScheduler(): Promise<void> {
   workerConnection = null;
   queueConnection = null;
   _redisForDedup = null;
+  try {
+    await closeHeartbeatStore();
+  } catch (error) {
+    errors.push(error);
+  }
   if (errors.length) throw new AggregateError(errors, 'Scheduler resource cleanup failed');
 }
 
