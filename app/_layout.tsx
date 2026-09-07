@@ -52,7 +52,7 @@ import {
   handleInitialDeepLink,
   setupDeepLinkListener,
 } from '@/utils/deepLinks';
-import { captureException, initSentry } from '@/utils/sentry';
+import { captureBreadcrumb, captureException, initSentry } from '@/utils/sentry';
 import { StripeProvider } from '@/utils/stripe';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 // @ts-ignore
@@ -73,8 +73,8 @@ const devLog = (...args: unknown[]) => {
 };
 
 // Initialize Sentry and PostHog before app renders
-initSentry();
-initAnalytics();
+const sentryInitialized = initSentry();
+initAnalytics({ sentry_ready: sentryInitialized });
 
 // Suspend rendering of screens that are not visible (react-freeze). Inactive
 // stack screens stay mounted but stop re-rendering, freeing the JS thread
@@ -295,6 +295,10 @@ function RootLayout() {
     void syncOtaUpdate();
 
     const subscription = AppState.addEventListener('change', nextState => {
+      captureBreadcrumb('App state changed', 'app.lifecycle', {
+        from: activeAppState.current,
+        to: nextState,
+      });
       const wasBackgrounded = /inactive|background/.test(activeAppState.current);
       activeAppState.current = nextState;
       if (wasBackgrounded && nextState === 'active') {

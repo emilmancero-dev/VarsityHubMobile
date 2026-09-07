@@ -10,7 +10,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { captureBreadcrumb } from '@/utils/sentry';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -79,6 +79,12 @@ export default function EventMap({
 }: EventMapProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const mapRef = useRef<MapView>(null);
+  const mapInstance = useId();
+  const dataRevision = useRef(0);
+  useEffect(() => {
+    captureBreadcrumb('Map mounted', 'map.lifecycle', { map_instance: mapInstance });
+    return () => captureBreadcrumb('Map unmounted', 'map.lifecycle', { map_instance: mapInstance });
+  }, [mapInstance]);
   const lastNavigationRef = useRef<{ id: string; ts: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
@@ -228,6 +234,29 @@ export default function EventMap({
     [eventsWithCoordinates]
   );
 
+  // Record state transitions before a native crash without sending coordinates,
+  // event titles, ids, or search text. This describes JS input, not native-view proof.
+  useEffect(() => {
+    captureBreadcrumb('Map marker data updated', 'map.data', {
+      map_instance: mapInstance,
+      revision: ++dataRevision.current,
+      input_count: events.length,
+      matched_count: searchFilteredEvents.length,
+      valid_count: eventsWithCoordinates.length,
+      cluster_count: clusters.length,
+      data_loaded: dataLoaded,
+      has_query: searchQuery.trim().length > 0,
+    });
+  }, [
+    mapInstance,
+    events,
+    searchFilteredEvents,
+    eventsWithCoordinates,
+    clusters,
+    dataLoaded,
+    searchQuery,
+  ]);
+
   // A preview must obey the same current filters as the pins underneath it.
   useEffect(() => {
     setSelectedMarker(previous =>
@@ -345,6 +374,9 @@ export default function EventMap({
   return (
     <View style={styles.container}>
       <MapView
+        onMapReady={() =>
+          captureBreadcrumb('Native map ready', 'map.lifecycle', { map_instance: mapInstance })
+        }
         ref={mapRef}
         style={styles.map}
         provider={getMapProvider()}

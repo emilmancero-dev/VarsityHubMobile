@@ -254,3 +254,33 @@ describe('EventMap', () => {
     );
   });
 });
+
+it('records map lifecycle and bounded data counts without search text or coordinates', async () => {
+  const { captureBreadcrumb } = require('@/utils/sentry');
+  captureBreadcrumb.mockClear();
+  const view = render(<EventMap {...baseProps()} />);
+  await view.findByTestId('MapView');
+  fireEvent(view.getByTestId('MapView'), 'mapReady');
+  fireEvent.changeText(view.getByPlaceholderText('Search games or events...'), 'private search');
+  view.unmount();
+  const calls = captureBreadcrumb.mock.calls;
+  expect(calls).toEqual(
+    expect.arrayContaining([
+      [
+        'Map mounted',
+        'map.lifecycle',
+        expect.objectContaining({ map_instance: expect.any(String) }),
+      ],
+      ['Native map ready', 'map.lifecycle', expect.any(Object)],
+      [
+        'Map marker data updated',
+        'map.data',
+        expect.objectContaining({ input_count: 1, valid_count: 0, has_query: true }),
+      ],
+      ['Map unmounted', 'map.lifecycle', expect.any(Object)],
+    ])
+  );
+  const dataCalls = calls.filter((call: any[]) => ['map.lifecycle', 'map.data'].includes(call[1]));
+  expect(JSON.stringify(dataCalls)).not.toContain('private search');
+  expect(JSON.stringify(dataCalls)).not.toContain('37.7749');
+});

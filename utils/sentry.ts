@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { Platform } from 'react-native';
-import { captureAnalyticsException } from '@/utils/analytics';
+import { captureAnalyticsException, getAnalyticsSessionId } from '@/utils/analytics';
 import {
   MAX_SENTRY_VALUE_LENGTH as MAX_BREADCRUMB_VALUE_LENGTH,
   SENSITIVE_SENTRY_KEY_RE as SENSITIVE_BREADCRUMB_KEY_RE,
@@ -176,16 +176,16 @@ export function isExpectedGeofenceBusinessError(
   );
 }
 
-export function initSentry() {
+export function initSentry(): boolean {
   const dsn = SENTRY_DSN;
   if (!dsn || dsn === '' || isPlaceholderDsn(dsn)) {
     if (__DEV__) console.warn('Sentry DSN not configured — crash reporting disabled');
-    return;
+    return false;
   }
 
   if (__DEV__) {
     if (__DEV__) console.log('[sentry] Skipping initialization in development mode');
-    return;
+    return false;
   }
 
   try {
@@ -201,6 +201,10 @@ export function initSentry() {
         if (__DEV__) {
           return null; // Drop all events in dev mode
         }
+        // A fatal/native event must not disappear because its message or tags
+        // happen to contain an expected business-outcome code.
+        if (event.level === 'fatal' || (event.platform && event.platform !== 'javascript'))
+          return event;
         const originalException = hint?.originalException as unknown;
         // Unauthenticated startup probes to /me are expected; they should not create production issues.
         const customContext = (event.contexts?.custom || {}) as { path?: string };
@@ -243,11 +247,14 @@ export function initSentry() {
       'app_runtime',
       Updates.runtimeVersion || String(Constants.expoConfig?.runtimeVersion || 'unknown')
     );
+    return true;
   } catch (error) {
+    sentryReady = false;
     // Silently fail in development - Sentry initialization errors are non-critical
     if (__DEV__) {
       if (__DEV__) console.log('[sentry] Init failed (dev mode, ignoring):', error);
     }
+    return false;
   }
 }
 
@@ -291,49 +298,55 @@ export function captureException(error: Error | unknown, context?: Record<string
     return;
   }
 
-  if (!__DEV__) {
-    captureAnalyticsException(error, context);
-  }
-
-  if (!sentryReady) {
-    if (__DEV__) {
-      console.debug('[sentry] captureException skipped in dev:', error);
-    } else {
-      if (__DEV__) console.warn('[sentry] captureException skipped; Sentry not ready');
-    }
-    return;
-  }
-
-  if (__DEV__) console.error('[sentry] Capturing exception:', error);
-  Sentry.withScope(scope => {
-    scope.setTag('service', MOBILE_SERVICE_TAG);
-    if (context) {
-      const { tags, fingerprint, ...rest } = context;
-      if (
-        Array.isArray(fingerprint) &&
-        fingerprint.length > 0 &&
-        fingerprint.length <= 5 &&
-        fingerprint.every(
-          value => typeof value === 'string' && value.length > 0 && value.length <= 100
-        )
-      ) {
-        scope.setFingerprint(fingerprint.map(redactSensitiveString));
-      }
-      if (tags && typeof tags === 'object' && !Array.isArray(tags)) {
-        Object.entries(tags).forEach(([key, value]) => {
-          if (value !== undefined && value !== null && !SENSITIVE_BREADCRUMB_KEY_RE.test(key)) {
-            scope.setTag(key, String(value));
+  let eventId: string | undefined;
+  if (sentryReady) {
+    try {
+      Sentry.withScope(scope => {
+        const sessionId = getAnalyticsSessionId?.();
+        if (sessionId) scope.setTag('posthog_session_id', sessionId);
+        scope.setTag('service', MOBILE_SERVICE_TAG);
+        if (context) {
+          const { tags, fingerprint, ...rest } = context;
+          if (
+            Array.isArray(fingerprint) &&
+            fingerprint.length > 0 &&
+            fingerprint.length <= 5 &&
+            fingerprint.every(
+              value => typeof value === 'string' && value.length > 0 && value.length <= 100
+            )
+          ) {
+            scope.setFingerprint(fingerprint.map(redactSensitiveString));
           }
-        });
-      }
-      const sanitizedContext = sanitizeContextData(rest);
-      if (sanitizedContext && Object.keys(sanitizedContext).length > 0) {
-        scope.setContext('custom', sanitizedContext);
-      }
+          if (tags && typeof tags === 'object' && !Array.isArray(tags)) {
+            Object.entries(tags).forEach(([key, value]) => {
+              if (value !== undefined && value !== null && !SENSITIVE_BREADCRUMB_KEY_RE.test(key)) {
+                scope.setTag(key, String(value));
+              }
+            });
+          }
+          const sanitizedContext = sanitizeContextData(rest);
+          if (sanitizedContext && Object.keys(sanitizedContext).length > 0) {
+            scope.setContext('custom', sanitizedContext);
+          }
+        }
+        scope.setTag('platform', Platform.OS);
+        eventId = Sentry.captureException(error);
+      });
+    } catch {
+      // Continue to the independent reporter even if Sentry itself fails.
+      console.warn('[telemetry] Sentry exception capture failed');
     }
-    scope.setTag('platform', Platform.OS);
-    Sentry.captureException(error);
-  });
+  }
+  if (!__DEV__) {
+    try {
+      captureAnalyticsException(error, {
+        ...context,
+        ...(eventId ? { sentry_event_id: eventId } : {}),
+      });
+    } catch {
+      console.warn('[telemetry] PostHog exception capture failed');
+    }
+  }
 }
 
 function sanitizeContextValue(value: unknown, depth = 0): unknown {
@@ -406,12 +419,14 @@ export function captureBreadcrumb(
     return;
   }
 
-  Sentry.addBreadcrumb({
-    message,
-    category,
-    level,
-    data: normalizedData,
-  });
+  try {
+    const sessionId = getAnalyticsSessionId?.();
+    if (sessionId) Sentry.setTag('posthog_session_id', sessionId);
+    Sentry.addBreadcrumb({ message, category, level, data: normalizedData });
+  } catch {
+    // A diagnostic breadcrumb must never break the UI operation it describes.
+    console.warn('[telemetry] Sentry breadcrumb capture failed');
+  }
 }
 
 export default Sentry;

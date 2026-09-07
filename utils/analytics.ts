@@ -8,6 +8,7 @@
  */
 
 import PostHog from 'posthog-react-native';
+import * as Sentry from '@sentry/react-native';
 import * as env from '@/config/env';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
@@ -21,7 +22,8 @@ const readAnalyticsEnv = (
 const POSTHOG_API_KEY = readAnalyticsEnv('EXPO_PUBLIC_POSTHOG_API_KEY');
 const POSTHOG_HOST = readAnalyticsEnv('EXPO_PUBLIC_POSTHOG_HOST', 'https://us.i.posthog.com');
 const APP_VERSION = Constants.expoConfig?.version || 'unknown';
-const APP_RUNTIME = String(Constants.expoConfig?.runtimeVersion || APP_VERSION);
+const APP_RUNTIME =
+  Updates.runtimeVersion || String(Constants.expoConfig?.runtimeVersion || APP_VERSION);
 const SENSITIVE_ANALYTICS_KEY_RE = /password|secret|token|authorization|cookie|email|phone|code/i;
 const MAX_ANALYTICS_STRING_LENGTH = 160;
 const MAX_ANALYTICS_DEPTH = 3;
@@ -114,64 +116,97 @@ function normalizeAnalyticsProperties(
     : undefined;
 }
 
-export function initAnalytics() {
-  if (analyticsInitialized) return;
-  if (__DEV__) {
-    console.log('[analytics] dev build — PostHog disabled');
-    return;
-  }
-  if (!POSTHOG_API_KEY) return;
-  posthog = new PostHog(POSTHOG_API_KEY, {
-    host: POSTHOG_HOST,
-    enableSessionReplay: false,
-    errorTracking: {
-      autocapture: {
-        uncaughtExceptions: true,
-        unhandledRejections: true,
+// SDK/storage failures must not break the product action or the other reporter.
+// Report once per operation per runtime to avoid recursively flooding telemetry.
+const reportedFailures = new Set<string>();
+function reportAnalyticsFailure(operation: string, error: unknown) {
+  if (reportedFailures.has(operation)) return;
+  reportedFailures.add(operation);
+  try {
+    // Deliberately use the SDK directly: utils/sentry mirrors to PostHog.
+    Sentry.captureException(error, {
+      tags: {
+        service: 'mobile',
+        context: 'telemetry_sdk_failure',
+        telemetry_provider: 'posthog',
+        telemetry_operation: operation,
       },
-    },
+      fingerprint: ['telemetry_sdk_failure', 'posthog', operation],
+    });
+  } catch {
+    console.warn('[telemetry] Both error reporters failed');
+  }
+}
+function runAnalytics(operation: string, action: () => unknown) {
+  try {
+    void Promise.resolve(action()).catch(error => reportAnalyticsFailure(operation, error));
+  } catch (error) {
+    reportAnalyticsFailure(operation, error);
+  }
+}
+
+export function getAnalyticsSessionId(): string | undefined {
+  try {
+    return posthog?.getSessionId();
+  } catch (error) {
+    reportAnalyticsFailure('session', error);
+    return undefined;
+  }
+}
+
+export function initAnalytics(readiness?: { sentry_ready: boolean }) {
+  if (analyticsInitialized || __DEV__ || !POSTHOG_API_KEY) return;
+  runAnalytics('initialize', () => {
+    const client = new PostHog(POSTHOG_API_KEY, {
+      host: POSTHOG_HOST,
+      enableSessionReplay: false,
+      errorTracking: { autocapture: { uncaughtExceptions: true, unhandledRejections: true } },
+    });
+    client.register({
+      service: 'mobile',
+      platform: Platform.OS,
+      app_version: APP_VERSION,
+      app_runtime: APP_RUNTIME,
+      ota_update_id: Updates.updateId || 'embedded',
+      ota_channel: Updates.channel || 'unknown',
+    });
+    posthog = client;
+    analyticsInitialized = true;
+    analytics.track('telemetry_initialized', readiness);
   });
-  posthog.register({
-    service: 'mobile',
-    platform: Platform.OS,
-    app_version: APP_VERSION,
-    app_runtime: APP_RUNTIME,
-    ota_update_id: Updates.updateId || 'embedded',
-    ota_channel: Updates.channel || 'unknown',
-  });
-  analyticsInitialized = true;
 }
 
 export function captureAnalyticsException(
   error: Error | unknown,
   properties?: Record<string, unknown>
 ) {
-  if (!posthog) return;
-
-  posthog.captureException(error, normalizeAnalyticsProperties(properties));
+  runAnalytics('exception', () =>
+    posthog?.captureException(error, normalizeAnalyticsProperties(properties))
+  );
 }
 
 export const analytics = {
   track: (event: string, properties?: Record<string, any>) => {
-    posthog?.capture(event, normalizeAnalyticsProperties(properties));
+    runAnalytics('track', () => posthog?.capture(event, normalizeAnalyticsProperties(properties)));
   },
-
   identify: (userId: string, properties?: Record<string, any>) => {
-    if (!posthog) return;
-    const safeProperties = normalizeAnalyticsProperties(properties);
-    posthog.identify(userId, safeProperties);
-    posthog.createPersonProfile();
-    if (safeProperties && Object.keys(safeProperties).length > 0) {
-      posthog.setPersonProperties(safeProperties, { first_seen_app_version: APP_VERSION }, false);
-    }
+    runAnalytics('identify', () => {
+      if (!posthog) return;
+      const safeProperties = normalizeAnalyticsProperties(properties);
+      posthog.identify(userId, safeProperties);
+      posthog.createPersonProfile();
+      if (safeProperties && Object.keys(safeProperties).length > 0) {
+        posthog.setPersonProperties(safeProperties, { first_seen_app_version: APP_VERSION }, false);
+      }
+    });
   },
-
   reset: () => {
-    posthog?.reset();
+    runAnalytics('reset', () => posthog?.reset());
   },
-
   screen: (screenName: string, properties?: Record<string, any>) => {
-    posthog?.screen(screenName, normalizeAnalyticsProperties(properties));
+    runAnalytics('screen', () =>
+      posthog?.screen(screenName, normalizeAnalyticsProperties(properties))
+    );
   },
 };
 

@@ -10,7 +10,7 @@ jest.mock('@/api/auth', () => ({ clearTokensOnly: jest.fn(async () => undefined)
 jest.mock('@react-native-async-storage/async-storage', () => ({
   multiRemove: jest.fn(async () => undefined),
 }));
-jest.mock('@/utils/sentry', () => ({ captureException: jest.fn() }));
+jest.mock('@/utils/sentry', () => ({ captureException: jest.fn(), captureBreadcrumb: jest.fn() }));
 jest.mock('expo-updates', () => ({ reloadAsync: jest.fn() }));
 
 it('does not overlap an update reload with error-screen restart requests', async () => {
