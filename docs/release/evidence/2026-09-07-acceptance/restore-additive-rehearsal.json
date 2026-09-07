@@ -1,0 +1,13 @@
+{
+  "startedAt": "2026-09-07T16:29:08.359Z",
+  "success": true,
+  "tables": 63,
+  "rows": 4370,
+  "contentMatched": true,
+  "repairRehearsal": true,
+  "purchaseRecoveryPassed": true,
+  "migrationDeployPassed": true,
+  "applicationConstraintsPassed": true,
+  "cleanedUp": true,
+  "finishedAt": "2026-09-07T16:29:58.167Z"
+}

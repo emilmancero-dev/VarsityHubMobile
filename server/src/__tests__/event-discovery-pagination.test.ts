@@ -3,7 +3,7 @@ import { listEventDiscoveryItems } from '../lib/eventDiscovery.js';
 import { decodeDiscoveryCursor, encodeDiscoveryCursor } from '../lib/discoveryCursor.js';
 
 const now = new Date('2026-09-06T12:00:00Z');
-const date = new Date('2026-09-12T20:00:00Z');
+const date = new Date('2026-09-07T20:00:00Z');
 function game(id: string, sport = 'baseball') {
   return {
     id,
@@ -21,7 +21,12 @@ function database(rows: any[]) {
     game: {
       findMany: jest.fn(async (args: any) => {
         const after = args.where.AND?.[1]?.OR?.[1]?.id?.gt;
-        return rows.filter(row => !after || row.id > after).slice(0, args.take);
+        const window = args.where.date ?? args.where.AND[0].date;
+        return rows
+          .filter(
+            row => (!after || row.id > after) && row.date >= window.gte && row.date <= window.lte
+          )
+          .slice(0, args.take);
       }),
     },
     event: { findMany: jest.fn(async () => []) },
@@ -55,13 +60,27 @@ describe('complete bounded discovery traversal', () => {
     for (const [args] of db.game.findMany.mock.calls) expect(args.take).toBeLessThanOrEqual(101);
   });
 
-  it('returns the same upcoming IDs on feed/map except missing-coordinate pins', async () => {
-    const db = database([game('a', 'football'), { ...game('b'), latitude: null }]);
+  it('uses three days for the Live map and fourteen for feed, excluding missing-coordinate pins', async () => {
+    const db = database([
+      game('a', 'football'),
+      { ...game('b'), latitude: null },
+      { ...game('c'), date: new Date('2026-09-09T12:00:00Z') },
+      { ...game('d'), date: new Date('2026-09-09T12:00:00.001Z') },
+    ]);
     const feed = await listEventDiscoveryItems(db, { now, surface: 'feed', paginated: true });
     const map = await listEventDiscoveryItems(db, { now, surface: 'map', paginated: true });
-    expect(feed.items.map(item => item.id)).toEqual(['a', 'b']);
-    expect(map.items.map(item => item.id)).toEqual(['a']);
-    expect(map.meta.to).toBe('2026-09-20T12:00:00.000Z');
+    expect(feed.items.map(item => item.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(map.items.map(item => item.id)).toEqual(['a', 'c']);
+    expect(map.meta.to).toBe('2026-09-09T12:00:00.000Z');
+    expect(feed.meta.to).toBe('2026-09-20T12:00:00.000Z');
+    const calendar = await listEventDiscoveryItems(db, {
+      now,
+      surface: 'map',
+      paginated: true,
+      from: new Date('2026-09-09T00:00:00Z'),
+      to: new Date('2026-09-09T23:59:59.999Z'),
+    });
+    expect(calendar.items.map(item => item.id)).toEqual(['c', 'd']);
   });
 
   it('anchors the window across pages and rejects a different viewer or filter', async () => {

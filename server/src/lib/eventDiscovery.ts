@@ -1,5 +1,6 @@
 import {
   DISCOVERY_UPCOMING_MS,
+  DISCOVERY_MAP_LIVE_MS,
   DISCOVERY_LIVE_LOOKBACK_MS,
   matchesDiscoveryLevel,
 } from '@varsityhub/shared/runtime/discoveryPolicy';
@@ -45,7 +46,10 @@ function defaultWindow(surface: DiscoverySurface, now: Date) {
       to: new Date(now.getTime() + MAP_LOOKAHEAD_MS),
     };
   }
-  return { from: now, to: new Date(now.getTime() + MAP_LOOKAHEAD_MS) };
+  return {
+    from: now,
+    to: new Date(now.getTime() + (surface === 'map' ? DISCOVERY_MAP_LIVE_MS : MAP_LOOKAHEAD_MS)),
+  };
 }
 
 function clampWindow(surface: DiscoverySurface, requestedFrom: Date, requestedTo: Date, now: Date) {
@@ -263,7 +267,10 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
     const defaults = params.paginated
       ? {
           from: new Date(anchor.getTime() - DISCOVERY_LIVE_LOOKBACK_MS),
-          to: new Date(anchor.getTime() + MAP_LOOKAHEAD_MS),
+          to: new Date(
+            anchor.getTime() +
+              (surface === 'map' && !explicitWindow ? DISCOVERY_MAP_LIVE_MS : MAP_LOOKAHEAD_MS)
+          ),
         }
       : defaultWindow(surface, anchor);
     ({ from, to } = clampWindow(

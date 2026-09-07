@@ -1,0 +1,12 @@
+{
+  "diagnostic": "vh-alert-acceptance-2026-09-07T16:28:16.300Z",
+  "eventId": "7ab07884c72d48f39ce811a452763383",
+  "flushed": true,
+  "createdAt": "2026-09-07T16:28:16.434Z",
+  "origin": "operator workstation; tests alert routing only",
+  "recipientReceipt": false,
+  "retrievalStatus": 200,
+  "retrievedEventId": "7ab07884c72d48f39ce811a452763383",
+  "dateReceived": "2026-09-07T16:28:16.436123Z",
+  "issueId": "7717475025"
+}

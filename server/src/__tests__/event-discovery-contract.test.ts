@@ -110,7 +110,7 @@ describe('event discovery contract', () => {
         where: expect.objectContaining({
           date: {
             gte: now,
-            lte: new Date('2026-09-14T12:00:00.000Z'),
+            lte: new Date('2026-09-03T12:00:00.000Z'),
           },
         }),
       })
@@ -121,7 +121,7 @@ describe('event discovery contract', () => {
           game_id: null,
           date: {
             gte: now,
-            lte: new Date('2026-09-14T12:00:00.000Z'),
+            lte: new Date('2026-09-03T12:00:00.000Z'),
           },
         }),
       })
@@ -138,8 +138,7 @@ describe('event discovery contract', () => {
     };
 
     // The date-picker can now reach arbitrarily far into the past, so the past floor
-    // is gone — but a single request still can't span more than the 5-day policy: an
-    // over-wide window keeps the first five days from the requested start.
+    // is gone — but a single request still can't span more than 14 days plus the live lookback.
     await listEventDiscoveryItems(db, {
       surface: 'map',
       now,

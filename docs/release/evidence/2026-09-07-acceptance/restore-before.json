@@ -1,0 +1,12 @@
+{
+  "startedAt": "2026-09-07T16:27:43.698Z",
+  "success": false,
+  "tables": 63,
+  "rows": 4370,
+  "contentMatched": true,
+  "failedPhase": "schema_parity",
+  "schemaMismatch": "Backup schema mismatch: enum:TransactionStatus:labels",
+  "errorCode": "Error",
+  "cleanedUp": true,
+  "finishedAt": "2026-09-07T16:28:23.606Z"
+}
