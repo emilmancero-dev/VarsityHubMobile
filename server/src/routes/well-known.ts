@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const IOS_APP_ID = 'B5H8F69RW5.com.varsithub.varsityhub-ios';
+const ANDROID_PACKAGE_NAME = 'com.varsityhub.varsityhub';
 const IOS_PATHS = [
   '/posts/*',
   '/games/*',
@@ -54,7 +55,7 @@ const FALLBACK_ASSET_LINKS = JSON.stringify([
     relation: ['delegate_permission/common.handle_all_urls'],
     target: {
       namespace: 'android_app',
-      package_name: 'com.xsantcastx.varsityhub',
+      package_name: ANDROID_PACKAGE_NAME,
       sha256_cert_fingerprints: [
         '3bdce8b7d434451b39ff032e9ae938fb1a213cae69e76e0aac1186ccf5194ab4',
       ],

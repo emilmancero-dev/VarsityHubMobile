@@ -33,6 +33,9 @@ const MAX_ANALYTICS_KEYS = 25;
 let posthog: PostHog | null = null;
 let analyticsInitialized = false;
 
+const isDevelopmentRuntime = () =>
+  (globalThis as typeof globalThis & { __DEV__?: boolean }).__DEV__ === true;
+
 function normalizeAnalyticsValue(value: unknown, depth = 0): string | number | boolean | string[] {
   if (value == null) return 'null';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -155,7 +158,7 @@ export function getAnalyticsSessionId(): string | undefined {
 }
 
 export function initAnalytics(readiness?: { sentry_ready: boolean }) {
-  if (analyticsInitialized || __DEV__ || !POSTHOG_API_KEY) return;
+  if (analyticsInitialized || isDevelopmentRuntime() || !POSTHOG_API_KEY) return;
   runAnalytics('initialize', () => {
     const client = new PostHog(POSTHOG_API_KEY, {
       host: POSTHOG_HOST,

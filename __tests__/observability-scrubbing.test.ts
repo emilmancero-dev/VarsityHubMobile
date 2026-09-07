@@ -206,11 +206,13 @@ describe('observability payload scrubbing', () => {
       })
     );
 
-    const payload = posthogCapture.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(String(payload.nested)).toContain('"email":"[redacted]"');
-    expect(String(payload.nested)).toContain('"keep":"ok"');
-    expect(Array.isArray(payload.attendees)).toBe(true);
-    expect(String((payload.attendees as unknown[])[0])).toContain('"phone":"[redacted]"');
+    const payload = posthogCapture.mock.calls.find(([event]) => event === 'event_created')?.[1];
+    expect(payload).toBeDefined();
+    const properties = payload as Record<string, unknown>;
+    expect(String(properties.nested)).toContain('"email":"[redacted]"');
+    expect(String(properties.nested)).toContain('"keep":"ok"');
+    expect(Array.isArray(properties.attendees)).toBe(true);
+    expect(String((properties.attendees as unknown[])[0])).toContain('"phone":"[redacted]"');
   });
 
   it('drops transient client transport errors before sending to Sentry', () => {

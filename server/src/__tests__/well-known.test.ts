@@ -24,7 +24,21 @@ describe('resolveWellKnownDir', () => {
     expect(aasa.applinks.details[0].paths).toContain('/verify');
     expect(aasa.applinks.details[0].paths).toContain('/verify-email');
     expect(aasa.applinks.details[0].paths).toContain('/reset-password');
-    expect(assetLinks[0].target.package_name).toBe('com.xsantcastx.varsityhub');
+    expect(assetLinks[0].target.package_name).toBe('com.varsityhub.varsityhub');
+  });
+
+  it('keeps the fallback Android package aligned with the native app config', () => {
+    const appConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'app.json'), 'utf8'));
+    const assetLinks = JSON.parse(getWellKnownPayload('assetlinks.json', '__missing__'));
+
+    expect(assetLinks[0].target.package_name).toBe(appConfig.expo.android.package);
+  });
+
+  it('serves the checked-in Android contract aligned with the native app config', () => {
+    const appConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'app.json'), 'utf8'));
+    const assetLinks = JSON.parse(getWellKnownPayload('assetlinks.json'));
+
+    expect(assetLinks[0].target.package_name).toBe(appConfig.expo.android.package);
   });
 
   it('serves canonical AASA paths even when a stale on-disk file exists', () => {

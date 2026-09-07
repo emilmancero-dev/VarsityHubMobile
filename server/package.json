@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "npx prisma generate && rm -f .tsbuildinfo && tsc -p . && mkdir -p dist/shared && (cp ../shared/plan-definitions.json dist/shared/ 2>/dev/null || cp ./shared/plan-definitions.json dist/shared/ 2>/dev/null || (echo '❌ ERROR: plan-definitions.json not found' && exit 1)) && (cp -r ../docs/well-known ./well-known 2>/dev/null || true) && echo '✅ Build successful'",
+    "build": "npx prisma generate && rm -f .tsbuildinfo && tsc -p . && mkdir -p dist/shared && (cp ../shared/plan-definitions.json dist/shared/ 2>/dev/null || cp ./shared/plan-definitions.json dist/shared/ 2>/dev/null || (echo '❌ ERROR: plan-definitions.json not found' && exit 1)) && (cp ../docs/well-known/assetlinks.json ./well-known/assetlinks.json 2>/dev/null || true) && echo '✅ Build successful'",
     "start": "node dist/index.js",
     "postinstall": "npx prisma generate",
     "railway:deploy": "npx prisma generate && npm run build",

@@ -32,9 +32,10 @@ describe('feed route contracts', () => {
   });
 
   it('covers VarsityHub-wide games and event-only pages, not only local/pro fixtures', () => {
-    expect(routeSource).toContain('buildFeedGameQueries(Date.now())');
-    expect(routeSource).toContain('feed-varsityhub-events-upcoming');
-    expect(routeSource).toContain('feed-varsityhub-events-past');
-    expect(routeSource).toContain('event_only: true');
+    expect(routeSource).toContain("fetchDiscoveryItems({ surface: 'feed' }");
+    expect(routeSource).toContain("'feed-discovery'");
+    expect(routeSource).toContain(
+      "surface: 'feed', from: pastFrom.toISOString(), to: pastTo.toISOString()"
+    );
   });
 });

@@ -2,7 +2,7 @@ import { CACHE_BUSTER, shouldPersistQuery } from '@/lib/queryClient';
 
 describe('query cache persistence policy', () => {
   it('bumps the persisted cache when the persistence policy changes', () => {
-    expect(CACHE_BUSTER).toBe('vh-rq-2');
+    expect(CACHE_BUSTER).toBe('vh-rq-3');
   });
 
   it('keeps large volatile timelines out of AsyncStorage hydration', () => {
