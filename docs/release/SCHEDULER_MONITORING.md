@@ -18,8 +18,8 @@ detectable. Use production configuration and an authenticated Sentry token with
 monitor-write access. The command is read-only unless `--provision` is supplied:
 
 ```sh
-railway run --service api --environment production npx tsx server/scripts/verify-scheduler-monitors.ts --provision
-railway run --service api --environment production npx tsx server/scripts/verify-scheduler-monitors.ts
+railway run --service api --environment production node server/node_modules/tsx/dist/cli.mjs server/scripts/verify-scheduler-monitors.ts --provision
+railway run --service api --environment production node server/node_modules/tsx/dist/cli.mjs server/scripts/verify-scheduler-monitors.ts
 ```
 
 Nonzero means missing configuration, an unhealthy monitor, or no successful

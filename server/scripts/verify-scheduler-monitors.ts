@@ -47,6 +47,11 @@ async function main() {
         config: remoteConfig,
       };
       monitor = await request(monitor ? `${slug}/` : '', monitor ? 'PUT' : 'POST', payload);
+      // Sentry can create a monitor disabled despite the create payload.
+      // Confirm activation explicitly; never treat successful creation as monitoring.
+      if (monitor.status !== payload.status) {
+        monitor = await request(`${slug}/`, 'PUT', { status: payload.status });
+      }
     }
     if (!enabled) {
       console.log(`${slug}: DISABLED (backup storage unconfigured)`);
