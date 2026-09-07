@@ -1,3 +1,5 @@
+import { resolveConfiguredAdapter } from '../lib/proSchedule/adapters.js';
+import { ESPN_LEAGUES } from '../lib/proSchedule/espnAdapter.js';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { SPORTS_LEAGUE_CATALOG } from '../lib/sportsLeagueCatalog.js';
@@ -99,4 +101,15 @@ it('does not advertise unsupported minor league or MLS NEXT feeds as active', ()
   ]) {
     expect(SPORTS_LEAGUE_CATALOG.find(league => league.slug === slug)?.active).toBe(false);
   }
+});
+
+it('uses only ESPN in the live provider configuration, without a TheSportsDB fallback', () => {
+  const adapter = resolveConfiguredAdapter({ PRO_SCHEDULE_PROVIDER: 'espn' });
+  expect(adapter?.name).toBe('espn');
+  expect(adapter?.leagues).toEqual(ESPN_LEAGUES);
+  expect(SPORTS_LEAGUE_CATALOG.find(league => league.slug === 'wwe')).toMatchObject({
+    provider: null,
+    provider_league_id: null,
+    active: false,
+  });
 });

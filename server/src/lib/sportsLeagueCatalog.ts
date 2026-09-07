@@ -46,7 +46,7 @@ export const SPORTS_LEAGUE_CATALOG: SportsLeagueCatalogEntry[] = [
   league('nhl', 'NHL', 'ice_hockey', 'major', 'men'),
   league('mls', 'MLS', 'soccer', 'major', 'men'),
   league('nwsl', 'NWSL', 'soccer', 'major', 'women'),
-  league('wwe', 'WWE', 'wrestling', 'major', 'mixed', 'thesportsdb', '4444'),
+  league('wwe', 'WWE', 'wrestling', 'major', 'mixed'),
   league('ufc', 'UFC', 'mma', 'major', 'mixed'),
   league('pga_tour', 'PGA Tour', 'golf', 'major', 'men'),
   league('lpga', 'LPGA', 'golf', 'major', 'women'),

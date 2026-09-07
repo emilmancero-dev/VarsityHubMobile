@@ -1,26 +1,16 @@
 import type { ProLeague } from '@prisma/client';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import { compositeAdapter } from './compositeAdapter.js';
 import { espnAdapter } from './espnAdapter.js';
 import type { ProFixture, ProScheduleAdapter } from './types.js';
 import { PRO_SCHEDULE_LEAGUES } from './types.js';
-import { wweAdapter } from './wweAdapter.js';
 
 /**
  * Schedule provider adapters.
  *
- * No provider is wired yet — selecting and licensing one is a purchasing
- * decision (SportsDataIO, Sportradar, API-Sports and TheSportsDB all license
- * schedule data). Adding one means implementing `fetchFixtures` to return
- * ProFixture[]; nothing downstream changes, because ingestion only ever sees
- * the normalized shape.
- *
- * IMPORTANT when adding one: schedule facts themselves are not owned by the
- * leagues (Feist; NBA v. Motorola), but the provider's terms of service are a
- * real contract. Read them before shipping, and never substitute scraping a
- * league or broadcaster site — that is the one path here with actual legal
- * exposure.
+ * ESPN is the configured live source. The owner permits ESPN or Yahoo only;
+ * do not silently add a third-party fallback under the ESPN setting.
+ * JSON files remain the explicit normalized bulk-import/testing interface.
  */
 
 const fixtureSchema = z.object({
@@ -90,11 +80,10 @@ export function resolveConfiguredAdapter(env = process.env): ProScheduleAdapter 
   const file = env.PRO_SCHEDULE_JSON_PATH;
   if (file) return jsonFileAdapter(file);
 
-  // Live rolling source: ESPN for the scoreboard-backed leagues + TheSportsDB
-  // for touring WWE. UFC is in the canonical fixture model and can be loaded via
-  // PRO_SCHEDULE_JSON_PATH until a verified live provider is wired.
+  // Only verified ESPN leagues are advertised. Missing leagues remain
+  // unsupported until an approved source is actually connected.
   if (env.PRO_SCHEDULE_PROVIDER === 'espn') {
-    return compositeAdapter([espnAdapter(), wweAdapter()]);
+    return espnAdapter();
   }
 
   return null;
