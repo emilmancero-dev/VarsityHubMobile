@@ -67,3 +67,12 @@ The owner explicitly rejected TheSportsDB and restricted provider choices to ESP
 The read-only ESPN core API league indexes returned 12 baseball leagues and 218 soccer competitions, with complete one-page results. Neither index includes affiliated MiLB or MLS NEXT / MLS NEXT Pro. The old ESPN minor-league web result contains obsolete teams and is not accepted as a current schedule source. Yahoo search returned news articles; direct schedule/developer-page reads were rate-limited. Neither articles nor guessed endpoint paths establish an importer. Missing league coverage remains explicit under the owner's allowed-provider restriction.
 
 The final checked-in harness version was executed again, reached step 600, and passed a separate Maestro completion assertion after the rapid updates settled. The earlier positive-background-count assertion also passed. Native maps libraries were not upgraded or patched. Simulator results do not close production crashes or substitute for physical-device evidence.
+
+## Final deployed provider configuration
+
+- Final server source: `f3a5f98e0911ac1c177f8a7979bd44e52e5f17c6`; Railway deployment `a9cce1e5-e060-4f6e-b9cd-9e54c8134b89` reached SUCCESS. The full local release workflow and production runtime workflow exited 0. The canonical server regression count is now 136.
+- Live `/events/sports-leagues?q=WWE` changed from provider `thesportsdb` / `ACTIVE_SYNCING` to null provider / `SEEDED_EVENTS`. All 19 current events remain visible.
+- Backup refreshed to 63 tables / 4,370 rows / 162 exactly matching migration-history records. The local actual restore and [independent run 34068927431](https://github.com/emilmancero-dev/VarsityHubMobile/actions/runs/34068927431) passed content comparison, migration deployment, application constraints, purchase recovery and cleanup. Daily workflow source is pinned to this application commit by workflow commit `c0cb6cb3`.
+- The isolated local PostgreSQL cluster and restored customer data were removed. The simulator test app was stopped; the temporary harness checkout and its Metro servers were removed/stopped.
+- Client production OTA remains the verified `d0ebb484` update group listed above. The later change affects server provider selection and adds a non-production harness/documentation; no additional client bundle or native distribution is needed for that change.
+- PR #281 was verified OPEN and MERGEABLE at source `f3a5f98e`; the upstream account still cannot merge. Server and OTA publication were performed independently of that open PR.
