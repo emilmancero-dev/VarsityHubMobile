@@ -199,8 +199,16 @@ export function evaluateSchedulerHeartbeat(input: EvaluateInput): HeartbeatRepor
 // getRedisForDedup pattern in scheduler.ts.
 const memory = new Map<string, HeartbeatEntry>();
 let _redis: any = null;
+// Shutdown-race guard: once closeHeartbeatStore() starts, getRedis() must never
+// open a NEW connection — otherwise a fire-and-forget recordHeartbeat() landing
+// during drain would reopen a connection nothing closes, reintroducing the very
+// process-hang the graceful-shutdown fix removed. In-flight writes are tracked
+// so close() can let them settle before quitting.
+let _closing = false;
+const _pendingWrites = new Set<Promise<void>>();
 
 async function getRedis(): Promise<any | null> {
+  if (_closing) return null;
   if (_redis) return _redis;
   const url = process.env.REDIS_URL;
   if (!url) return null;
@@ -221,12 +229,18 @@ async function getRedis(): Promise<any | null> {
 export async function recordHeartbeat(name: string, status: 'ok' | 'error'): Promise<void> {
   const entry: HeartbeatEntry = { lastRunAt: Date.now(), lastStatus: status };
   memory.set(name, entry);
-  try {
-    const redis = await getRedis();
-    if (redis) await redis.hset(HEARTBEAT_KEY, name, JSON.stringify(entry));
-  } catch {
-    // best-effort; the in-memory copy is already updated
-  }
+  const write = (async () => {
+    try {
+      const redis = await getRedis();
+      if (redis) await redis.hset(HEARTBEAT_KEY, name, JSON.stringify(entry));
+    } catch {
+      // best-effort; the in-memory copy is already updated
+    }
+  })();
+  // Track so closeHeartbeatStore() can drain in-flight writes before quitting.
+  _pendingWrites.add(write);
+  void write.finally(() => _pendingWrites.delete(write));
+  await write;
 }
 
 /** Reads all heartbeats. `storeError` is true when Redis IS configured but
@@ -260,6 +274,10 @@ export async function readHeartbeats(): Promise<{
 /** Close the heartbeat Redis connection on shutdown (called from the scheduler
  * drain so it can't keep the process alive). */
 export async function closeHeartbeatStore(): Promise<void> {
+  // Block any further reconnects first, then let in-flight writes settle so the
+  // last heartbeat lands and no write races the quit.
+  _closing = true;
+  if (_pendingWrites.size) await Promise.allSettled([..._pendingWrites]);
   if (_redis) {
     try {
       await _redis.quit();
