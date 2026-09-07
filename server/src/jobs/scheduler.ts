@@ -549,6 +549,32 @@ export async function setupScheduler(): Promise<boolean> {
 // is unset — guard so the cron jobs are only registered once per process.
 let fallbackCronArmed = false;
 
+// node-cron ScheduledTask handles + the in-flight run promises they spawn,
+// retained at module scope so drainScheduler() can stop the tasks and await
+// active runs on shutdown. In fallback (no-Redis) mode node-cron fires
+// independently of BullMQ, so without this a running job is killed
+// mid-operation when the DB/process are torn down on a deploy. Typed loosely
+// because node-cron is imported dynamically only when Redis is absent.
+const fallbackCronTasks: Array<{ stop: () => void | Promise<void> }> = [];
+const inFlightFallbackJobs = new Set<Promise<unknown>>();
+
+// The body of one fallback tick. Kept separate so setupFallbackCron can track
+// the promise it returns. Swallows its own errors (captured to Sentry), so the
+// tracked promise resolves rather than rejects — a failed job must not abort a
+// shutdown drain.
+async function runFallbackJob(job: ScheduledJob): Promise<void> {
+  try {
+    console.log(`[Scheduler] (fallback) Running ${job.name}: ${job.description}`);
+    await runMonitoredJob(job);
+  } catch (error) {
+    console.error(`[Scheduler] (fallback) ${job.name} failed:`, error);
+    captureException(
+      error instanceof Error ? error : new Error(String(error)),
+      withJobTags(job.name, { context: 'scheduler_fallback_job_failed', cron: job.cron })
+    );
+  }
+}
+
 /**
  * Fallback cron using node-cron (for when Redis is not available)
  */
@@ -566,22 +592,19 @@ async function setupFallbackCron(): Promise<boolean> {
   // SCHEDULED_JOBS can never be missing here again.
   const { default: cron } = await import('node-cron');
   for (const job of SCHEDULED_JOBS) {
-    cron.schedule(
+    const task = cron.schedule(
       job.cron,
-      async () => {
-        try {
-          console.log(`[Scheduler] (fallback) Running ${job.name}: ${job.description}`);
-          await runMonitoredJob(job);
-        } catch (error) {
-          console.error(`[Scheduler] (fallback) ${job.name} failed:`, error);
-          captureException(
-            error instanceof Error ? error : new Error(String(error)),
-            withJobTags(job.name, { context: 'scheduler_fallback_job_failed', cron: job.cron })
-          );
-        }
+      () => {
+        // Track each run so drainScheduler() can await an in-flight job on
+        // shutdown; runFallbackJob swallows its errors so this never rejects.
+        const run = runFallbackJob(job);
+        inFlightFallbackJobs.add(run);
+        void run.finally(() => inFlightFallbackJobs.delete(run));
+        return run;
       },
       { timezone: 'UTC' }
     );
+    fallbackCronTasks.push(task as unknown as { stop: () => void | Promise<void> });
   }
   console.log(`[Scheduler] Fallback cron armed for ${SCHEDULED_JOBS.length} jobs via node-cron`);
   return true;
@@ -670,13 +693,33 @@ export function stopSchedulerWorker(): Promise<void> {
 }
 
 async function drainScheduler(): Promise<void> {
+  const errors: unknown[] = [];
+
+  // Fallback (no-Redis) mode: node-cron fires independently of BullMQ. Stop
+  // every task so no NEW fallback job starts, then await any in-flight run so
+  // it finishes against a live DB instead of being killed mid-operation by the
+  // queue/DB teardown and process exit that follow. In Redis mode this is a
+  // no-op (no fallback tasks were armed).
+  const tasks = fallbackCronTasks.splice(0);
+  for (const task of tasks) {
+    try {
+      await task.stop();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (inFlightFallbackJobs.size) {
+    await Promise.allSettled([...inFlightFallbackJobs]);
+    inFlightFallbackJobs.clear();
+  }
+  fallbackCronArmed = false;
+
   // Close the worker first so in-flight jobs drain against a live DB.
   // A failed drain MUST reject: the caller must not proceed to DB teardown.
   if (schedulerWorker) {
     await schedulerWorker.close();
     schedulerWorker = null;
   }
-  const errors: unknown[] = [];
   if (schedulerQueue) {
     try {
       await schedulerQueue.close();
