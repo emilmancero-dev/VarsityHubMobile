@@ -13,7 +13,7 @@
  * @module jobs/scheduler
  */
 
-import { Queue } from 'bullmq';
+import { Queue, type Worker } from 'bullmq';
 import { captureException, captureMessage } from '../lib/sentry.js';
 import { runMonitoredJob } from '../lib/schedulerMonitoring.js';
 
@@ -30,7 +30,7 @@ setInterval(
     }
   },
   24 * 60 * 60 * 1000
-);
+).unref();
 
 let _redisForDedup: any = null;
 async function getRedisForDedup(): Promise<any | null> {
@@ -510,6 +510,12 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
 ];
 
 let schedulerQueue: Queue | null = null;
+// Held at module scope so the process can stop the worker and release these
+// dedicated Redis connections on shutdown (see stopSchedulerWorker).
+let schedulerWorker: Worker | null = null;
+let workerConnection: any = null;
+let queueConnection: any = null;
+let schedulerStopPromise: Promise<void> | null = null;
 
 /**
  * Setup all scheduled jobs
@@ -529,6 +535,7 @@ export async function setupScheduler(): Promise<boolean> {
     });
 
     schedulerQueue = new Queue('scheduler', { connection });
+    queueConnection = connection;
 
     // Remove existing repeatable jobs and add fresh ones
     const existingJobs = await schedulerQueue.getRepeatableJobs();
@@ -643,6 +650,8 @@ export async function startSchedulerWorker(): Promise<void> {
       },
       { connection }
     );
+    schedulerWorker = worker;
+    workerConnection = connection;
 
     worker.on('completed', job => {
       console.log(`[Scheduler] Job ${job.name} completed`);
@@ -660,6 +669,58 @@ export async function startSchedulerWorker(): Promise<void> {
     console.error('[Scheduler] Failed to start worker:', error);
     throw error;
   }
+}
+
+/**
+ * Gracefully stop the scheduler worker and release its Redis connections.
+ *
+ * BullMQ's `worker.close()` stops the worker accepting new jobs and waits for
+ * any active job to finish, so this MUST be called before the DB is torn down —
+ * otherwise a running job loses its connection mid-flight. The worker, queue,
+ * and dedup connections are dedicated ioredis instances this module opened, so
+ * BullMQ's close() does not quit them; we quit them explicitly. Idempotent —
+ * safe to call when nothing started and safe to call twice.
+ */
+export function stopSchedulerWorker(): Promise<void> {
+  if (schedulerStopPromise) return schedulerStopPromise;
+  schedulerStopPromise = drainScheduler().finally(() => {
+    schedulerStopPromise = null;
+  });
+  return schedulerStopPromise;
+}
+
+async function drainScheduler(): Promise<void> {
+  // Close the worker first so in-flight jobs drain against a live DB.
+  // A failed drain MUST reject: the caller must not proceed to DB teardown.
+  if (schedulerWorker) {
+    await schedulerWorker.close();
+    schedulerWorker = null;
+  }
+  const errors: unknown[] = [];
+  if (schedulerQueue) {
+    try {
+      await schedulerQueue.close();
+    } catch (error) {
+      console.error('[Scheduler] Error closing queue:', error);
+      errors.push(error);
+    }
+    schedulerQueue = null;
+  }
+  for (const conn of [workerConnection, queueConnection, _redisForDedup]) {
+    if (conn) {
+      try {
+        await conn.quit();
+      } catch (error) {
+        errors.push(error);
+        // Continue releasing independent resources, but do not report success.
+        conn.disconnect?.();
+      }
+    }
+  }
+  workerConnection = null;
+  queueConnection = null;
+  _redisForDedup = null;
+  if (errors.length) throw new AggregateError(errors, 'Scheduler resource cleanup failed');
 }
 
 /**

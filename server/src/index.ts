@@ -6,7 +6,7 @@ import { debugLog } from './lib/debugLog.js';
 import { initEmailService } from './lib/email.js';
 import { initializeQueues, shutdownQueues } from './jobs/queues.js';
 import { startDataExportWorker, stopDataExportWorker } from './workers/dataExportWorker.js';
-import { setupScheduler, startSchedulerWorker } from './jobs/scheduler.js';
+import { setupScheduler, startSchedulerWorker, stopSchedulerWorker } from './jobs/scheduler.js';
 import { env } from './lib/env.js';
 import { APP_REVIEW_EMAIL } from './lib/appReviewFixture.js';
 import { ADMIN_EMAILS, ADMIN_NOTIFICATION_EMAILS } from './lib/adminEmails.js';
@@ -314,6 +314,9 @@ const shutdown = async (signal: string) => {
   debugLog(`\n[shutdown] Received ${signal}, shutting down gracefully...`);
   try {
     await stopDataExportWorker();
+    // Stop the scheduler worker before queues/DB close so any in-flight
+    // scheduled job drains against a live connection instead of being killed.
+    await stopSchedulerWorker();
     await shutdownQueues();
     debugLog('[shutdown] Queues closed');
     // Disconnect Prisma to release DB connection pool slots
