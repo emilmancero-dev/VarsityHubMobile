@@ -22,7 +22,7 @@ DROP TYPE "NotificationType_backup_old_20260906";
 
 ALTER TYPE "TransactionStatus" RENAME TO "TransactionStatus_backup_old_20260906";
 
-CREATE TYPE "TransactionStatus" AS ENUM ('PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'CANCELLED', 'NEEDS_REVIEW');
+CREATE TYPE "TransactionStatus" AS ENUM ('PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'CANCELLED', 'NEEDS_REVIEW', 'RECEIVED');
 
 ALTER TABLE "TransactionLog" ALTER COLUMN "status" DROP DEFAULT;
 

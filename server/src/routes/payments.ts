@@ -93,7 +93,7 @@ import {
 import { invalidateMeCacheForUser, invalidateMeCacheForUsers } from '../lib/userCache.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import type { AuthedRequest } from '../middleware/auth.js';
-import { paymentLimiter } from '../middleware/rateLimiters.js';
+import { adPurchaseRecoveryLimiter, paymentLimiter } from '../middleware/rateLimiters.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireVerified } from '../middleware/requireVerified.js';
@@ -3722,7 +3722,7 @@ paymentsRouter.get(
 paymentsRouter.post(
   '/apple/ad-intents/reconcile',
   requireAuth as any,
-  paymentLimiter,
+  adPurchaseRecoveryLimiter,
   // async-handler-exempt: adIntentHandler wraps this callback in asyncHandler and maps intent errors.
   adIntentHandler(async (req, res) => {
     res.json(await reconcileReadyAdPurchases(req.user!.id));

@@ -25,6 +25,7 @@ describe('recordAppleNotificationReceipt', () => {
         data: expect.objectContaining({
           apple_transaction_id: 'notif-123',
           transaction_type: 'APPLE_S2S_NOTIFICATION',
+          status: 'RECEIVED',
         }),
       })
     );

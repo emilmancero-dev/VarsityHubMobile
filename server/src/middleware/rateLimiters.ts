@@ -472,6 +472,17 @@ export const paymentLimiter = createLimiter({
 });
 
 /**
+ * Apple purchase recovery runs automatically after sign-in, foregrounding and
+ * network restoration. It is idempotent and server-authoritative, so it must
+ * not consume the much stricter checkout-attempt budget above.
+ */
+export const adPurchaseRecoveryLimiter = createLimiter({
+  name: 'ad-purchase-recovery',
+  windowMs: 60 * 1000, // 1 minute
+  max: rateLimitingDisabled ? 100000 : 30,
+});
+
+/**
  * Promo code validation attempts
  * 10 attempts per 15 minutes per user (prevents brute force code guessing)
  */

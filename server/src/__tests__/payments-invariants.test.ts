@@ -222,6 +222,14 @@ describe('payments & subscriptions — structural invariants', () => {
     it('payment router imports paymentLimiter middleware', () => {
       expect(payments).toMatch(/paymentLimiter/);
     });
+
+    it('uses the idempotent recovery limiter for automatic Apple intent reconciliation', () => {
+      const start = payments.indexOf("paymentsRouter.post(\n  '/apple/ad-intents/reconcile'");
+      const end = payments.indexOf('paymentsRouter.post(', start + 1);
+      const reconcileRoute = payments.slice(start, end);
+      expect(reconcileRoute).toMatch(/adPurchaseRecoveryLimiter/);
+      expect(reconcileRoute).not.toMatch(/paymentLimiter/);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────
