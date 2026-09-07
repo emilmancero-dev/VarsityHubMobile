@@ -79,3 +79,21 @@ Manual Railway uploads currently expose `deployment_id` but no `RAILWAY_GIT_COMM
 5. **Original visual notes:** automated contracts passed, but device presentation/navigation/media review remains unverified where the notes require visual acceptance.
 
 The preceding actual backup restore/migration drill passed on source `f3a5f98e` (CI run `34068927431`, 63 tables, 4,370 rows, 162 matching migration records). This telemetry-only release does not change that schema. Neither historical counts nor this report are a live database health guarantee.
+
+## Publication
+
+Source commit `7f55dbb256f1fa8e376608f64dfdd0bba65b6ec2` was pushed to `fork/fix/desktop-notes-map-collage-share` with commit and push hooks enabled. PR #281 remains open and mergeable; upstream access remains pull-only.
+
+`npm run update:production` exited 0. The independent EAS update lookup confirms production branch, runtime `1.0.5`, both platforms and the exact source commit:
+
+- Group: `3da31516-75df-4191-89f0-17cee7e141f6`.
+- iOS: `01a0794a-63c6-7b2b-86a2-c0b0d84eec7d`.
+- Android: `01a0794a-63c6-74f8-8b64-98df73fe3c37`.
+- Published September 7 at 00:35:13 UTC (September 6 locally).
+- [EAS update](https://expo.dev/accounts/varsity-hub/projects/varsityhub/updates/3da31516-75df-4191-89f0-17cee7e141f6).
+
+Sentry artifact-bundle/source-map upload completed for the exported bundles; server processing was pending in the upload response. This does not establish native dSYM coverage. No server redeploy, native build or website deployment was needed/performed for this client OTA.
+
+All 12 registered Git worktrees were clean following the source commit. Unrelated worktrees were preserved. GitHub Expo Doctor run `34070178584` passed. The separate Snyk scan is not represented by the passing local gates; its final status is recorded below.
+
+**Open security gate:** [Snyk run 34070178587](https://github.com/emilmancero-dev/VarsityHubMobile/actions/runs/34070178587) failed for high-severity frontend dependency findings. Server dependency scanning passed; frontend/server SAST also reported advisory findings requiring triage. The preceding source run `34068720787` had the same category of blocking frontend dependency result. This release changes no dependencies, and the passing local/runtime checks do not override the remote security failure. Full security clearance remains open.
