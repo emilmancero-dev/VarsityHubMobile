@@ -109,12 +109,12 @@ ignore:
 
   SNYK-JS-IMAGESIZE-17295814:
     - '*':
-        reason: 'image-size@1.2.1 is the latest 1.x release (verified via npm view 2026-07-13) — fix requires jumping to image-size 2.x, which is transitive via react-native@0.81.5 > @react-native/community-cli-plugin > metro. Metro build-tooling only, not shipped in the app bundle. No upgrade path until react-native/metro itself moves to image-size 2.x.'
+        reason: 'All published image-size versions remain affected. This Metro-only build dependency is patched during postinstall by tools/patches/patch-image-size-dos.js, with regression fixtures for zero-length JXL/HEIF boxes; it is not shipped in the app bundle. Keep the acceptance only until an upstream fixed release is available.'
         expires: '2026-09-30T23:59:59Z'
 
   SNYK-JS-IMAGESIZE-17295816:
     - '*':
-        reason: 'image-size@1.2.1 is the latest 1.x release (verified via npm view 2026-07-13) — fix requires jumping to image-size 2.x, which is transitive via react-native@0.81.5 > @react-native/community-cli-plugin > metro. Metro build-tooling only, not shipped in the app bundle. No upgrade path until react-native/metro itself moves to image-size 2.x.'
+        reason: 'All published image-size versions remain affected. This Metro-only build dependency is patched during postinstall by tools/patches/patch-image-size-dos.js, with regression fixtures for zero-length ICNS entries; it is not shipped in the app bundle. Keep the acceptance only until an upstream fixed release is available.'
         expires: '2026-09-30T23:59:59Z'
 
   # ─── XSS: HTML admin confirmation pages — sanitized via escapeHtml() ───

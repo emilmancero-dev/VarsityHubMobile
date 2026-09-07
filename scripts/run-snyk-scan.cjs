@@ -64,7 +64,46 @@ function classify(result, exitCode, kind) {
     count = result.vulnerabilities.length;
   }
   if ((exitCode === 1) !== count > 0) return { status: 'unavailable', exitCode: 2 };
-  return { status: count ? 'findings' : 'clean', count, exitCode: count ? 1 : 0 };
+  let findings;
+  if (count && kind === 'dependencies') {
+    findings = [
+      ...new Map(
+        result.vulnerabilities.map(item => [
+          `${item.id || 'unknown'}:${item.packageName || 'unknown'}`,
+          {
+            id: item.id || 'unknown',
+            package: item.packageName || 'unknown',
+            severity: item.severity || 'unknown',
+          },
+        ])
+      ).values(),
+    ].sort((a, b) => a.id.localeCompare(b.id) || a.package.localeCompare(b.package));
+  } else if (count && kind === 'code') {
+    const root = path.resolve(__dirname, '..');
+    findings = [
+      ...new Map(
+        result.runs.flatMap(run =>
+          run.results.map(item => {
+            const physical = item.locations?.[0]?.physicalLocation || {};
+            const uri = physical.artifactLocation?.uri || '';
+            const absolute = uri.startsWith('file:') ? new URL(uri).pathname : path.resolve(uri);
+            const finding = {
+              id: item.ruleId || 'unknown',
+              path: path.relative(root, absolute).split(path.sep).join('/'),
+              line: physical.region?.startLine,
+            };
+            return [`${finding.id}:${finding.path}:${finding.line || 0}`, finding];
+          })
+        )
+      ).values(),
+    ].sort((a, b) => a.id.localeCompare(b.id) || a.path.localeCompare(b.path));
+  }
+  return {
+    status: count ? 'findings' : 'clean',
+    count,
+    ...(findings ? { findings } : {}),
+    exitCode: count ? 1 : 0,
+  };
 }
 
 if (require.main === module) {

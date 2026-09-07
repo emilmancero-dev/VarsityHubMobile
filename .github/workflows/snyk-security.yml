@@ -136,7 +136,7 @@ jobs:
         if: steps.snyk-check.outputs.has-token == 'true'
         run: |
           set +e
-          node scripts/run-snyk-scan.cjs dependencies
+          node scripts/run-snyk-scan.cjs dependencies --policy-path=.snyk
           echo "exit-code=$?" >> $GITHUB_OUTPUT
         continue-on-error: true
 
