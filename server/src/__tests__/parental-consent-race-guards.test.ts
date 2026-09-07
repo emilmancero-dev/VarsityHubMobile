@@ -43,6 +43,8 @@ describe('parental consent race guards', () => {
     expect(consentRoute).toContain('function verifyConsentCsrf(');
     expect(consentRoute).toContain('name="csrf_token"');
     expect(consentRoute).toContain('Consent Confirmation Expired');
+    expect(consentRoute).toContain('Parental consent CSRF signing secret is not configured');
+    expect(consentRoute).not.toContain('dev-consent-csrf-secret');
   });
 
   it('rejects cross-site consent submissions unless the origin matches the app origin', () => {

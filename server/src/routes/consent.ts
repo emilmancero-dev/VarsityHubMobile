@@ -43,9 +43,11 @@ const CONSENT_CSRF_COOKIE = 'vh_parental_consent_csrf';
 const CONSENT_CSRF_TTL_MS = 15 * 60 * 1000;
 
 function getConsentCsrfSecret(): string {
-  return (
-    process.env.PARENTAL_CONSENT_CSRF_SECRET || process.env.JWT_SECRET || 'dev-consent-csrf-secret'
-  );
+  const secret = process.env.PARENTAL_CONSENT_CSRF_SECRET || process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('Parental consent CSRF signing secret is not configured');
+  }
+  return secret;
 }
 
 function signConsentCsrf(

@@ -117,6 +117,11 @@ ignore:
         reason: 'All published image-size versions remain affected. This Metro-only build dependency is patched during postinstall by tools/patches/patch-image-size-dos.js, with regression fixtures for zero-length ICNS entries; it is not shipped in the app bundle. Keep the acceptance only until an upstream fixed release is available.'
         expires: '2026-09-30T23:59:59Z'
 
+  SNYK-JS-NODEFORGE-19635204:
+    - '*':
+        reason: 'No fixed node-forge release exists. Expo uses node-forge only for CLI/update code-signing certificate tooling; tools/patches/patch-node-forge-rsa.js adds the unpublished strict DigestAlgorithm element-count guard during postinstall, and a low-exponent RSA regression proves the forged structure is rejected. Remove this acceptance when upstream publishes the fix.'
+        expires: '2026-09-30T23:59:59Z'
+
   # ─── XSS: HTML admin confirmation pages — sanitized via escapeHtml() ───
   # Snyk SAST cannot trace escapeHtml() as a sanitizer in data flow analysis.
   # All user-controlled values are escaped before interpolation into HTML.
@@ -148,6 +153,9 @@ ignore:
         expires: '2027-03-27T23:59:59Z'
     - 'server/src/routes/publicAppHandoff.ts':
         reason: 'renderAppHandoffPage escapes title/description internally (hardened 2026-07-13) and extraHtml builders escape their interpolations. Snyk SAST false positive.'
+        expires: '2027-03-27T23:59:59Z'
+    - 'server/src/routes/shareLanding.ts':
+        reason: 'renderLanding escapes title, description, image URL, canonical URL, store URLs and legal origin before every HTML interpolation. Verified 2026-09-07; Snyk cannot trace the local escapeHtml sanitizer.'
         expires: '2027-03-27T23:59:59Z'
 
   # ─── Uploads.ts filesystem operation — already rate-limited ───
