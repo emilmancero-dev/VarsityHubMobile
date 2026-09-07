@@ -6,6 +6,20 @@ import { debugLog } from './debugLog.js';
 
 const SERVER_SERVICE_TAG = 'server';
 
+/** Check-ins bypass beforeSend, so gate them explicitly and isolate SDK failures. */
+export function captureSchedulerCheckIn(
+  checkIn: Parameters<typeof Sentry.captureCheckIn>[0],
+  config?: Parameters<typeof Sentry.captureCheckIn>[1]
+): string | undefined {
+  if (process.env.NODE_ENV !== 'production' || !process.env.SENTRY_DSN) return;
+  try {
+    return Sentry.captureCheckIn(checkIn, config);
+  } catch {
+    console.warn('[Scheduler] Sentry check-in could not be queued');
+    return undefined;
+  }
+}
+
 // Strip ID-like path segments so `route` stays low-cardinality enough to
 // alert on. /posts/cmod7xy123 -> /posts/:id, /games/42 -> /games/:id.
 // Without this, every unique resource ID becomes a distinct tag value and
