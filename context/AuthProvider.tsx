@@ -658,19 +658,23 @@ export function AuthProvider({ children, navReady }: AuthProviderProps) {
       const recentFamilyRedirects = recentRedirectsRef.current.filter(
         entry => entry.family === family
       );
-      // Session-expiry is a TERMINAL redirect to the unauthenticated entry route,
-      // not a loop — the tokens are already cleared, so it fires at most once (the
-      // sessionEvents bus also dedupes). It must NEVER be suppressed by the
-      // routing-loop guard: the unauthenticated entry route is `/(tabs)/feed`,
+      // Session-expiry AND sign-out are TERMINAL redirects to the unauthenticated
+      // entry route, not loops — the tokens are already cleared, so each fires at
+      // most once (the sessionEvents bus also dedupes). Neither may be suppressed
+      // by the routing-loop guard: the unauthenticated entry route is `/(tabs)/feed`,
       // whose family (`tabs`) is the hottest redirect bucket in the app, so a
       // couple of prior tabs redirects in the last 30s would otherwise swallow it.
-      // When it's swallowed the expired screen never unmounts, and api/http.ts's
+      // When it's swallowed the destination screen never unmounts, and api/http.ts's
       // intentional never-resolving Promise (the anti-Alert-stacking design) hangs
       // forever — a permanent spinner on e.g. the ad-calendar payment button, only
-      // recoverable by force-quit. Exempting this reason guarantees the unmount
-      // that makes that hang safe. (sign_out is user-initiated and unmounts via its
-      // own button; only the silent session-expiry path is at risk here.)
-      const isTerminalSessionRedirect = reason.startsWith('session_expired');
+      // recoverable by force-quit. Exempting these reasons guarantees the unmount
+      // that makes that hang safe. (sign_out was originally assumed safe because it
+      // unmounts via its own button, but production telemetry — VARSITYHUB-3A,
+      // reason:sign_out, route_family:tabs, to:/(tabs)/feed — showed the guard IS
+      // swallowing sign-out redirects when the tabs bucket is already hot, so it is
+      // exempted here on the same terminal-redirect grounds.)
+      const isTerminalSessionRedirect =
+        reason.startsWith('session_expired') || reason.startsWith('sign_out');
       if (!isTerminalSessionRedirect && recentFamilyRedirects.length >= 2) {
         captureException(new Error('routing_loop_detected'), {
           tags: {
