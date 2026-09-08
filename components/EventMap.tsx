@@ -10,7 +10,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { captureBreadcrumb } from '@/utils/sentry';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -267,6 +267,18 @@ export default function EventMap({
     [eventsWithCoordinates]
   );
 
+  // A stable signature of the current marker composition. When it changes we
+  // remount the WHOLE marker layer at once (the keyed <Fragment> below) instead
+  // of letting the New-Architecture legacy-interop diff insert/remove individual
+  // <Marker> subviews. That incremental, interleaved reconciliation is what feeds
+  // a nil into `-[AIRMap insertReactSubview:atIndex:]` and hard-crashes the map on
+  // iOS (fatal Sentry VARSITYHUB-3T). An atomic unmount-all → mount-all avoids the
+  // interleaving. Pure JS → OTA-safe; the durable fix is a react-native-maps upgrade.
+  const markerLayerKey = useMemo(
+    () => clusters.map(group => `${group[0].id}:${group.length}`).join('|'),
+    [clusters]
+  );
+
   // Center map on all events
   const fitToEvents = useCallback(() => {
     if (eventsWithCoordinates.length === 0) return;
@@ -384,53 +396,61 @@ export default function EventMap({
           // Don't update state to avoid re-render loop
         }}
       >
-        {clusters.map(group => {
-          const lead = group[0];
-          const coordinate = { latitude: lead.latitude!, longitude: lead.longitude! };
+        {/* Keyed so the entire marker layer remounts atomically when the pin set
+            changes — see markerLayerKey above (VARSITYHUB-3T crash mitigation). */}
+        <Fragment key={markerLayerKey}>
+          {clusters.map(group => {
+            const lead = group[0];
+            const coordinate = { latitude: lead.latitude!, longitude: lead.longitude! };
 
-          // Multiple events at the same point → one numbered cluster pin. Tapping
-          // it opens a picker so every co-located event is reachable (zooming
-          // can't separate markers that share an exact coordinate).
-          if (group.length > 1) {
+            // Multiple events at the same point → one numbered cluster pin. Tapping
+            // it opens a picker so every co-located event is reachable (zooming
+            // can't separate markers that share an exact coordinate).
+            if (group.length > 1) {
+              return (
+                <Marker
+                  key={`cluster-${coordinate.latitude},${coordinate.longitude}`}
+                  coordinate={coordinate}
+                  // Cluster pins render a static custom <View>; stop react-native-maps
+                  // from continuously re-snapshotting them as native subviews — that
+                  // churn is the AIRMap subview path that crashes on New Arch.
+                  tracksViewChanges={false}
+                  onPress={() => {
+                    captureBreadcrumb('Map cluster pressed', 'map.navigation', {
+                      cluster_size: group.length,
+                    });
+                    setSelectedCluster(group);
+                  }}
+                >
+                  <View style={[styles.clusterPin, { backgroundColor: Colors[colorScheme].tint }]}>
+                    <Text style={styles.clusterPinText}>{group.length}</Text>
+                  </View>
+                </Marker>
+              );
+            }
+
             return (
               <Marker
-                key={`cluster-${coordinate.latitude},${coordinate.longitude}`}
+                key={lead.id}
                 coordinate={coordinate}
+                pinColor={getMarkerColor(lead)}
                 onPress={() => {
-                  captureBreadcrumb('Map cluster pressed', 'map.navigation', {
-                    cluster_size: group.length,
+                  captureBreadcrumb('Map marker pressed', 'map.navigation', {
+                    event_type: lead.type || 'unknown',
                   });
-                  setSelectedCluster(group);
+                  setSelectedCluster(null);
+                  setSelectedMarker(lead);
                 }}
-              >
-                <View style={[styles.clusterPin, { backgroundColor: Colors[colorScheme].tint }]}>
-                  <Text style={styles.clusterPinText}>{group.length}</Text>
-                </View>
-              </Marker>
+                onCalloutPress={() => {
+                  captureBreadcrumb('Map marker callout pressed', 'map.navigation', {
+                    event_type: lead.type || 'unknown',
+                  });
+                  openEventFromMarker(lead.id, lead.type);
+                }}
+              />
             );
-          }
-
-          return (
-            <Marker
-              key={lead.id}
-              coordinate={coordinate}
-              pinColor={getMarkerColor(lead)}
-              onPress={() => {
-                captureBreadcrumb('Map marker pressed', 'map.navigation', {
-                  event_type: lead.type || 'unknown',
-                });
-                setSelectedCluster(null);
-                setSelectedMarker(lead);
-              }}
-              onCalloutPress={() => {
-                captureBreadcrumb('Map marker callout pressed', 'map.navigation', {
-                  event_type: lead.type || 'unknown',
-                });
-                openEventFromMarker(lead.id, lead.type);
-              }}
-            />
-          );
-        })}
+          })}
+        </Fragment>
       </MapView>
 
       {/* Control Buttons */}
