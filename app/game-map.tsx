@@ -46,6 +46,8 @@ function GameMapScreen() {
   const [calendarEvents, setCalendarEvents] = useState<EventMapData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedSport, setSelectedSport] = useState<string | null>(null);
+  // Map-only league-level filter: Major / Minor / NCAA(college) / Other. null = All.
+  const [selectedLevel, setSelectedLevel] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   // A picked past day fetches its own markers (past days sit outside the loaded
@@ -120,11 +122,37 @@ function GameMapScreen() {
     [router]
   );
 
-  // Sports actually present on the map right now — the filter only offers what
-  // exists (no 🏒 chip when there's no hockey nearby).
+  // The base marker set after date selection: a picked past day uses its own
+  // fetched set; a forward chip filters the loaded set to that day; otherwise
+  // the full loaded set.
+  const dateBase = useMemo<EventMapData[]>(() => {
+    if (pastDayMarkers !== null) return pastDayMarkers;
+    if (selectedDate) {
+      return events.filter(e => e.date && toLocalDateKey(new Date(e.date)) === selectedDate);
+    }
+    return events;
+  }, [pastDayMarkers, selectedDate, events]);
+
+  // Map-only league-level filter (Major/Minor/NCAA/Other) layered on top of the
+  // date base. "Other" is everything outside major/minor/college — including
+  // local community events and any event with no league metadata. Consumes the
+  // existing `league_level` card metadata; no extra HTTP request.
+  const levelBase = useMemo<EventMapData[]>(() => {
+    if (!selectedLevel) return dateBase;
+    return dateBase.filter(e => {
+      const level = e.league_level ?? null;
+      if (selectedLevel === 'other') {
+        return level !== 'major' && level !== 'minor' && level !== 'college';
+      }
+      return level === selectedLevel;
+    });
+  }, [dateBase, selectedLevel]);
+
+  // Sports actually present after the date+level filter — the sport filter only
+  // offers what exists (no 🏒 chip when there's no hockey in the current view).
   const presentSports = useMemo(
-    () => Array.from(new Set(events.map(e => e.sport).filter((s): s is string => !!s))),
-    [events]
+    () => Array.from(new Set(levelBase.map(e => e.sport).filter((s): s is string => !!s))),
+    [levelBase]
   );
 
   const clearDate = useCallback(() => {
@@ -163,20 +191,11 @@ function GameMapScreen() {
     [calendarEvents]
   );
 
-  // Markers on the map: a picked past day uses its own fetched set; a forward chip
-  // filters the loaded set to that day; otherwise the full loaded set. The sport
-  // filter applies on top in every case.
-  const mapMarkers = useMemo(() => {
-    let base: EventMapData[];
-    if (pastDayMarkers !== null) {
-      base = pastDayMarkers;
-    } else if (selectedDate) {
-      base = events.filter(e => e.date && toLocalDateKey(new Date(e.date)) === selectedDate);
-    } else {
-      base = events;
-    }
-    return selectedSport ? base.filter(e => e.sport === selectedSport) : base;
-  }, [pastDayMarkers, selectedDate, events, selectedSport]);
+  // Final markers: the date+level base with the sport filter applied on top.
+  const mapMarkers = useMemo(
+    () => (selectedSport ? levelBase.filter(e => e.sport === selectedSport) : levelBase),
+    [levelBase, selectedSport]
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: Colors[colorScheme].background }]}>
@@ -228,6 +247,59 @@ function GameMapScreen() {
               selected={selectedSport}
               onSelect={setSelectedSport}
             />
+          </View>
+        )}
+
+        {/* Map-only league-level filter — Major / Minor / NCAA / Other. Always
+            visible; the calendar date strip stacks below it when open. */}
+        {!loading && !error && (
+          <View style={styles.levelStripPanel} pointerEvents="box-none">
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.dateStripContent}
+            >
+              {[
+                { label: 'All', value: null },
+                { label: 'Major', value: 'major' },
+                { label: 'Minor', value: 'minor' },
+                { label: 'NCAA', value: 'college' },
+                { label: 'Other', value: 'other' },
+              ].map(level => {
+                const active = selectedLevel === level.value;
+                return (
+                  <Pressable
+                    key={level.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${level.label} leagues`}
+                    accessibilityState={{ selected: active }}
+                    onPress={() => {
+                      // Toggle off when re-tapping the active chip (except All).
+                      setSelectedLevel(active ? null : level.value);
+                      setSelectedSport(null);
+                    }}
+                    style={[
+                      styles.dateChip,
+                      {
+                        backgroundColor: active
+                          ? Colors[colorScheme].tint
+                          : Colors[colorScheme].background,
+                        borderColor: active ? Colors[colorScheme].tint : Colors[colorScheme].border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dateChipText,
+                        { color: active ? '#FFFFFF' : Colors[colorScheme].text },
+                      ]}
+                    >
+                      {level.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
 
@@ -442,12 +514,21 @@ const styles = StyleSheet.create({
     height: 34,
     justifyContent: 'center',
   },
-  // Transparent container — the date chips float directly on the map, no card behind them.
-  dateStripPanel: {
+  // League-level filter row — floats near the top of the map, always visible.
+  levelStripPanel: {
     position: 'absolute',
     left: 0,
     right: 0,
     top: 116,
+  },
+  // Transparent container — the date chips float directly on the map, no card
+  // behind them. Sits below the level strip so both are visible when the
+  // calendar is open.
+  dateStripPanel: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 160,
   },
   dateStripContent: {
     paddingHorizontal: 12,
