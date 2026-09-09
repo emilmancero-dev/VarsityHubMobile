@@ -368,13 +368,16 @@ async function getEventPostingUnlockAnchor(
     orderBy: { created_at: 'asc' },
     select: { created_at: true },
   });
-  const earliestStory = event.game_id
-    ? await prisma.story.findFirst({
-        where: { user_id: userId, game_id: event.game_id },
-        orderBy: { created_at: 'asc' },
-        select: { created_at: true },
-      })
-    : null;
+  // Stories anchor the unlock too — game stories key on game_id, event-page
+  // stories (game-less pages) key on event_id. Check both so a first story on
+  // either surface earns the same 7-day window a first post does.
+  const storyOr: Array<{ event_id: string } | { game_id: string }> = [{ event_id: event.id }];
+  if (event.game_id) storyOr.push({ game_id: event.game_id });
+  const earliestStory = await prisma.story.findFirst({
+    where: { user_id: userId, OR: storyOr },
+    orderBy: { created_at: 'asc' },
+    select: { created_at: true },
+  });
 
   const candidates = [earliestPost?.created_at, earliestStory?.created_at].filter(
     (d): d is Date => d instanceof Date

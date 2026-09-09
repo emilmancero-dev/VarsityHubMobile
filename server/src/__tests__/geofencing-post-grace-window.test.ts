@@ -294,14 +294,19 @@ describe('first-post-unlocks-7-days posting rule', () => {
       const result = await verifyEventPostingPermission('event-1', 'user-1', null, null);
 
       expect(result.allowed).toBe(true);
+      // Stories anchor the unlock on either surface: a game-backed event matches
+      // by game_id OR its own event_id.
       expect(mockStoryFindFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ user_id: 'user-1', game_id: 'game-1' }),
+          where: expect.objectContaining({
+            user_id: 'user-1',
+            OR: expect.arrayContaining([{ event_id: 'event-1' }, { game_id: 'game-1' }]),
+          }),
         })
       );
     });
 
-    it('event-only pages (no game) match prior posts by event_id only and never query stories', async () => {
+    it('event-only pages (no game) anchor on prior posts OR event stories by event_id', async () => {
       jest.setSystemTime(GRACE_TIME);
       mockEventFindUnique.mockResolvedValue({ ...BASE_EVENT, game_id: null });
       mockPostFindFirst.mockResolvedValue({ created_at: new Date(EVENT_DATE) });
@@ -314,7 +319,13 @@ describe('first-post-unlocks-7-days posting rule', () => {
           where: expect.objectContaining({ OR: [{ event_id: 'event-1' }] }),
         })
       );
-      expect(mockStoryFindFirst).not.toHaveBeenCalled();
+      // Event-page stories now exist and anchor the unlock too — keyed on
+      // event_id only (there is no game to match).
+      expect(mockStoryFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ user_id: 'user-1', OR: [{ event_id: 'event-1' }] }),
+        })
+      );
     });
 
     it('denies once the unlock is older than 7 days, even inside the grace window', async () => {

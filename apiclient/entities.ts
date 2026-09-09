@@ -625,6 +625,18 @@ export const Event = {
     httpPost(`/events/${encodeURIComponent(id)}/rsvp`, typeof going === 'boolean' ? { going } : {}),
   myRsvps: () =>
     httpGet('/events/my-rsvps').then(data => validateEventRsvpArray('events.myRsvps', data)),
+  // Stories for a game-less event page (pro fixtures, etc.). Same shape and
+  // server contract as Game.stories / Game.addStory — see server/src/routes/events.ts.
+  stories: (id: string) => httpGet(`/events/${encodeURIComponent(id)}/stories`, {}, 15000, 1),
+  addStory: (
+    id: string,
+    data: {
+      media_url: string;
+      poster_url?: string;
+      caption?: string;
+      location?: { lat: number; lng: number; source?: 'device' | 'places' | 'zip' | 'derived' };
+    }
+  ) => httpPostWithOptions(`/events/${encodeURIComponent(id)}/stories`, data, 45000, 0),
 };
 
 export const Message = {

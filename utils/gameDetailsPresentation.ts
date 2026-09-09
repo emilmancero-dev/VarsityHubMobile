@@ -41,6 +41,14 @@ export type GameVM = {
   away_score?: number | null;
   winner?: string | null;
   can_edit_result?: boolean;
+  /**
+   * Server-authoritative story override for THIS viewer on an event page: true
+   * when they are a designated poster with an active unlock (or the exclusive
+   * poster), so "Add Story" is enabled and the geofence/live-window is skipped
+   * for them — mirroring the server's story permission. Source:
+   * GET /events/:id can_upload_story.
+   */
+  canUploadStory?: boolean;
   venueLat?: number | null;
   venueLng?: number | null;
   // Server-computed posting-window bounds (GET /games/:id[/summary]); used to

@@ -74,7 +74,7 @@ const isVideoUrl = (url?: string | null) => {
   return ['.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv'].some(ext => sanitized.endsWith(ext));
 };
 
-const serializeMedia = (story: any) => {
+export const serializeMedia = (story: any) => {
   const isVideo = isVideoUrl(story.media_url);
   return {
     id: story.id,
@@ -109,7 +109,7 @@ const posterGenInFlight = new Set<string>();
  * reaches every client regardless of app build, and backfills already-posted
  * videos the first time the story list is viewed). Never throws.
  */
-function ensureStoryPoster(
+export function ensureStoryPoster(
   p: StoryDeps['prisma'],
   story: { id: string; media_url?: string | null; poster_url?: string | null }
 ): void {
@@ -131,7 +131,7 @@ function ensureStoryPoster(
   })();
 }
 
-const isMissingStoryLocationColumnError = (error: any): boolean => {
+export const isMissingStoryLocationColumnError = (error: any): boolean => {
   if (!error || error.code !== 'P2022') return false;
   const modelName = String(error?.meta?.modelName ?? '');
   const column = String(error?.meta?.column ?? '');
@@ -146,7 +146,7 @@ const locationSchema = z
   })
   .optional();
 
-const storySchema = z.object({
+export const storySchema = z.object({
   media_url: z
     .string()
     .url({ message: 'media_url must be a valid URL' })

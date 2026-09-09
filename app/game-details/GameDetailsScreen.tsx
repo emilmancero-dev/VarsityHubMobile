@@ -939,6 +939,11 @@ const GameDetailsScreen = () => {
         reviewsCount: null,
         isPast: computeIsPast(dateIso),
         eventType: event?.event_type ?? null,
+        venueLat: typeof (event as any)?.latitude === 'number' ? (event as any).latitude : null,
+        venueLng: typeof (event as any)?.longitude === 'number' ? (event as any).longitude : null,
+        // Designated-poster/exclusive grant for this viewer — enables "Add Story"
+        // and skips the geofence even on a finished event (server is authoritative).
+        canUploadStory: Boolean((event as any)?.can_upload_story),
       };
       setVm(vmPayload);
 
@@ -989,12 +994,36 @@ const GameDetailsScreen = () => {
         .catch(error => {
           if (__DEV__) console.warn('[GameDetails] event posts hydration failed:', error);
         });
+
+      // Hydrate the Stories/media rail for a game-less event page. Event stories
+      // key on event_id server-side (GET /events/:id/stories) — the same rail
+      // component renders them (vm.media).
+      void retryWithBackoff(() => Event.stories(eventIdValue), {
+        maxRetries: 2,
+        initialDelayMs: 800,
+        maxDelayMs: 4000,
+      })
+        .then((mediaResult: any) => {
+          const items = Array.isArray(mediaResult)
+            ? mediaResult
+            : Array.isArray(mediaResult?.items)
+              ? mediaResult.items
+              : [];
+          setVm(prev => {
+            if (!prev || prev.eventId !== eventIdValue || prev.gameId) return prev;
+            return { ...prev, media: items };
+          });
+        })
+        .catch(error => {
+          if (__DEV__) console.warn('[GameDetails] event stories hydration failed:', error);
+        });
     },
     [replaceToCanonicalGame]
   );
 
   const handleAddStory = useCallback(async () => {
-    if (!vm?.gameId || storyBusy) return;
+    // Stories hang off a game OR a game-less event page — allow either target.
+    if ((!vm?.gameId && !vm?.eventId) || storyBusy) return;
 
     // Signed-out fans must sign in first. Without this guard the upload runs
     // and 401s at the requireAuth-gated Cloudinary signature endpoint, which
@@ -1013,10 +1042,15 @@ const GameDetailsScreen = () => {
     // them regardless of distance.
     const vmDescription = typeof vm.description === 'string' ? vm.description : '';
     const isDemoMatchup = vmDescription.includes(DEMO_MATCHUP_TAG);
+    // Server-granted story override (designated poster + active unlock, or the
+    // exclusive poster) — the server admits these users from anywhere, even on a
+    // finished event, so the client must not falsely block them at the geofence.
+    const hasStoryUploadGrant = Boolean(vm?.canUploadStory);
+    const skipGeofence = isDemoMatchup || isAdminUser || hasStoryUploadGrant;
     // Local unlock proves prior attendance for regular posts only. Stories are
     // live-window media and must re-pass geofence each time, matching the
-    // server's story permission contract.
-    if (!isDemoMatchup && !isAdminUser && location?.latitude && location?.longitude) {
+    // server's story permission contract — unless the viewer holds a server grant.
+    if (!skipGeofence && location?.latitude && location?.longitude) {
       const venueLat = vm.venueLat;
       const venueLng = vm.venueLng;
       if (typeof venueLat === 'number' && typeof venueLng === 'number') {
@@ -1062,7 +1096,7 @@ const GameDetailsScreen = () => {
         // If the game has a linked event and it's not a demo, location is
         // required by the server for stories. Block early to avoid wasting a
         // direct upload that the server will reject.
-        if (hasEvent && !isDemoMatchup && !isAdminUser) {
+        if (hasEvent && !skipGeofence) {
           Alert.alert(
             'Location Required',
             'Location access is required to post stories at live events. Enable it in Settings to continue.',
@@ -1102,8 +1136,7 @@ const GameDetailsScreen = () => {
 
     if (
       hasEvent &&
-      !isDemoMatchup &&
-      !isAdminUser &&
+      !skipGeofence &&
       (typeof location?.latitude !== 'number' || typeof location?.longitude !== 'number')
     ) {
       const granted = permissionGranted ? true : await requestPermission();
@@ -1207,8 +1240,12 @@ const GameDetailsScreen = () => {
         throw new Error('Upload failed');
       }
       {
+        // Route to the game story endpoint, or the event story endpoint for a
+        // game-less event page. Same payload + server contract either way.
         const gameId = vm.gameId;
-        if (!gameId) throw new Error('Could not resolve the game for this story');
+        const eventId = vm.eventId;
+        if (!gameId && !eventId)
+          throw new Error('Could not resolve the game or event for this story');
         const storyPayload: any = { media_url: mediaUrl };
         if (location?.latitude && location?.longitude) {
           storyPayload.location = {
@@ -1217,18 +1254,23 @@ const GameDetailsScreen = () => {
             source: 'device',
           };
         }
-        await Game.addStory(gameId, storyPayload);
+        if (gameId) await Game.addStory(gameId, storyPayload);
+        else await Event.addStory(eventId as string, storyPayload);
         // Mirror the server's posting unlock locally so preflight prompts
         // don't re-block this user on their next upload to this event page.
-        void recordEventPostingUnlock([gameId, vm.eventId]);
-        analytics.track(ANALYTICS_EVENTS.STORY_ADDED, { game_id: gameId });
+        void recordEventPostingUnlock([gameId, eventId].filter(Boolean) as string[]);
+        analytics.track(
+          ANALYTICS_EVENTS.STORY_ADDED,
+          gameId ? { game_id: gameId } : { event_id: eventId }
+        );
         try {
-          await loadGameById(gameId);
-          Alert.alert('Added', 'Story added to this game.');
+          if (gameId) await loadGameById(gameId);
+          else await loadVirtualFromEvent(eventId as string);
+          Alert.alert('Added', 'Story added.');
         } catch (reloadErr: any) {
           if (__DEV__)
             console.warn('[story] Camera - reload failed but story was uploaded:', reloadErr);
-          Alert.alert('Added', 'Story added to this game. Refresh to see it.');
+          Alert.alert('Added', 'Story added. Refresh to see it.');
         }
       }
     } catch (err: any) {
@@ -1277,10 +1319,12 @@ const GameDetailsScreen = () => {
     hasEvent,
     isAdminUser,
     loadGameById,
+    loadVirtualFromEvent,
     storyBusy,
     vm?.description,
     vm?.gameId,
     vm?.eventId,
+    vm?.canUploadStory,
     vm?.venueLat,
     vm?.venueLng,
     location?.latitude,
@@ -1292,7 +1336,7 @@ const GameDetailsScreen = () => {
   ]);
 
   const confirmStoryUpload = useCallback(async () => {
-    if (!storyPreview || !vm?.gameId) return;
+    if (!storyPreview || (!vm?.gameId && !vm?.eventId)) return;
     // Story cap: an over-limit pick must be trimmed (the trimmer clamps its
     // window to the cap) before it can upload. Keeps the preview modal open.
     if (
@@ -1361,7 +1405,9 @@ const GameDetailsScreen = () => {
 
       {
         const gameId = vm.gameId;
-        if (!gameId) throw new Error('Could not resolve the game for this story');
+        const eventId = vm.eventId;
+        if (!gameId && !eventId)
+          throw new Error('Could not resolve the game or event for this story');
         const storyPayload: any = { media_url: mediaUrl };
         if (posterUrl) storyPayload.poster_url = posterUrl;
         if (location?.latitude && location?.longitude) {
@@ -1371,15 +1417,20 @@ const GameDetailsScreen = () => {
             source: 'device',
           };
         }
-        await Game.addStory(gameId, storyPayload);
+        if (gameId) await Game.addStory(gameId, storyPayload);
+        else await Event.addStory(eventId as string, storyPayload);
         // Mirror the server's posting unlock locally (see handleAddStory).
-        void recordEventPostingUnlock([gameId, vm.eventId]);
-        analytics.track(ANALYTICS_EVENTS.STORY_ADDED, { game_id: gameId });
+        void recordEventPostingUnlock([gameId, eventId].filter(Boolean) as string[]);
+        analytics.track(
+          ANALYTICS_EVENTS.STORY_ADDED,
+          gameId ? { game_id: gameId } : { event_id: eventId }
+        );
         try {
-          await loadGameById(gameId);
-          Alert.alert('Added', 'Story added to this game.');
+          if (gameId) await loadGameById(gameId);
+          else await loadVirtualFromEvent(eventId as string);
+          Alert.alert('Added', 'Story added.');
         } catch {
-          Alert.alert('Added', 'Story added to this game. Refresh to see it.');
+          Alert.alert('Added', 'Story added. Refresh to see it.');
         }
       }
     } catch (err: any) {
@@ -1436,6 +1487,7 @@ const GameDetailsScreen = () => {
     location?.latitude,
     location?.longitude,
     loadGameById,
+    loadVirtualFromEvent,
   ]);
 
   const _refreshVotes = useCallback(async () => {
@@ -2535,17 +2587,17 @@ const GameDetailsScreen = () => {
                 <Pressable
                   style={[
                     styles.actionBtn,
-                    !vm?.gameId ||
+                    (!vm?.gameId && !vm?.eventId) ||
                     storyBusy ||
-                    !canAddStory(vm?.date, vm?.gameId, vm?.description, vm)
+                    (!canAddStory(vm?.date, vm?.gameId, vm?.description, vm) && !vm?.canUploadStory)
                       ? styles.actionBtnDisabled
                       : null,
                   ]}
                   onPress={handleAddStory}
                   disabled={
-                    !vm?.gameId ||
+                    (!vm?.gameId && !vm?.eventId) ||
                     storyBusy ||
-                    !canAddStory(vm?.date, vm?.gameId, vm?.description, vm)
+                    (!canAddStory(vm?.date, vm?.gameId, vm?.description, vm) && !vm?.canUploadStory)
                   }
                 >
                   <Ionicons
