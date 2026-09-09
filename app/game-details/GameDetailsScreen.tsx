@@ -1164,11 +1164,15 @@ const GameDetailsScreen = () => {
         // via the trimmer + confirmStoryUpload gate below.
         videoMaxDuration: STORY_MAX_DURATION_S,
       };
-      // Demo matchups (Duke v UNC, Cavs v Warriors) let fans upload from the
-      // camera roll as well — they're not physically at Chase Center or Cameron
-      // Indoor, so the camera-only rule for geofenced events doesn't apply.
+      // Camera roll is allowed only for accounts the rules are already bent for:
+      // demo matchups (fans aren't at the venue), platform admins, and
+      // designated posters holding an active grant (e.g. the owner's marketing /
+      // superfan account). This is the SAME trust boundary as the geofence
+      // bypass (skipGeofence) the server already honors for these accounts.
+      // Normal attendees stay camera-only so a story still proves presence at
+      // the event — do not widen this without widening the server story grant.
       let result: ImagePicker.ImagePickerResult;
-      if (isDemoMatchup) {
+      if (skipGeofence) {
         const source = await new Promise<'camera' | 'library' | null>(resolve => {
           Alert.alert(
             'Add to Story',
