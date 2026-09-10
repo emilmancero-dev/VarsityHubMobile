@@ -1,13 +1,29 @@
 import * as ImagePicker from 'expo-image-picker';
 
 /**
- * Single source of truth for video capture/upload settings.
+ * Single source of truth for the ImagePicker `videoExportPreset` across every
+ * capture surface (enforced by video-capture-parity.contract.test.ts).
  *
- * Quality: 1080p (H264_1920x1080) across all capture surfaces. MediumQuality
- * (~540p) was the prior default and looked soft on highlight playback; the
- * 150MB upload cap below has ample headroom for 1080p at the 90s post cap.
+ * ROOT-CAUSE FIX (2026-09-09): this was `H264_1920x1080`, which forced iOS to
+ * run a FULL AVAssetExportSession re-encode of every picked/recorded video to
+ * 1080p — the single slowest step of an upload, and it ran on the OS side
+ * before any app code, on EVERY upload. Expo's own default here is
+ * `Passthrough` (no re-encode); we now use it. The picker returns the source
+ * as-is (camera-native or library original) essentially instantly.
+ *
+ * Quality is preserved or better: Passthrough keeps the untouched source rather
+ * than transcoding it (every re-encode loses a little). Size + H.264
+ * normalization is still handled downstream by `prepareVideoForUpload`
+ * (react-native-compressor at 1080p / VIDEO_TARGET_BITRATE_BPS) — but only when
+ * a clip actually exceeds MAX_VIDEO_SIZE_BYTES, so the common case (a clip that
+ * already fits) now uploads with ZERO on-device transcodes.
+ *
+ * Web note: a native-codec (e.g. HEVC) clip that skips the compressor is stored
+ * verbatim on R2; native players handle it, some desktop browsers don't. If
+ * web HEVC playback becomes an issue, normalize with a lightweight remux, not a
+ * blanket re-encode.
  */
-export const VIDEO_CAPTURE_PRESET = ImagePicker.VideoExportPreset.H264_1920x1080;
+export const VIDEO_CAPTURE_PRESET = ImagePicker.VideoExportPreset.Passthrough;
 
 /** Image upload cap — shared by create-post and BannerUpload (was two independent 10MB literals). */
 export const MAX_IMAGE_SIZE_MB = 10;
