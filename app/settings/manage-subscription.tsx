@@ -374,11 +374,10 @@ function ManageSubscription() {
           ]
         );
       } else {
-        const raw = e?.data?.error || e?.message || '';
-        const safeMsg = /prod_|price_/i.test(raw)
-          ? 'Subscription failed. Please try again or contact support.'
-          : raw || 'Subscription failed';
-        Alert.alert('Error', safeMsg);
+        Alert.alert(
+          'Error',
+          toUserMessage(e, 'Subscription failed. Please try again or contact support.')
+        );
       }
     } finally {
       setLoading(false);
@@ -396,7 +395,7 @@ function ManageSubscription() {
         );
         await syncBillingState();
       } else {
-        Alert.alert('Error', res?.error || 'Unable to cancel subscription');
+        Alert.alert('Error', toUserMessage({ data: res }, 'Unable to cancel subscription'));
       }
     } catch (e: any) {
       Alert.alert('Error', toUserMessage(e, 'Cancel failed'));

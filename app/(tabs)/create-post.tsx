@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { safeGoBack } from '@/utils/navigation';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1055,7 +1056,7 @@ function CreatePostScreen() {
         setTimeout(() => safeGoBack(router, '/(tabs)/feed'), 800);
         return;
       } else if (issues.length) {
-        setError(issues.map(i => i.message).join('\n'));
+        setError('Please check your post and try again.');
       } else {
         // Provide more helpful error messages
         if (e?.status === 404 && hasSelectedEvent) {
@@ -1078,12 +1079,12 @@ function CreatePostScreen() {
             // rule stays server-side, so just show it. Title is deliberately
             // neutral — the old 'Not Yet' read as "come back later" on a
             // finished event, where there is no later.
-            const msg = e?.data?.message || 'Posting is not open for this event.';
+            const msg = toUserMessage(e, 'Posting is not open for this event.');
             Alert.alert('Posting Closed', msg);
             setError(msg);
           } else if (code === 'TOO_FAR_FROM_VENUE') {
             const dist = e?.data?.distance;
-            const msg = e?.data?.message || 'You must be within 3 km of the venue to post.';
+            const msg = toUserMessage(e, 'You must be within 3 km of the venue to post.');
             analytics.track(ANALYTICS_EVENTS.GEOFENCE_BLOCKED, { distance: dist });
             Alert.alert(
               'Not at the Venue',
@@ -1113,12 +1114,7 @@ function CreatePostScreen() {
             // `message` over `error`: on this envelope `error` is the CODE, so
             // the old order showed users raw strings like
             // "EXCLUSIVE_POSTER_ONLY" whenever a code had no branch above.
-            const msg =
-              e?.data?.message ||
-              (typeof e?.data?.error === 'string' && !/^[A-Z][A-Z0-9_]{2,}$/.test(e.data.error)
-                ? e.data.error
-                : null) ||
-              'You do not have permission to post to this event.';
+            const msg = toUserMessage(e, 'You do not have permission to post to this event.');
             Alert.alert('Cannot Post', msg);
             setError(msg);
           }
@@ -1126,7 +1122,7 @@ function CreatePostScreen() {
           setError(
             e?.status === 429
               ? 'You have hit the hourly upload limit. Wait a few minutes and try again.'
-              : e?.message || 'Failed to create post. Please try again.'
+              : toUserMessage(e, 'Failed to create post. Please try again.')
           );
         }
       }

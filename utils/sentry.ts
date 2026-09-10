@@ -7,6 +7,8 @@ import {
   MAX_SENTRY_VALUE_LENGTH as MAX_BREADCRUMB_VALUE_LENGTH,
   SENSITIVE_SENTRY_KEY_RE as SENSITIVE_BREADCRUMB_KEY_RE,
   normalizeSentryValue,
+  scrubErrorEvent,
+  scrubTransactionEvent,
 } from '@/shared/runtime/sentrySanitization.js';
 
 const appConfig = getConfig();
@@ -195,6 +197,7 @@ export function initSentry() {
       debug: __DEV__,
       enableAutoSessionTracking: true,
       tracesSampleRate: Number.isNaN(tracesSampleRate) ? 0.2 : tracesSampleRate,
+      beforeSendTransaction: scrubTransactionEvent,
       beforeSend(event, hint) {
         // Disable error reporting in development to avoid blocking UI
         if (__DEV__) {
@@ -222,7 +225,7 @@ export function initSentry() {
         if (isExpectedGeofenceBusinessError(originalException, event)) {
           return null;
         }
-        return event;
+        return scrubErrorEvent(event);
       },
     });
 

@@ -246,7 +246,7 @@ export default function SignInScreen() {
       } else if (status === 500 || errMsg.toLowerCase().includes('internal server')) {
         setError('Server is temporarily unavailable. Please try again in a moment.');
       } else {
-        setError(errMsg || 'Login failed. Please try again.');
+        setError(toAuthErrorMessage(e, 'Login failed. Please try again.'));
       }
 
       // Capture error with context
@@ -357,7 +357,7 @@ export default function SignInScreen() {
       } else if (oauthConflictMessage) {
         setError(oauthConflictMessage);
       } else {
-        setError(message || 'Google sign-in failed. Please try again.');
+        setError(toAuthErrorMessage(e, 'Google sign-in failed. Please try again.'));
       }
 
       captureException(typeof e === 'string' ? new Error(e) : e, {
@@ -474,7 +474,7 @@ export default function SignInScreen() {
       } else if (oauthConflictMessage) {
         setError(oauthConflictMessage);
       } else {
-        setError(message || 'Apple sign-in failed. Please try again.');
+        setError(toAuthErrorMessage(e, 'Apple sign-in failed. Please try again.'));
       }
 
       captureException(typeof e === 'string' ? new Error(e) : e, {

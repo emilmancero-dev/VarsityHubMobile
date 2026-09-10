@@ -59,7 +59,7 @@ function AdminUserDetailScreen() {
           ? 'Your admin session expired. Please sign in again.'
           : e?.status === 403
             ? 'Access denied (admin only).'
-            : e?.message || 'Failed to load user'
+            : toUserMessage(e, 'Failed to load user')
       );
     } finally {
       setLoading(false);

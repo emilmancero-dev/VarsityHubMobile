@@ -1283,7 +1283,6 @@ const GameDetailsScreen = () => {
     } catch (err: any) {
       const status = err?.status;
       const code = err?.data?.error || '';
-      const serverMsg = err?.data?.message || '';
       const message = String(err?.message || code || '');
       if (status === 401 || /unauthorized/i.test(message)) {
         showUploadErrorAlert(err, {
@@ -1294,14 +1293,13 @@ const GameDetailsScreen = () => {
       } else if (code === 'POSTING_WINDOW_CLOSED') {
         Alert.alert(
           'Story Posting Closed',
-          serverMsg || 'The story posting window is not open for this event.'
+          toUserMessage(err, 'The story posting window is not open for this event.')
         );
       } else if (code === 'TOO_FAR_FROM_VENUE') {
         const dist = err?.data?.distance;
         Alert.alert(
           'Too Far',
-          serverMsg ||
-            `You need to be within 3 km of the venue.${dist ? ` You're ${dist.toFixed(1)} km away.` : ''}`
+          `You need to be within 3 km of the venue.${typeof dist === 'number' && Number.isFinite(dist) ? ` You're ${dist.toFixed(1)} km away.` : ''}`
         );
       } else if (code === 'LOCATION_REQUIRED') {
         Alert.alert('Location Required', 'Enable location access to post stories at this event.', [
@@ -1454,7 +1452,6 @@ const GameDetailsScreen = () => {
     } catch (err: any) {
       const status = err?.status;
       const code = err?.data?.error || '';
-      const serverMsg = err?.data?.message || '';
       const message = String(err?.message || code || '');
       if (status === 401 || /unauthorized/i.test(message)) {
         showUploadErrorAlert(err, {
@@ -1465,14 +1462,13 @@ const GameDetailsScreen = () => {
       } else if (code === 'POSTING_WINDOW_CLOSED') {
         Alert.alert(
           'Story Posting Closed',
-          serverMsg || 'The story posting window is not open for this event.'
+          toUserMessage(err, 'The story posting window is not open for this event.')
         );
       } else if (code === 'TOO_FAR_FROM_VENUE') {
         const dist = err?.data?.distance;
         Alert.alert(
           'Too Far',
-          serverMsg ||
-            `You need to be within 3 km of the venue.${dist ? ` You're ${dist.toFixed(1)} km away.` : ''}`
+          `You need to be within 3 km of the venue.${typeof dist === 'number' && Number.isFinite(dist) ? ` You're ${dist.toFixed(1)} km away.` : ''}`
         );
       } else if (code === 'LOCATION_REQUIRED') {
         Alert.alert('Location Required', 'Enable location access to post stories at this event.', [
@@ -1572,7 +1568,7 @@ const GameDetailsScreen = () => {
         if (message.toLowerCase().includes('timed out')) {
           setError('Loading is taking too long. Pull to refresh and try again.');
         } else {
-          setError(`Unable to load. ${message || 'Please try again.'}`);
+          setError(toUserMessage(err, 'Unable to load. Please try again.'));
         }
         setVm(null);
       } finally {

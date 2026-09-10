@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 /**
  * VideoTrimmer — Native Video Trimming Component
  *
@@ -87,11 +88,7 @@ function reportTrimFailure(stage: string, error: unknown, uri?: string) {
 }
 
 function getTrimFailureMessage(error: unknown) {
-  const rawMessage = String((error as any)?.message || error || '').trim();
-  if (/Command failed with rc .*1/i.test(rawMessage)) {
-    return 'Video trimming failed in the native module. Please try again.';
-  }
-  return rawMessage || 'An error occurred while trimming the video.';
+  return toUserMessage(error, 'Unable to trim this video. Please try again.');
 }
 
 let trim:

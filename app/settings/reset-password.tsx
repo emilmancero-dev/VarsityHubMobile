@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import auth from '@/api/auth';
 import PasswordInput from '@/components/PasswordInput';
 import { Button } from '@/components/ui/button';
@@ -73,7 +74,7 @@ export default function ResetPasswordScreen() {
       setPassword('');
       setConfirm('');
     } catch (err: any) {
-      const message = err?.message || err?.data?.error || 'Unable to update password.';
+      const message = toUserMessage(err, 'Unable to update password.');
       Alert.alert('Unable to update password', message);
     } finally {
       setSaving(false);

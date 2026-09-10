@@ -278,7 +278,7 @@ export default function OrganizationScreen() {
   const error = isError
     ? (orgPageError as any)?.message === 'not_found'
       ? 'not_found'
-      : (orgPageError as any)?.message || 'Failed to load organization data'
+      : toUserMessage(orgPageError, 'Failed to load organization data')
     : null;
 
   // Access flags derive from the org payload (server-computed booleans).
@@ -1115,13 +1115,7 @@ export default function OrganizationScreen() {
                     await refreshAll();
                     Alert.alert('Invited', `Invitation sent to ${inviteIdentifier.trim()}`);
                   } catch (err: any) {
-                    Alert.alert(
-                      'Error',
-                      err?.data?.message ||
-                        err?.data?.error ||
-                        err?.message ||
-                        'Failed to send invite'
-                    );
+                    Alert.alert('Error', toUserMessage(err, 'Failed to send invite'));
                   }
                 }}
               >

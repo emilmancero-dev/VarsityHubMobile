@@ -134,7 +134,7 @@ export function SubmitAdScreenBase({
           normalizedEmail = created.contact_email.trim().toLowerCase();
         }
       } catch (err: any) {
-        createError = err?.message || 'Could not create ad on server';
+        createError = toUserMessage(err, 'Could not create ad on server');
         const status = Number(err?.status || 0);
         const raw = String(err?.message || err?.data?.error || '').toLowerCase();
         const code = String(err?.data?.code || err?.data?.error || '');

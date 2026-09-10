@@ -151,7 +151,7 @@ export default function EditOrganizationScreen() {
                   [{ text: 'OK', onPress: () => safeGoBack(router, fallbackRoute) }]
                 );
               } catch (e: any) {
-                const msg = e?.data?.error || e?.message || 'Failed to transfer ownership';
+                const msg = toUserMessage(e, 'Failed to transfer ownership');
                 Alert.alert('Unable to transfer ownership', msg);
               } finally {
                 setTransferring(false);
@@ -242,7 +242,7 @@ export default function EditOrganizationScreen() {
       Alert.alert('Saved', 'Organization updated successfully.');
       safeGoBack(router, fallbackRoute);
     } catch (e: any) {
-      const msg = e?.data?.error || e?.message || 'Failed to save changes.';
+      const msg = toUserMessage(e, 'Failed to save changes.');
       Alert.alert('Error', msg);
     } finally {
       setSaving(false);

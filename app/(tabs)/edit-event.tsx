@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import CoachAccessRedirecting from '@/components/CoachAccessRedirecting';
 import {
   EditScreenHeader,
@@ -133,7 +134,7 @@ export default function EditEventScreen() {
         } catch (error: any) {
           Alert.alert(
             'Upload Failed',
-            error?.message || 'Failed to upload event photo. Please try again.'
+            toUserMessage(error, 'Failed to upload event photo. Please try again.')
           );
         }
       }
@@ -278,7 +279,7 @@ export default function EditEventScreen() {
         return;
       }
       if (__DEV__) console.error('[edit-event] Update failed:', e);
-      const msg = e?.data?.error || e?.message || 'Failed to update event.';
+      const msg = toUserMessage(e, 'Failed to update event.');
       Alert.alert('Error', msg);
     } finally {
       setSubmitting(false);

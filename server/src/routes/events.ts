@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -77,6 +78,49 @@ import { registerIdValidation } from '../middleware/validateParams.js';
 
 export const eventsRouter = Router();
 registerIdValidation(eventsRouter);
+
+// Story surfaces use the same approval, contributor and private-team rules as events.
+const EVENT_VISIBILITY_SELECT = {
+  id: true,
+  creator_id: true,
+  approval_status: true,
+  game_id: true,
+} as const;
+async function canViewEventRecord(
+  event: {
+    id: string;
+    creator_id: string | null;
+    approval_status: string | null;
+    game_id: string | null;
+  },
+  req: AuthedRequest
+): Promise<boolean> {
+  const viewerId = req.user?.id ?? null;
+  if (viewerId && (await getIsAdmin(req as any))) return true;
+  if (event.approval_status !== 'approved' && (!viewerId || event.creator_id !== viewerId)) {
+    if (
+      !viewerId ||
+      !(await viewerHasPostedOnEntity({
+        userId: viewerId,
+        eventId: event.id,
+        gameId: event.game_id,
+      }))
+    )
+      return false;
+  }
+  const where = mergeAndWhere<Prisma.EventWhereInput>(
+    { id: event.id },
+    buildPrivateTeamEventVisibilityWhere(await getExcludedPrivateTeamIds(viewerId))
+  );
+  mergeAndWhere(where, {
+    OR: [
+      { game_id: null },
+      { game: { is: { opponent_approval_status: { notIn: ['pending', 'declined'] } } } },
+      { game: { is: { date: { lt: new Date() } } } },
+    ],
+  });
+  return Boolean(await prisma.event.findFirst({ where, select: { id: true } }));
+}
 
 type SportsLeagueScheduleStatus = 'provider_backed' | 'event_seeded' | 'catalog_only';
 
@@ -1491,7 +1535,7 @@ eventsRouter.get(
         select: EVENT_VISIBILITY_SELECT,
       });
       if (!event) return sendError(res, 404, 'Not found');
-      if (!(await canViewEventRecord(event as any, req.user?.id ?? null))) {
+      if (!(await canViewEventRecord(event, req))) {
         return sendError(res, 404, 'Not found');
       }
 
@@ -1576,7 +1620,7 @@ eventsRouter.post(
       select: { ...EVENT_VISIBILITY_SELECT, description: true, title: true },
     });
     if (!event) return sendError(res, 404, 'Not found');
-    if (!(await canViewEventRecord(event as any, req.user.id))) {
+    if (!(await canViewEventRecord(event, req))) {
       return sendError(res, 404, 'Not found');
     }
 

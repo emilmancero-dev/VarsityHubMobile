@@ -99,3 +99,28 @@ describe('apiHostFingerprint', () => {
     );
   });
 });
+
+describe('error disclosure protection', () => {
+  it.each([
+    'The operation couldn’t be completed. (PHPhotosErrorDomain error 3164.)',
+    'password=private-value',
+    'relation internal_users does not exist',
+    'Unknown provider diagnostic with private-value',
+    'Invalid credentials: private-value',
+  ])('rejects unapproved text: %s', raw => {
+    expect(sanitizeMessage(raw, 'Please try again.')).toBe('Please try again.');
+    expect(toUserMessage({ data: { message: raw } }, 'Please try again.')).toBe(
+      'Please try again.'
+    );
+    expect(toAuthErrorMessage(new Error(raw), 'Please try again.')).toBe('Please try again.');
+  });
+});
+
+it('maps known business codes to helpful approved copy without echoing diagnostics', () => {
+  expect(toUserMessage({ data: { code: 'SOLE_OWNER', message: 'private-value' } })).toBe(
+    'Transfer ownership to another member before removing the only owner.'
+  );
+  expect(
+    toUserMessage({ data: { error: 'MEDIA_DURATION_EXCEEDED', message: 'private-value' } })
+  ).toBe('Stories are limited to 20 seconds. Trim this video and try again.');
+});

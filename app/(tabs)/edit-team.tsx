@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import {
   EditScreenHeader,
   EditScreenLoading,
@@ -168,7 +169,7 @@ function EditTeamScreen() {
                 { text: 'OK', onPress: () => safeGoBack(router, fallbackRoute) },
               ]);
             } catch (e: any) {
-              const msg = e?.data?.error || e?.message || 'Failed to archive team';
+              const msg = toUserMessage(e, 'Failed to archive team');
               Alert.alert('Unable to archive team', msg);
             } finally {
               setArchiving(false);
@@ -393,11 +394,7 @@ function EditTeamScreen() {
       if (__DEV__) console.error('Team update error status:', e?.status);
       if (__DEV__) console.error('Team update error data:', e?.data);
       if (__DEV__) console.error('Team update error message:', e?.message);
-      const errorMsg =
-        e?.data?.error ||
-        e?.data?.message ||
-        e?.message ||
-        'Failed to update team. Please try again.';
+      const errorMsg = toUserMessage(e, 'Failed to update team. Please try again.');
       Alert.alert('Error', errorMsg);
     } finally {
       setSubmitting(false);
@@ -874,8 +871,7 @@ function EditTeamScreen() {
                                   ]
                                 );
                               } catch (e: any) {
-                                const msg =
-                                  e?.data?.error || e?.message || 'Failed to transfer ownership';
+                                const msg = toUserMessage(e, 'Failed to transfer ownership');
                                 Alert.alert('Error', msg);
                               } finally {
                                 setTransferring(false);
