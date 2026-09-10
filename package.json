@@ -96,7 +96,10 @@
     "stash:apply": "bash scripts/safe-stash-apply.sh",
     "check:conflicts": "rg -l \"^<<<<<<< |^>>>>>>> |^=======$\" --glob \"*.ts\" --glob \"*.tsx\" --glob \"*.js\" app components hooks utils api context constants lib shared server/src 2>/dev/null && echo \"Conflicts found!\" || echo \"No conflicts found.\"",
     "format": "npx prettier --write \"app/**/*.{ts,tsx,js,jsx}\" \"components/**/*.{ts,tsx,js,jsx}\" \"hooks/**/*.{ts,tsx,js,jsx}\" \"utils/**/*.{ts,tsx,js,jsx}\" \"apiclient/**/*.{ts,tsx,js,jsx}\" \"context/**/*.{ts,tsx,js,jsx}\" \"constants/**/*.{ts,tsx,js,jsx}\" \"__tests__/**/*.{ts,tsx}\" \"server/src/**/*.{ts,tsx,js,jsx}\" \"*.{js,json,md}\" \"docs/**/*.md\"",
-    "audit:duplication": "npx --yes jscpd@3.5.10 --config .jscpd.json"
+    "audit:duplication": "npx --yes jscpd@3.5.10 --config .jscpd.json",
+    "audit": "npm --prefix tools/audit run audit --",
+    "audit:ui": "npm --prefix tools/audit run dev --",
+    "audit:test": "npm --prefix tools/audit test"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

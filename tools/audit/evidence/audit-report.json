@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0.0",
+  "checklistVersion": "1.0.0",
+  "generatedAt": "2026-09-07T19:29:39.644Z",
+  "kind": "automated",
+  "source": {
+    "type": "local"
+  },
+  "summary": {
+    "passed": 2,
+    "failed": 1,
+    "needsReview": 3
+  },
+  "checks": [
+    {
+      "id": "no-fetch-outside-api",
+      "title": "Direct fetch calls stay in API adapters",
+      "severity": "High",
+      "status": "failed",
+      "details": "Scanned 455 client files for direct fetch/globalThis.fetch/window.fetch/self.fetch calls. API adapters are api/, apiclient/, src/api/. Aliases and other network libraries require review; local-file and OAuth fetch calls also require architectural review.",
+      "evidence": [
+        "app/components/MatchBanner.tsx:97",
+        "components/BannerUpload.tsx:157",
+        "hooks/useGoogleAuth.ts:244"
+      ]
+    },
+    {
+      "id": "validation-drift",
+      "title": "Canonical username regex parity",
+      "severity": "High",
+      "status": "passed",
+      "details": "Compares literal username regex in canonical client helper and backend username schema only. Length, normalization, email, password and runtime validation remain manual review.",
+      "evidence": [
+        "utils/formUtils.ts: USERNAME_REGEX = /^[a-z0-9_.]+$/",
+        "server/src/routes/auth.ts: username regex = /^[a-z0-9_.]+$/, /^[a-z0-9_.]+$/"
+      ]
+    },
+    {
+      "id": "deep-link-coverage",
+      "title": "Declared deep-link destinations resolve to Expo routes",
+      "severity": "High",
+      "status": "passed",
+      "details": "Resolved 22 declared ROUTE_MAP destinations against 180 Expo source files. This does not prove authorization, parameter safety, or that every screen should be externally linkable.",
+      "evidence": ["utils/deepLinks.ts: all declared destinations resolve"]
+    },
+    {
+      "id": "webhook-idempotency",
+      "title": "Webhook replay and concurrent delivery safety",
+      "severity": "Critical",
+      "status": "needs-review",
+      "details": "Manual review required: execute duplicate and concurrent delivery tests and inspect unique constraints and transaction boundaries. Presence of a dedup marker cannot prove duplicate-safe writes.",
+      "evidence": ["server/src/routes/payments.ts"]
+    },
+    {
+      "id": "audit-log-calls",
+      "title": "Sensitive admin actions produce durable audit events",
+      "severity": "High",
+      "status": "needs-review",
+      "details": "Manual review required: exercise each sensitive admin action and verify actor, target and outcome in durable logs, including logger failure. Nearby log calls alone do not prove complete coverage.",
+      "evidence": ["server/src/lib/adminActivityLogger.ts"]
+    },
+    {
+      "id": "payment-state-ownership",
+      "title": "Payment state is owned by verified server transitions",
+      "severity": "Critical",
+      "status": "needs-review",
+      "details": "Manual review required: tamper with client payment fields and verify backend rejects changes; inspect receipt/signature validation and ownership. Source scanning cannot establish trusted state transitions.",
+      "evidence": ["server/src/routes/payments.ts"]
+    }
+  ]
+}
