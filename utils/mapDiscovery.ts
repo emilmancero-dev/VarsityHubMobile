@@ -32,10 +32,16 @@ export interface MapDateButton {
  * (`lat`/`lng`/`radius`), pro-only, or following gate — the feed map is every
  * public event page nationwide.
  */
-export function buildMapDiscoveryPath(limit: number = DEFAULT_MAP_LIMIT): string {
+export function buildMapDiscoveryPath(
+  limit: number = DEFAULT_MAP_LIMIT,
+  filters: { level?: string | null; from?: string; to?: string } = {}
+): string {
   const query = new URLSearchParams();
   query.set('surface', 'map');
   query.set('limit', String(limit));
+  if (filters.level) query.set('level', filters.level);
+  if (filters.from) query.set('from', filters.from);
+  if (filters.to) query.set('to', filters.to);
   return '/event-discovery?' + query.toString();
 }
 

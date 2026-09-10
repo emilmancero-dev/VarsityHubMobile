@@ -11,6 +11,7 @@ export type EventDiscoveryParams = {
   surface?: DiscoverySurface;
   scope?: DiscoveryScope;
   sport?: string | null;
+  level?: 'major' | 'minor' | 'college' | 'other' | null;
   type?: 'game' | 'event';
   from?: Date | null;
   to?: Date | null;
@@ -250,14 +251,32 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
           date: dateWhere,
         };
 
+  const leagueWhere: Prisma.EventWhereInput =
+    params.level === 'other'
+      ? {
+          OR: [
+            { sportsLeague: { is: null } },
+            { sportsLeague: { is: { level: { notIn: ['major', 'minor', 'college'] } } } },
+          ],
+        }
+      : params.level
+        ? { sportsLeague: { is: { level: params.level } } }
+        : {};
+  const gameLevelScope = !params.level
+    ? []
+    : params.level === 'other'
+      ? [{ OR: [{ events: { none: {} } }, { events: { some: leagueWhere } }] }]
+      : [{ events: { some: leagueWhere } }];
+
   const [games, events] = await Promise.all([
     db.game.findMany({
       where: {
         ...gameWhere,
-        ...(surface === 'map'
-          ? {
-              AND: [
-                ...((gameWhere as any).AND ?? []),
+        AND: [
+          ...((gameWhere as any).AND ?? []),
+          ...gameLevelScope,
+          ...(surface === 'map'
+            ? [
                 {
                   OR: [
                     { date: { gte: pastCutoff } },
@@ -265,19 +284,23 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
                     { events: { some: { posts: { some: visiblePostWhere } } } },
                   ],
                 },
-              ],
-            }
-          : {}),
+              ]
+            : []),
+        ],
       },
       orderBy: { date: 'asc' },
       take: queryLimit,
       include: {
         _count: postCount,
         events: {
+          where: leagueWhere,
           orderBy: { date: 'asc' },
           take: 1,
           include: {
             _count: postCount,
+            sportsLeague: {
+              select: { slug: true, name: true, sport_slug: true, level: true, gender: true },
+            },
             proHomeTeam: { select: { league: true, primary_color: true } },
             proAwayTeam: { select: { league: true, primary_color: true } },
           },
@@ -292,6 +315,7 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
         status: { not: 'cancelled' },
         game_id: null,
         date: dateWhere,
+        ...(params.level === 'other' ? { AND: [leagueWhere] } : leagueWhere),
         ...(scope === 'following' ? { team_id: { in: followingTeamIdList } } : {}),
         // Selected past days follow the same rule: visible content earns the pin.
         ...(surface === 'map'

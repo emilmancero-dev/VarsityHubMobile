@@ -1,4 +1,6 @@
 import EventMap, { EventMapData } from '@/components/EventMap';
+import { useAuth } from '@/context/AuthProvider';
+import { useQuery } from '@tanstack/react-query';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -6,7 +8,7 @@ import { Stack, useRouter } from 'expo-router';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { safeGoBack } from '@/utils/navigation';
 import SportFilterBar from '@/components/SportFilterBar';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -41,59 +43,55 @@ function GameMapScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
 
-  const [loading, setLoading] = useState(true);
-  const [events, setEvents] = useState<EventMapData[]>([]);
-  const [calendarEvents, setCalendarEvents] = useState<EventMapData[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [selectedSport, setSelectedSport] = useState<string | null>(null);
   // Map-only league-level filter: Major / Minor / NCAA(college) / Other. null = All.
   const [selectedLevel, setSelectedLevel] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
-  // A picked past day fetches its own markers (past days sit outside the loaded
-  // 5-day window). null = not in past-day mode.
-  const [pastDayMarkers, setPastDayMarkers] = useState<EventMapData[] | null>(null);
-  const [pastLoading, setPastLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(() => new Date());
 
-  const loadGames = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // The feed map shows ALL public VarsityHub event pages nationwide — not a
-      // nearby/pro-only slice. The single `/event-discovery?surface=map`
-      // endpoint already returns every approved, non-private game AND standalone
-      // event page in the server's map window, privacy-filtered and with NO
-      // location gate. Query shape + mapping live in utils/mapDiscovery so the
-      // "no data gates" rule is pinned in one place. Location is NOT requested
-      // here — EventMap requests it only to draw the user dot.
-      const res: unknown = await httpGet(buildMapDiscoveryPath());
-      const items = validateEventCards('/event-discovery?surface=map', res);
-      const now = new Date();
-
-      // Map pins need coordinates; the calendar summarizes every upcoming event
-      // page in the dataset, including ones without a location.
-      const markers = toMapEvents(items, now);
-      setEvents(markers);
-      setCalendarEvents(toMapEvents(items, now, { requireCoords: false }));
-
-      if (__DEV__) {
-        console.warn(
-          `[game-map] Loaded ${items.length} discovery items (${markers.length} with map pins)`
-        );
-      }
-    } catch (err) {
-      if (__DEV__) console.error('Error loading events:', err);
-      setError('Unable to load events. Please check your connection.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadGames();
-  }, [loadGames]);
+  const { user } = useAuth();
+  const discoveryPath = useMemo(() => {
+    if (!selectedDate) return buildMapDiscoveryPath(200, { level: selectedLevel });
+    const [year, month, day] = selectedDate.split('-').map(Number);
+    const start = new Date(year, month - 1, day);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setHours(23, 59, 59, 999);
+    return buildMapDiscoveryPath(200, {
+      level: selectedLevel,
+      from: start.toISOString(),
+      to: end.toISOString(),
+    });
+  }, [selectedDate, selectedLevel]);
+  // Filter before the server's result limit. Cache by viewer because content
+  // markers and past-page visibility depend on that viewer's privacy access.
+  const discovery = useQuery({
+    queryKey: ['event-map', user?.id ?? null, discoveryPath],
+    queryFn: async () => {
+      const response: unknown = await httpGet(discoveryPath);
+      return validateEventCards('/event-discovery?surface=map', response);
+    },
+  });
+  const loading = discovery.isPending;
+  const error = discovery.isError ? 'Unable to load events. Please check your connection.' : null;
+  const events = useMemo(
+    () => toMapEvents(discovery.data ?? [], new Date(), { includePast: Boolean(selectedDate) }),
+    [discovery.data, selectedDate]
+  );
+  const calendarEvents = useMemo(
+    () =>
+      toMapEvents(discovery.data ?? [], new Date(), {
+        requireCoords: false,
+        includePast: Boolean(selectedDate),
+      }),
+    [discovery.data, selectedDate]
+  );
+  const { refetch } = discovery;
+  const loadGames = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   const handleEventPress = (eventId: string, eventType?: 'game' | 'event' | 'post') => {
     if (eventType === 'event') {
@@ -122,21 +120,8 @@ function GameMapScreen() {
     [router]
   );
 
-  // The base marker set after date selection: a picked past day uses its own
-  // fetched set; a forward chip filters the loaded set to that day; otherwise
-  // the full loaded set.
-  const dateBase = useMemo<EventMapData[]>(() => {
-    if (pastDayMarkers !== null) return pastDayMarkers;
-    if (selectedDate) {
-      return events.filter(e => e.date && toLocalDateKey(new Date(e.date)) === selectedDate);
-    }
-    return events;
-  }, [pastDayMarkers, selectedDate, events]);
-
-  // Map-only league-level filter (Major/Minor/NCAA/Other) layered on top of the
-  // date base. "Other" is everything outside major/minor/college — including
-  // local community events and any event with no league metadata. Consumes the
-  // existing `league_level` card metadata; no extra HTTP request.
+  const dateBase = events;
+  // Keep the display guard too, including uncatalogued events in Other.
   const levelBase = useMemo<EventMapData[]>(() => {
     if (!selectedLevel) return dateBase;
     return dateBase.filter(e => {
@@ -155,34 +140,11 @@ function GameMapScreen() {
     [levelBase]
   );
 
-  const clearDate = useCallback(() => {
-    setSelectedDate('');
-    setPastDayMarkers(null);
-  }, []);
-
-  // Date chips are the last 7 days. Each day fetches its own map markers because
-  // past days sit outside the default public map window; explicit date loads keep
-  // approved past event pages available for reopening.
-  const selectMapDate = useCallback(async (picked: Date) => {
+  const clearDate = useCallback(() => setSelectedDate(''), []);
+  const selectMapDate = useCallback((picked: Date) => {
     const start = new Date(picked);
     start.setHours(0, 0, 0, 0);
-    const end = new Date(picked);
-    end.setHours(23, 59, 59, 999);
     setSelectedDate(toLocalDateKey(start));
-    setPastLoading(true);
-    try {
-      const path = `/event-discovery?surface=map&from=${encodeURIComponent(
-        start.toISOString()
-      )}&to=${encodeURIComponent(end.toISOString())}&limit=200`;
-      const res: unknown = await httpGet(path);
-      const items = validateEventCards('/event-discovery?surface=map', res);
-      setPastDayMarkers(toMapEvents(items, new Date(), { includePast: true }));
-    } catch (err) {
-      if (__DEV__) console.error('[game-map] past-day load failed:', err);
-      setPastDayMarkers([]);
-    } finally {
-      setPastLoading(false);
-    }
   }, []);
 
   // Last 7 days as quick chips. Logic lives in utils/mapDiscovery.
@@ -252,7 +214,7 @@ function GameMapScreen() {
 
         {/* Map-only league-level filter — Major / Minor / NCAA / Other. Always
             visible; the calendar date strip stacks below it when open. */}
-        {!loading && !error && (
+        {!error && (
           <View style={styles.levelStripPanel} pointerEvents="box-none">
             <ScrollView
               horizontal
@@ -375,7 +337,7 @@ function GameMapScreen() {
                 <MaterialIcons name="event" size={18} color={Colors[colorScheme].tint} />
               </Pressable>
 
-              {pastDayMarkers !== null ? (
+              {selectedDate ? (
                 <Pressable
                   onPress={clearDate}
                   style={[
@@ -388,7 +350,7 @@ function GameMapScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Showing ${selectedDate}, tap to clear`}
                 >
-                  {pastLoading ? (
+                  {loading ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <>
@@ -477,7 +439,6 @@ function GameMapScreen() {
             </Text>
             <Pressable
               onPress={() => {
-                setError(null);
                 void loadGames();
               }}
               style={{

@@ -39,6 +39,10 @@ eventDiscoveryRouter.get(
     const sportRaw =
       typeof req.query.sport === 'string' && req.query.sport.trim() ? req.query.sport.trim() : null;
 
+    const levelRaw = typeof req.query.level === 'string' ? req.query.level : null;
+    if (levelRaw && !['major', 'minor', 'college', 'other'].includes(levelRaw)) {
+      return sendError(res, 400, 'Invalid level');
+    }
     const from = parseDateParam(req.query.from);
     const to = parseDateParam(req.query.to);
     if (req.query.from && !from) return sendError(res, 400, 'Invalid from');
@@ -61,6 +65,7 @@ eventDiscoveryRouter.get(
       surface: surfaceRaw as 'feed' | 'map' | 'all',
       scope: scopeRaw as 'public' | 'following',
       sport: sportRaw,
+      level: levelRaw as 'major' | 'minor' | 'college' | 'other' | null,
       type: typeRaw ? (typeRaw as 'game' | 'event') : undefined,
       from,
       to,

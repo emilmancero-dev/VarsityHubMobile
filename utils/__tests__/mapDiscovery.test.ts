@@ -2,6 +2,17 @@ import { buildMapDiscoveryPath, toMapEvents, buildRecentDateButtons } from '../m
 import type { EventCard } from '@/api/schemas/eventCard';
 
 describe('buildMapDiscoveryPath', () => {
+  it('sends the selected level and date to the server before result limiting', () => {
+    const query = new URLSearchParams(
+      buildMapDiscoveryPath(200, {
+        level: 'minor',
+        from: '2026-09-09T00:00:00Z',
+        to: '2026-09-10T00:00:00Z',
+      }).split('?')[1]
+    );
+    expect(query.get('level')).toBe('minor');
+    expect(query.get('from')).toBe('2026-09-09T00:00:00Z');
+  });
   it('targets the event-discovery map surface', () => {
     const path = buildMapDiscoveryPath();
     expect(path.startsWith('/event-discovery?')).toBe(true);
