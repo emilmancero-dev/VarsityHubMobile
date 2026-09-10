@@ -1096,6 +1096,7 @@ export default function PostDetailScreen() {
                   <VideoPlayer
                     uri={media.mediaUrl!}
                     style={styles.heroVideo}
+                    contentFit="cover"
                     autoPlay
                     paused={!isActivePost || fullscreenMedia}
                   />

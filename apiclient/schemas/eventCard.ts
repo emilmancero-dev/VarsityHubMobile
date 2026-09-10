@@ -53,6 +53,7 @@ export const eventCardSchema = z
     event_id: z.string().nullable().optional(),
     game_id: z.string().nullable().optional(),
     // Display
+    has_posts: z.boolean().optional(),
     title: z.string().nullable().optional(),
     date: z.string().nullable().optional(),
     location: z.string().nullable().optional(),

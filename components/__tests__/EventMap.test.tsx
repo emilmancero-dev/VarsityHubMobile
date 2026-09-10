@@ -82,6 +82,11 @@ const baseProps = (overrides: Partial<EventMapProps> = {}): EventMapProps => ({
 });
 
 describe('EventMap', () => {
+  it('uses gold for visible posts before team colors', () => {
+    expect(resolveMarkerColor({ has_posts: true, pro_home_color: '#123456' }, '#000000')).toBe(
+      '#D4AF37'
+    );
+  });
   afterEach(async () => {
     cleanup();
     jest.clearAllTimers();
@@ -192,7 +197,7 @@ describe('EventMap', () => {
 
   it('renders empty state when no events', async () => {
     const { findByText } = render(<EventMap {...baseProps({ events: [] })} />);
-    const empty = await findByText(/no games or events with locations yet/i);
+    const empty = await findByText(/no matching events on the map/i);
     expect(empty).toBeTruthy();
   });
 

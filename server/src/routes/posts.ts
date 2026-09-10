@@ -944,8 +944,6 @@ postsRouter.post(
       let awayTeamId: string | null = null;
 
       // Look up game to get event + team IDs for membership check.
-      // `description` is selected so we can detect [DEMO_MATCHUP]-tagged games.
-      let isDemoMatchup = false;
       if (gameId) {
         const game = await prisma.game.findUnique({
           where: { id: gameId },
@@ -973,11 +971,6 @@ postsRouter.post(
               debugLog(`✅ Found associated event ${targetEventId} for game ${gameId}`);
             }
           }
-          // [DEMO_MATCHUP] carve-out — one-off for Duke v UNC + Cavs v Warriors
-          // promo content. See server/scripts/seed-demo-matchups.ts. This branch
-          // becomes dead code once the demo rows are wiped from the DB.
-          isDemoMatchup =
-            typeof game.description === 'string' && game.description.includes('[DEMO_MATCHUP]');
         }
       }
 
@@ -985,9 +978,7 @@ postsRouter.post(
       // team staff, must satisfy the event posting window and venue geofence.
       const isAdmin = await getIsAdmin(req as any);
 
-      if (isDemoMatchup) {
-        debugLog(`✅ [DEMO_MATCHUP] game ${gameId} — skipping geofencing`);
-      } else if (isAdmin) {
+      if (isAdmin) {
         debugLog(`✅ Geofencing bypassed (isAdmin=${isAdmin})`);
       } else if (targetEventId) {
         // Only device-origin GPS may satisfy the venue geofence (anti-spoof:

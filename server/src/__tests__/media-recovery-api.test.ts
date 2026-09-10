@@ -107,7 +107,7 @@ describeDb('Media recovery API', () => {
     const game = await prisma.game.create({
       data: {
         title: 'Recovery demo',
-        description: '[DEMO_MATCHUP]',
+        description: 'Media recovery fixture',
         date: new Date(),
         location: 'Test',
         approval_status: 'approved',
@@ -117,7 +117,7 @@ describeDb('Media recovery API', () => {
     const event = await prisma.event.create({
       data: {
         title: 'Recovery demo event',
-        description: '[DEMO_MATCHUP]',
+        description: 'Media recovery fixture',
         date: new Date(),
         location: 'Test',
         approval_status: 'approved',
@@ -125,6 +125,13 @@ describeDb('Media recovery API', () => {
         creator_id: owner,
       },
       select: { id: true },
+    });
+    // Explicit server-owned designated-poster grant with an active unlock.
+    await prisma.eventPostingUnlock.create({
+      data: { event_id: event.id, user_id: owner, unlocked_at: new Date() },
+    });
+    await prisma.eventDesignatedPoster.create({
+      data: { event_id: event.id, user_id: owner, created_by: owner },
     });
     const id = crypto.randomBytes(32).toString('hex');
     const url = `https://res.cloudinary.com/recovery-test-cloud/video/upload/v1/media/${id}.mp4`;
@@ -141,14 +148,20 @@ describeDb('Media recovery API', () => {
     });
     try {
       for (const path of [`/games/${game.id}/stories`, `/events/${event.id}/stories`]) {
-        expect((await send(path, { media_url: url })).status).toBe(422);
+        const response = await send(path, { media_url: url });
+        expect({ path, status: response.status, body: response.body }).toMatchObject({
+          status: 422,
+        });
       }
       await prisma.mediaUpload.update({
         where: { id },
         data: { state: 'ready', owner_id: 'foreign-owner' },
       });
       for (const path of [`/games/${game.id}/stories`, `/events/${event.id}/stories`]) {
-        expect((await send(path, { media_url: url })).status).toBe(422);
+        const response = await send(path, { media_url: url });
+        expect({ path, status: response.status, body: response.body }).toMatchObject({
+          status: 422,
+        });
       }
     } finally {
       await prisma.mediaUpload.delete({ where: { id } });
@@ -160,7 +173,7 @@ describeDb('Media recovery API', () => {
     const game = await prisma.game.create({
       data: {
         title: 'Duration demo',
-        description: '[DEMO_MATCHUP]',
+        description: 'Media recovery fixture',
         date: new Date(),
         location: 'Test',
         approval_status: 'approved',
@@ -170,7 +183,7 @@ describeDb('Media recovery API', () => {
     const event = await prisma.event.create({
       data: {
         title: 'Duration event',
-        description: '[DEMO_MATCHUP]',
+        description: 'Media recovery fixture',
         date: new Date(),
         location: 'Test',
         approval_status: 'approved',
@@ -178,6 +191,13 @@ describeDb('Media recovery API', () => {
         creator_id: owner,
       },
       select: { id: true },
+    });
+    // Explicit server-owned designated-poster grant with an active unlock.
+    await prisma.eventPostingUnlock.create({
+      data: { event_id: event.id, user_id: owner, unlocked_at: new Date() },
+    });
+    await prisma.eventDesignatedPoster.create({
+      data: { event_id: event.id, user_id: owner, created_by: owner },
     });
     const id = crypto.randomBytes(32).toString('hex');
     const url = `https://res.cloudinary.com/recovery-test-cloud/video/upload/v1/media/${id}.mp4`;
@@ -226,7 +246,7 @@ describeDb('Media recovery API', () => {
     const game = await prisma.game.create({
       data: {
         title: 'Story recovery',
-        description: '[DEMO_MATCHUP]',
+        description: 'Media recovery fixture',
         date: new Date(),
         location: 'Test',
         approval_status: 'approved',
@@ -236,7 +256,7 @@ describeDb('Media recovery API', () => {
     const event = await prisma.event.create({
       data: {
         title: 'Story event recovery',
-        description: '[DEMO_MATCHUP]',
+        description: 'Media recovery fixture',
         date: new Date(),
         location: 'Test',
         approval_status: 'approved',
@@ -244,6 +264,13 @@ describeDb('Media recovery API', () => {
         creator_id: owner,
       },
       select: { id: true },
+    });
+    // Explicit server-owned designated-poster grant with an active unlock.
+    await prisma.eventPostingUnlock.create({
+      data: { event_id: event.id, user_id: owner, unlocked_at: new Date() },
+    });
+    await prisma.eventDesignatedPoster.create({
+      data: { event_id: event.id, user_id: owner, created_by: owner },
     });
     try {
       for (const path of [`/games/${game.id}/stories`, `/events/${event.id}/stories`]) {

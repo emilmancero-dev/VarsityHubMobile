@@ -1645,13 +1645,10 @@ eventsRouter.post(
       return sendError(res, 404, 'Not found');
     }
 
-    // Demo matchups + platform admins bypass the geofence (parity with games).
-    const isDemo =
-      typeof (event as any).description === 'string' &&
-      (event as any).description.includes('[DEMO_MATCHUP]');
+    // Only verified admin identity can bypass; descriptions never grant privileges.
     const isAdmin = await getIsAdmin(req as any);
 
-    if (!isDemo && !isAdmin) {
+    if (!isAdmin) {
       const loc = parsed.data.location;
       // Only device-origin GPS may satisfy the venue geofence (anti-spoof). A
       // designated poster with an active unlock passes without coords — that is

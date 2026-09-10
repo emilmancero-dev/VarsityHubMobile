@@ -381,12 +381,9 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
         },
       });
 
-      const isDemoMatchup =
-        typeof game?.description === 'string' && game.description.includes('[DEMO_MATCHUP]');
-
       const isAdmin = await getIsAdmin(req as any);
 
-      if (!isDemoMatchup && !isAdmin && game?.events && game.events.length > 0) {
+      if (!isAdmin && game?.events && game.events.length > 0) {
         const event = game.events[0];
         const location = parsed.data.location;
         const hasDeviceOriginLocation =

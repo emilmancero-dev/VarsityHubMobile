@@ -1,3 +1,5 @@
+import { getPostVisibilityFilters } from '../lib/privacyUtils.js';
+import type { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { listEventDiscoveryItems } from '../lib/eventDiscovery.js';
 import { sendError } from '../lib/http/sendError.js';
@@ -47,7 +49,15 @@ eventDiscoveryRouter.get(
 
     const limitRaw = Number.parseInt(String(req.query.limit ?? ''), 10);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : undefined;
+    const visibility = await getPostVisibilityFilters(req.user?.id ?? null);
+    const visiblePostWhere: Prisma.PostWhereInput = {
+      deleted_at: null,
+      AND: [visibility.authorWhere, visibility.privateTeamWhere].filter(
+        (where): where is Prisma.PostWhereInput => where != null
+      ),
+    };
     const payload = await listEventDiscoveryItems(prisma, {
+      visiblePostWhere,
       surface: surfaceRaw as 'feed' | 'map' | 'all',
       scope: scopeRaw as 'public' | 'following',
       sport: sportRaw,
