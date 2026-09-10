@@ -4,6 +4,7 @@ import {
   MAX_VIDEO_SIZE_BYTES,
   MAX_VIDEO_SIZE_MB,
   VIDEO_COMPRESSION_THRESHOLD_MB,
+  VIDEO_COMPRESSION_THRESHOLD_BYTES,
   VIDEO_MAX_LONG_EDGE_PX,
   VIDEO_TARGET_BITRATE_BPS,
 } from '@/constants/video';
@@ -151,19 +152,21 @@ type PrepareVideoForUploadOptions = {
 };
 
 /**
- * Read a source video's resolution (long edge, px) without transcoding.
- * Best-effort: returns 0 when the native metadata reader is unavailable (old
- * binary) or fails, so callers fall back to a size-only decision.
+ * Read resolution and duration (seconds) in one native call without transcoding.
+ * Missing metadata falls back to the existing size-only decision.
  */
-async function getVideoLongEdgePx(uri: string): Promise<number> {
-  if (!getVideoMetaData) return 0;
+async function readVideoMetadata(uri: string): Promise<{ longEdge: number; duration: number }> {
+  if (!getVideoMetaData) return { longEdge: 0, duration: 0 };
   try {
     const meta = await getVideoMetaData(uri);
     const w = typeof meta?.width === 'number' ? meta.width : 0;
     const h = typeof meta?.height === 'number' ? meta.height : 0;
-    return Math.max(w, h);
+    return {
+      longEdge: Math.max(w, h),
+      duration: Number.isFinite(meta?.duration) && meta.duration > 0 ? meta.duration : 0,
+    };
   } catch {
-    return 0;
+    return { longEdge: 0, duration: 0 };
   }
 }
 
@@ -176,11 +179,11 @@ async function getVideoLongEdgePx(uri: string): Promise<number> {
  *
  * Smart compression policy (owner: "strong and smart, not a patch"): a video is
  * re-encoded to 1080p H.264 @ VIDEO_TARGET_BITRATE_BPS only when it is genuinely
- * over-spec — either it exceeds the 150MB upload cap (size) OR it is larger than
- * 1080p on screen (a 4K/1440p clip, which is needless bandwidth for phone-viewed
- * highlights). A clip that already fits AND is already <= 1080p uploads as-is at
- * capture quality — the on-device transcode (the slowest step of an upload) is
- * skipped. The picker runs Passthrough, so this is the ONLY transcode a video
+ * over-spec — it exceeds the 150MB upload cap, is larger than 1080p, or exceeds
+ * 9 Mbps and 8 MB. The bitrate check catches large 1080p camera originals that
+ * otherwise saturate slow venue connections. Efficient and tiny clips keep
+ * their source bytes, avoiding unnecessary encoding. The picker runs
+ * Passthrough, so this is the ONLY transcode a video
  * ever gets, and only when it earns one. Callers may force a lower size bound
  * via `compressionThresholdBytes`.
  *
@@ -200,16 +203,20 @@ export async function prepareVideoForUpload(
 }> {
   const sizeThresholdBytes = options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES;
   const originalSizeBytes = await getVideoFileSize(uri);
-  const longEdgePx = await getVideoLongEdgePx(uri);
+  const metadata = await readVideoMetadata(uri);
+  const longEdgePx = metadata.longEdge;
+  const overBitrate =
+    metadata.duration > 0 &&
+    originalSizeBytes > VIDEO_COMPRESSION_THRESHOLD_BYTES &&
+    (originalSizeBytes * 8) / metadata.duration > VIDEO_TARGET_BITRATE_BPS * 1.5;
 
   const overSize = originalSizeBytes <= 0 || originalSizeBytes >= sizeThresholdBytes;
   const overResolution = longEdgePx > VIDEO_MAX_LONG_EDGE_PX;
 
-  // In-spec clip (known size that fits AND <= 1080p) → upload as-is, no
-  // transcode. Unknown size (lookup failed) is treated as over-size so the cap
+  // Efficient in-spec clips upload as-is. Unknown size is treated as over-size so the cap
   // is still enforced. Resolution is best-effort: when unreadable it is 0 and
   // the decision falls back to size alone.
-  if (!overSize && !overResolution) {
+  if (!overSize && !overResolution && !overBitrate) {
     return {
       uri,
       originalSizeBytes,

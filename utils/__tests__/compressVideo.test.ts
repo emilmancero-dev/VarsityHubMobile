@@ -52,6 +52,45 @@ describe('prepareVideoForUpload', () => {
     mockResolution(1080, 1920); // in-spec by default; size drives these cases
   });
 
+  it('shrinks high-bitrate 1080p footage even when below the upload cap', async () => {
+    metaMock.mockResolvedValue({ width: 1080, height: 1920, size: 0, duration: 30 } as any);
+    getInfoAsyncMock.mockImplementation(
+      async (uri: string) =>
+        ({
+          exists: true,
+          size: uri === 'file:///compressed.mp4' ? 23_000_000 : 60_000_000,
+        }) as any
+    );
+    compressMock.mockResolvedValue('file:///compressed.mp4');
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(result.wasCompressed).toBe(true);
+    expect(result.finalSizeBytes).toBe(23_000_000);
+    expect(compressMock).toHaveBeenCalledWith(
+      'file:///clip.mp4',
+      expect.objectContaining({ bitrate: VIDEO_TARGET_BITRATE_BPS, maxSize: 1920 }),
+      undefined
+    );
+  });
+
+  it.each([
+    ['efficient footage', 24_000_000, 32],
+    ['tiny high-bitrate clip', 2_000_000, 1],
+    ['unknown duration', 60_000_000, 0],
+    ['invalid duration', 60_000_000, Number.NaN],
+    ['infinite duration', 60_000_000, Number.POSITIVE_INFINITY],
+    ['threshold bitrate', 33_750_000, 30],
+  ])('avoids unnecessary encoding for %s', async (_label, size, duration) => {
+    metaMock.mockResolvedValue({ width: 1080, height: 1920, size, duration } as any);
+    getInfoAsyncMock.mockResolvedValue({ exists: true, size } as any);
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(result.wasCompressed).toBe(false);
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
   it('skips compression for already-small clips', async () => {
     getInfoAsyncMock.mockResolvedValue({ exists: true, size: 2 * 1024 * 1024 } as any);
 
