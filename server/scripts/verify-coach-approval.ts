@@ -54,12 +54,32 @@ check(
   conditionalPendingWrite.test(orgRoutes)
 );
 
-// 3. POST /organizations/create routes through the shared create handler with
-// the force-pending decision computed for that route too.
+// 3. Both routes delegate through the shared route/preflight/request pipeline.
+// 78fbdd49 extracted the route handler; the approval decision deliberately lives
+// before route registration now, so a regex scanning forward from /create is stale.
+const sharedRouteStart = orgRoutes.indexOf('async function handleOrganizationCreateRoute(');
+const sharedRouteEnd = orgRoutes.indexOf('// Create organization', sharedRouteStart);
+const sharedRoute = orgRoutes.slice(sharedRouteStart, sharedRouteEnd);
+const preflightStart = orgRoutes.indexOf('async function prepareOrganizationCreatePreflight(');
+const preflightEnd = orgRoutes.indexOf(
+  'async function handleOrganizationCreateRequest(',
+  preflightStart
+);
+const preflight = orgRoutes.slice(preflightStart, preflightEnd);
 const createRouteHasConditionalPending =
-  /organizationsRouter\.post\(\s*['"]\/create['"][\s\S]*?shouldForcePendingApprovalOnOrganizationCreate[\s\S]*?handleOrganizationCreateRequest[\s\S]*?routeTag:\s*['"]\/create['"]/m.test(
+  /organizationsRouter\.post\(\s*['"]\/create['"][\s\S]*?return handleOrganizationCreateRoute\(req, res, ['"]\/create['"]\)/m.test(
     orgRoutes
-  );
+  ) &&
+  sharedRouteStart >= 0 &&
+  sharedRouteEnd > sharedRouteStart &&
+  sharedRoute.includes('await prepareOrganizationCreatePreflight({') &&
+  sharedRoute.includes('if (!preflight) return;') &&
+  sharedRoute.includes('return handleOrganizationCreateRequest(req, res, data, {') &&
+  sharedRoute.includes('shouldForcePendingApproval: preflight.shouldForcePendingApproval') &&
+  preflightStart >= 0 &&
+  preflightEnd > preflightStart &&
+  preflight.includes('await shouldForcePendingApprovalOnOrganizationCreate({') &&
+  preflight.includes('return { authorizedInviteInputs, shouldForcePendingApproval }');
 check(
   'POST /organizations/create uses shared conditional pending approval flow',
   createRouteHasConditionalPending
