@@ -10,6 +10,7 @@ jest.mock('react-native-compressor', () => ({
   Video: {
     compress: jest.fn(),
   },
+  getVideoMetaData: jest.fn(),
 }));
 
 jest.mock('@/utils/sentry', () => ({
@@ -17,7 +18,7 @@ jest.mock('@/utils/sentry', () => ({
 }));
 
 import * as FileSystem from 'expo-file-system/legacy';
-import { Video } from 'react-native-compressor';
+import { Video, getVideoMetaData } from 'react-native-compressor';
 
 import { VIDEO_TARGET_BITRATE_BPS } from '@/constants/video';
 import { captureException } from '@/utils/sentry';
@@ -33,12 +34,22 @@ const getInfoAsyncMock = FileSystem.getInfoAsync as jest.MockedFunction<
   typeof FileSystem.getInfoAsync
 >;
 const compressMock = Video.compress as jest.MockedFunction<typeof Video.compress>;
+const metaMock = getVideoMetaData as jest.MockedFunction<typeof getVideoMetaData>;
 const captureExceptionSpy = captureException as jest.MockedFunction<typeof captureException>;
+
+// Default: a lean 1080p portrait clip. Individual tests override for 4K etc.
+// An unset (reset) metaMock returns undefined → resolution reads as 0 → the
+// decision falls back to size alone, matching an old binary with no metadata.
+function mockResolution(width: number, height: number) {
+  metaMock.mockResolvedValue({ width, height, size: 0, duration: 0 } as any);
+}
 
 describe('prepareVideoForUpload', () => {
   beforeEach(() => {
     getInfoAsyncMock.mockReset();
     compressMock.mockReset();
+    metaMock.mockReset();
+    mockResolution(1080, 1920); // in-spec by default; size drives these cases
   });
 
   it('skips compression for already-small clips', async () => {
@@ -98,6 +109,36 @@ describe('prepareVideoForUpload', () => {
       originalSizeBytes: 170 * 1024 * 1024,
       finalSizeBytes: 50 * 1024 * 1024,
     });
+  });
+
+  it('downscales a 4K clip even when it fits the upload cap (resolution-aware)', async () => {
+    // 40MB is well under the 150MB cap, so a size-only rule would upload it
+    // as 4K — needless bandwidth for a phone-viewed highlight. The 3840x2160
+    // resolution triggers a re-encode down to 1080p.
+    getInfoAsyncMock.mockImplementation(async (uri: string) =>
+      uri === 'file:///compressed.mp4'
+        ? ({ exists: true, size: 20 * 1024 * 1024 } as any)
+        : ({ exists: true, size: 40 * 1024 * 1024 } as any)
+    );
+    mockResolution(3840, 2160);
+    compressMock.mockResolvedValue('file:///compressed.mp4' as any);
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(compressMock).toHaveBeenCalledTimes(1);
+    expect(result.wasCompressed).toBe(true);
+    expect(result.uri).toBe('file:///compressed.mp4');
+  });
+
+  it('skips a lean 1080p clip that fits the cap (no transcode)', async () => {
+    getInfoAsyncMock.mockResolvedValue({ exists: true, size: 40 * 1024 * 1024 } as any);
+    mockResolution(1920, 1080);
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(result.wasCompressed).toBe(false);
+    expect(result.uri).toBe('file:///clip.mp4');
+    expect(compressMock).not.toHaveBeenCalled();
   });
 
   it('exports the documented threshold constant', () => {

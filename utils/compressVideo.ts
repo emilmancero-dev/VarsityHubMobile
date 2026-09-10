@@ -4,6 +4,7 @@ import {
   MAX_VIDEO_SIZE_BYTES,
   MAX_VIDEO_SIZE_MB,
   VIDEO_COMPRESSION_THRESHOLD_MB,
+  VIDEO_MAX_LONG_EDGE_PX,
   VIDEO_TARGET_BITRATE_BPS,
 } from '@/constants/video';
 import { captureException } from '@/utils/sentry';
@@ -13,10 +14,19 @@ import { captureException } from '@/utils/sentry';
 let CompressorVideo: {
   compress: (uri: string, opts: object, onProgress?: (fraction: number) => void) => Promise<string>;
 } | null = null;
+// getVideoMetaData reads width/height/size/duration from the file header
+// natively — no transcode — so we can decide whether a clip needs compressing
+// based on what it actually IS (resolution), not just its byte size.
+let getVideoMetaData:
+  | ((uri: string) => Promise<{ width: number; height: number; size: number; duration: number }>)
+  | null = null;
 try {
-  CompressorVideo = require('react-native-compressor').Video;
+  const compressor = require('react-native-compressor');
+  CompressorVideo = compressor.Video;
+  getVideoMetaData = compressor.getVideoMetaData ?? null;
 } catch {
   CompressorVideo = null;
+  getVideoMetaData = null;
 }
 
 // Report the missing module once per session, not per call — old binaries
@@ -102,7 +112,7 @@ export async function compressVideoSafe(
         // preset. 1920 preserves 1080p for both portrait (1080x1920) and
         // landscape (1920x1080); the 150MB MAX_VIDEO_SIZE guard + post-compress
         // size check still bound the result.
-        maxSize: 1920,
+        maxSize: VIDEO_MAX_LONG_EDGE_PX,
       },
       forward
     );
@@ -141,21 +151,43 @@ type PrepareVideoForUploadOptions = {
 };
 
 /**
- * Prepare the final video asset right before upload.
+ * Read a source video's resolution (long edge, px) without transcoding.
+ * Best-effort: returns 0 when the native metadata reader is unavailable (old
+ * binary) or fails, so callers fall back to a size-only decision.
+ */
+async function getVideoLongEdgePx(uri: string): Promise<number> {
+  if (!getVideoMetaData) return 0;
+  try {
+    const meta = await getVideoMetaData(uri);
+    const w = typeof meta?.width === 'number' ? meta.width : 0;
+    const h = typeof meta?.height === 'number' ? meta.height : 0;
+    return Math.max(w, h);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Prepare the final video asset right before upload — the SINGLE decision point
+ * for whether a clip gets compressed.
  *
- * We deliberately compress at the upload boundary, not at pick time:
- * - trims should operate on the currently selected asset without extra passes
- * - stories/posts should compress once, not multiple times across screens
- * - small clips skip unnecessary CPU work and battery drain
+ * We compress at the upload boundary (not pick time) so a trim operates on the
+ * selected asset without an extra pass and each clip is normalized at most once.
  *
- * Compression policy (owner decision 2026-09-09 — speed over marginal size):
- * the on-device 1080p re-encode is the SLOWEST part of an upload, so we only
- * pay for it when the clip would otherwise blow the upload cap. A clip that
- * already fits (<= MAX_VIDEO_SIZE_BYTES) uploads AS-IS at capture quality — no
- * transcode, no wait. Only over-cap clips (e.g. a ~90s 1080p export at ~170MB)
- * are re-encoded, and only to bring them under the cap. Callers that want
- * aggressive compression can still force a lower bound via
- * `compressionThresholdBytes`.
+ * Smart compression policy (owner: "strong and smart, not a patch"): a video is
+ * re-encoded to 1080p H.264 @ VIDEO_TARGET_BITRATE_BPS only when it is genuinely
+ * over-spec — either it exceeds the 150MB upload cap (size) OR it is larger than
+ * 1080p on screen (a 4K/1440p clip, which is needless bandwidth for phone-viewed
+ * highlights). A clip that already fits AND is already <= 1080p uploads as-is at
+ * capture quality — the on-device transcode (the slowest step of an upload) is
+ * skipped. The picker runs Passthrough, so this is the ONLY transcode a video
+ * ever gets, and only when it earns one. Callers may force a lower size bound
+ * via `compressionThresholdBytes`.
+ *
+ * Trade-off: a skipped clip keeps its source codec (e.g. HEVC). Native players
+ * handle it; if universal desktop-web playback is ever required, normalize with
+ * a lightweight remux or a server-side derivative — never a blanket re-encode,
+ * which is exactly the slowness this avoids.
  */
 export async function prepareVideoForUpload(
   uri: string,
@@ -166,12 +198,18 @@ export async function prepareVideoForUpload(
   finalSizeBytes: number;
   wasCompressed: boolean;
 }> {
-  const thresholdBytes = options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES;
+  const sizeThresholdBytes = options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES;
   const originalSizeBytes = await getVideoFileSize(uri);
+  const longEdgePx = await getVideoLongEdgePx(uri);
 
-  // Known size under the threshold → skip the re-encode entirely. Unknown size
-  // (0, lookup failed) falls through to compress so the cap is still enforced.
-  if (originalSizeBytes > 0 && originalSizeBytes < thresholdBytes) {
+  const overSize = originalSizeBytes <= 0 || originalSizeBytes >= sizeThresholdBytes;
+  const overResolution = longEdgePx > VIDEO_MAX_LONG_EDGE_PX;
+
+  // In-spec clip (known size that fits AND <= 1080p) → upload as-is, no
+  // transcode. Unknown size (lookup failed) is treated as over-size so the cap
+  // is still enforced. Resolution is best-effort: when unreadable it is 0 and
+  // the decision falls back to size alone.
+  if (!overSize && !overResolution) {
     return {
       uri,
       originalSizeBytes,

@@ -93,6 +93,16 @@ export const MAX_PICKED_VIDEO_SIZE_BYTES = MAX_PICKED_VIDEO_SIZE_MB * 1024 * 102
 export const VIDEO_TARGET_BITRATE_BPS = 6_000_000;
 
 /**
+ * Resolution ceiling (long edge, px). A clip taller/wider than this is
+ * downscaled to 1080p by the compressor; a clip already at or under it is left
+ * alone. 1920 keeps full 1080p in either orientation (1080x1920 / 1920x1080).
+ * This is the "smart" half of the compression decision: we re-encode a video
+ * when it is genuinely too big (over the upload cap) OR too large on screen
+ * (4K/1440p), and skip the transcode when it is already a lean 1080p clip.
+ */
+export const VIDEO_MAX_LONG_EDGE_PX = 1920;
+
+/**
  * Client-side compression threshold.
  *
  * Videos below this size are usually already small enough after the picker's
