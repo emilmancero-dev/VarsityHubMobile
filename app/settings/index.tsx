@@ -1258,14 +1258,14 @@ export default function SettingsScreen() {
                           // block upgrade so users know exactly what to do.
                           if (code === 'REJECTION_COOLDOWN') {
                             const retryAt = e?.data?.retry_at;
-                            const hrs = e?.data?.retry_after_hours;
+                            const hrs = Number(e?.data?.retry_after_hours);
                             let msgText = 'You can try again once the cooldown expires.';
                             if (typeof retryAt === 'string') {
                               const when = new Date(retryAt);
                               if (!isNaN(when.getTime())) {
                                 msgText = `You can try again on ${when.toLocaleDateString()} at ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
                               }
-                            } else if (hrs) {
+                            } else if (Number.isFinite(hrs) && hrs > 0) {
                               msgText = `You can try again in about ${hrs} hour${hrs === 1 ? '' : 's'}.`;
                             }
                             Alert.alert('Please wait', msgText);

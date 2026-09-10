@@ -1,3 +1,4 @@
+import { AppError } from '../lib/errors/AppError.js';
 import { storyRequestIdentity, recoverStoryRequest } from '../lib/storyRequestRecovery.js';
 import type { Prisma } from '@prisma/client';
 import { assertReadyMediaForOwner } from '../lib/mediaUploadOwnership.js';
@@ -1624,7 +1625,12 @@ eventsRouter.post(
         res.status(200).json(existing);
       } catch (error: any) {
         if (error?.status !== 409) throw error;
-        sendError(res, 409, error.message, { code: 'IDEMPOTENCY_CONFLICT' });
+        sendError(
+          res,
+          409,
+          'This request conflicts with a previous submission. Please refresh and try again.',
+          { code: 'IDEMPOTENCY_CONFLICT' }
+        );
       }
       return true;
     };
@@ -1679,7 +1685,19 @@ eventsRouter.post(
       );
     } catch (error: any) {
       if (error?.status !== 422) throw error;
-      return sendError(res, 422, error.message, { code: error.code || 'MEDIA_NOT_READY' });
+      return sendError(
+        res,
+        422,
+        error.code === 'MEDIA_DURATION_EXCEEDED'
+          ? 'Stories are limited to 20 seconds. Trim this video and retry.'
+          : 'This media is not ready. Please upload it again.',
+        {
+          code:
+            error.code === 'MEDIA_DURATION_EXCEEDED'
+              ? 'MEDIA_DURATION_EXCEEDED'
+              : 'MEDIA_NOT_READY',
+        }
+      );
     }
     const createData: any = {
       ...(requestIdentity
@@ -1989,16 +2007,9 @@ eventsRouter.post(
             },
           });
           if (pendingCount >= 3) {
-            throw Object.assign(new Error('EVENT_LIMIT_EXCEEDED'), {
-              status: 403,
-              body: {
-                error: 'Event limit reached',
-                message:
-                  "You've reached your limit of 3 pending events. Wait for one to be approved or rejected before submitting another.",
-                code: 'EVENT_LIMIT_EXCEEDED',
-                limit: 3,
-                current: pendingCount,
-              },
+            throw new AppError(403, 'Event limit reached', {
+              errorCode: 'EVENT_LIMIT_EXCEEDED',
+              publicMetadata: { limit: 3, current: pendingCount },
             });
           }
         }
@@ -2106,8 +2117,8 @@ eventsRouter.post(
         limit: !autoApprove ? 3 : null,
       });
     } catch (err: any) {
-      if (err?.status && err?.body) {
-        return res.status(err.status).json(err.body);
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json(err.toJSON());
       }
       console.error('[events] create error:', err);
       return res.status(500).json({ error: 'Internal server error' });

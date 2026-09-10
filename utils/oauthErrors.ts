@@ -11,7 +11,7 @@ function getMethodsLabel(methods: string[] | undefined): string {
     if (method === 'password') return 'email and password';
     if (method === 'google') return 'Google';
     if (method === 'apple') return 'Apple';
-    return method;
+    return 'your existing sign-in method';
   });
   if (labels.length === 1) return labels[0];
   if (labels.length === 2) return `${labels[0]} or ${labels[1]}`;
@@ -40,10 +40,10 @@ export function getOAuthLinkErrorMessage(
     return `${providerLabel} returned ${data.email || 'a different email'}, which does not match this VarsityHub account.`;
   }
   if (data.code === 'OAUTH_PROVIDER_ALREADY_LINKED') {
-    return data.error || `${providerLabel} is already linked to a different account.`;
+    return `${providerLabel} is already linked to a different account.`;
   }
   if (data.code === 'APPLE_EMAIL_REQUIRED_FOR_LINK') {
-    return data.error || 'Apple did not provide an email address for this sign-in.';
+    return 'Apple did not provide an email address for this sign-in.';
   }
   return null;
 }

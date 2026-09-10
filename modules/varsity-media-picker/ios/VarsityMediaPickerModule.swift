@@ -86,7 +86,7 @@ private final class MediaPickerSession: NSObject, PHPickerViewControllerDelegate
       } catch {
         for file in copiedFiles { try? FileManager.default.removeItem(at: file) }
         await MainActor.run {
-          promise.reject("ERR_MEDIA_ACQUISITION", "Could not download the selected media: \(error.localizedDescription)")
+          promise.reject("ERR_MEDIA_ACQUISITION", "Unable to open the selected media. Please try another file.")
           finish()
         }
       }

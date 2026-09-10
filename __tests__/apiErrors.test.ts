@@ -21,7 +21,7 @@ describe('extractApiError — shape handling', () => {
     const out = extractApiError(err);
     expect(out.status).toBe(429);
     expect(out.code).toBe('RATE_LIMIT');
-    expect(out.message).toBe('Slow down.');
+    expect(out.message).toBe('Something went wrong. Please try again.');
   });
 
   it('handles api-client unwrapped error (err.status / err.data)', () => {
@@ -32,7 +32,7 @@ describe('extractApiError — shape handling', () => {
     const out = extractApiError(err);
     expect(out.status).toBe(403);
     expect(out.code).toBe('AGE_REQUIREMENT');
-    expect(out.message).toBe('You must be 18+.');
+    expect(out.message).toBe('Something went wrong. Please try again.');
   });
 
   it('prefers err.status over err.response.status when both present', () => {
@@ -44,7 +44,7 @@ describe('extractApiError — shape handling', () => {
     };
     const out = extractApiError(err);
     expect(out.status).toBe(400);
-    expect(out.message).toBe('bad request');
+    expect(out.message).toBe('Something went wrong. Please try again.');
   });
 
   it('infers code from data.error when it looks like a code (ALL_CAPS)', () => {
@@ -61,12 +61,12 @@ describe('extractApiError — shape handling', () => {
     expect(out.message).toBe('Please enter a valid email.');
   });
 
-  it('falls back to err.message when data is missing', () => {
+  it('uses safe fallback when only an unapproved error message is available', () => {
     const err = new Error('Network request failed');
     const out = extractApiError(err);
     expect(out.status).toBeNull();
     expect(out.code).toBeNull();
-    expect(out.message).toBe('Network request failed');
+    expect(out.message).toBe('Something went wrong. Please try again.');
   });
 
   it('falls back to the caller-provided default when nothing is available', () => {
@@ -84,7 +84,7 @@ describe('extractApiError — shape handling', () => {
   it('handles string data body (some endpoints return plain text)', () => {
     const err = { status: 500, data: 'Internal Server Error' };
     const out = extractApiError(err);
-    expect(out.message).toBe('Internal Server Error');
+    expect(out.message).toBe('Something went wrong. Please try again.');
   });
 });
 
@@ -111,4 +111,13 @@ describe('convenience helpers', () => {
     expect(apiErrorStatus(null)).toBeNull();
     expect(apiErrorCode(null)).toBeNull();
   });
+});
+
+it('never promotes untrusted API diagnostics into a display message', () => {
+  const data = { code: 'UPLOAD_FAILED', message: 'PHPhotosErrorDomain private-value' };
+  const out = extractApiError({ response: { status: 502, data } }, 'Upload failed.');
+  expect(out.message).toBe('Upload failed.');
+  expect(out.code).toBe('UPLOAD_FAILED');
+  expect(out.status).toBe(502);
+  expect(out.data).toBe(data);
 });

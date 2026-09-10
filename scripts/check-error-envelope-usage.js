@@ -2,6 +2,13 @@
 
 const { execFileSync } = require('node:child_process');
 
+// Check the complete working tree for disclosure regressions as well as envelope shape.
+execFileSync(
+  process.execPath,
+  [require('node:path').join(__dirname, 'check-error-disclosure.cjs')],
+  { stdio: 'inherit' }
+);
+
 function resolveBaseSha() {
   const explicitBaseSha = process.env.GIT_BASE_SHA || process.argv[2];
   if (explicitBaseSha) return explicitBaseSha;

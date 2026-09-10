@@ -80,7 +80,7 @@ function AdminAdsScreen() {
       setItems(Array.isArray(list) ? list : []);
     } catch (e: any) {
       setError(
-        e?.status === 403 ? 'Access denied (admin only).' : e?.message || 'Failed to load ads'
+        e?.status === 403 ? 'Access denied (admin only).' : toUserMessage(e, 'Failed to load ads')
       );
     } finally {
       setLoading(false);

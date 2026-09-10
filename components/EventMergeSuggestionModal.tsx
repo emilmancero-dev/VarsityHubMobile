@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 /**
  * Event Merge Suggestion Modal
  *
@@ -147,7 +148,7 @@ export function EventMergeSuggestionModal({
       setActionModal({
         visible: true,
         title: 'Merge Failed',
-        message: error?.message || 'Unable to merge events. Please try again.',
+        message: toUserMessage(error, 'Unable to merge events. Please try again.'),
         options: [
           {
             label: 'OK',

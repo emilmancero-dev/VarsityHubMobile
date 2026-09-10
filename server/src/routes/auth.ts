@@ -4124,7 +4124,7 @@ authRouter.post(
       res.json({ success: true, message: 'Test email sent successfully' });
     } catch (error) {
       console.error('[email-test] Test email failed:', error);
-      res.status(500).json({ success: false, error: (error as any).message || 'Unknown error' });
+      sendError(res, 500, 'Unable to send the test email.');
     }
   })
 );

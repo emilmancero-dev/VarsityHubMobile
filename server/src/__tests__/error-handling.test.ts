@@ -49,7 +49,7 @@ describe('Error Handling System', () => {
 
       expect(json.error).toBe('Bad request');
       expect(json.errorCode).toBe('VALIDATION_ERROR');
-      expect(json.metadata?.field).toBe('email');
+      expect(json.metadata).toBeUndefined();
     });
 
     it('should get log details correctly', () => {
@@ -168,5 +168,15 @@ describe('Error Handling System', () => {
 
       expect(error.metadata?.retryAfter).toBe(60);
     });
+  });
+});
+
+describe('private error metadata', () => {
+  it('keeps arbitrary diagnostic metadata out of API responses', () => {
+    const error = new AppError(401, 'Authentication failed', {
+      metadata: { detail: 'private-value', nested: { token: 'private-value' } },
+    });
+    expect(JSON.stringify(error.toJSON())).not.toContain('private-value');
+    expect(error.getLogDetails().metadata).toEqual(error.metadata);
   });
 });

@@ -193,11 +193,7 @@ export default function TeamAdminScreen() {
   const pendingInvites = data?.pendingInvites ?? [];
   const games = data?.games ?? [];
   const selectedTeamId = data?.selectedTeamId ?? routeTeamId;
-  const error = isError
-    ? queryError instanceof Error
-      ? queryError.message
-      : 'Failed to load team admin'
-    : null;
+  const error = isError ? toUserMessage(queryError, 'Failed to load team admin') : null;
 
   // Background-only refetch on focus (e.g. after editing the roster on
   // another screen) — only once data has loaded once, so it never re-shows

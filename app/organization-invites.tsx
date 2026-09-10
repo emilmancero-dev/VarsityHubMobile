@@ -52,7 +52,7 @@ function OrganizationInvitesScreen() {
       : normalized;
   }, [data, params.id]);
   const loading = isPending;
-  const error = isError ? (queryError as any)?.message || 'Unable to load invites' : null;
+  const error = isError ? toUserMessage(queryError, 'Unable to load invites') : null;
 
   const highlightedInviteName = useMemo(
     () => invites.find(invite => invite.id === params.id)?.organization?.name,

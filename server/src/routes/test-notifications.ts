@@ -53,7 +53,6 @@ testNotificationsRouter.post(
     } catch (error: any) {
       res.status(500).json({
         error: 'Failed to send notification',
-        details: process.env.NODE_ENV === 'production' ? undefined : error.message,
       });
     }
   })

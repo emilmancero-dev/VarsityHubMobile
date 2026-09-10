@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -171,10 +172,10 @@ export default function ReportAbuseScreen() {
       setAccused('');
       setEvidenceImages([]);
     } catch (err: any) {
-      const message =
-        typeof err?.message === 'string' && err.message.length
-          ? err.message
-          : 'We were unable to send your report. Please try again in a moment.';
+      const message = toUserMessage(
+        err,
+        'We were unable to send your report. Please try again in a moment.'
+      );
       Alert.alert('Submission failed', message);
     } finally {
       setSubmitting(false);

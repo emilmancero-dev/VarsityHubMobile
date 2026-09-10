@@ -22,6 +22,7 @@ export class ValidationError extends AppError {
 
     super(400, message, {
       errorCode: options?.errorCode || 'VALIDATION_ERROR',
+      publicMetadata: options?.validationIssues ? { issues: options.validationIssues } : undefined,
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
   }

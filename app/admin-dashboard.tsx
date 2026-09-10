@@ -126,23 +126,6 @@ function AdminDashboardScreen() {
   const [leagueDetailModal, setLeagueDetailModal] = useState<PendingLeague | null>(null);
 
   const formatAdminActionError = (err: any, fallback: string) => {
-    const serverData = err?.data || err?.response?.data;
-    const issues = serverData?.issues || serverData?.details?.issues;
-
-    if (Array.isArray(issues) && issues.length > 0) {
-      const detail = issues
-        .slice(0, 3)
-        .map(
-          (i: any) =>
-            `${Array.isArray(i.path) ? i.path.join('.') : i.path || 'field'}: ${i.message}`
-        )
-        .join('\n');
-      return detail || fallback;
-    }
-
-    // Route the raw server-envelope / err.message path through toUserMessage so
-    // transport/origin-URL leaks (e.g. "Cannot connect to server at <URL>") can
-    // no longer pass through; clean server strings still pass through unchanged.
     return toUserMessage(err, fallback);
   };
 
@@ -281,7 +264,7 @@ function AdminDashboardScreen() {
         setError(
           isSessionExpiryError(e)
             ? 'Your admin session expired. Please sign in again.'
-            : e?.message || 'Failed to load dashboard'
+            : toUserMessage(e, 'Failed to load dashboard')
         );
       } finally {
         setLoading(false);

@@ -283,7 +283,9 @@ uploadsRouter.post(
       return sendError(
         res,
         status,
-        status === 503 ? 'Upload service unavailable. Please retry.' : error.message
+        status === 503
+          ? 'Upload service unavailable. Please retry.'
+          : 'Unable to start this upload. Please select the video again.'
       );
     }
   })
@@ -308,7 +310,7 @@ uploadsRouter.post(
         status,
         status === 503
           ? 'Video processing is temporarily unavailable. Please retry.'
-          : error.message
+          : 'Unable to complete this upload. Please select the video again.'
       );
     }
   })
@@ -350,9 +352,7 @@ uploadsRouter.get(
       addBreadcrumb('Cloudinary signature unavailable', 'uploads.signature', 'warning', {
         configured: false,
       });
-      return res
-        .status(503)
-        .json({ error: 'Direct upload not available — Cloudinary not configured' });
+      return sendError(res, 503, 'Uploads are temporarily unavailable. Please try again later.');
     }
 
     try {
@@ -467,7 +467,7 @@ uploadsRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
     if (!isR2Configured()) {
-      return res.status(503).json({ error: 'Direct R2 upload not available — R2 not configured' });
+      return sendError(res, 503, 'Uploads are temporarily unavailable. Please try again later.');
     }
     const contentType = String((req.query as any).content_type || '')
       .trim()
@@ -483,9 +483,7 @@ uploadsRouter.get(
     try {
       const ticket = await createR2UploadTicket({ contentType, contentLength });
       if (!ticket) {
-        return res
-          .status(503)
-          .json({ error: 'Direct R2 upload not available — R2 not configured' });
+        return sendError(res, 503, 'Uploads are temporarily unavailable. Please try again later.');
       }
       addBreadcrumb('R2 presign issued', 'uploads.r2Presign', 'info', { key: ticket.key });
       return res.json(ticket);
@@ -494,7 +492,7 @@ uploadsRouter.get(
       if (
         /Unsupported content type|content_length|File size exceeds/i.test(String(error?.message))
       ) {
-        return res.status(400).json({ error: error.message });
+        return sendError(res, 400, 'Invalid file type or size. Please select a supported file.');
       }
       console.error('[uploads] Failed to presign R2 upload:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
@@ -850,7 +848,7 @@ uploadsRouter.use((err: any, req: Request, res: Response, next: NextFunction) =>
   }
 
   if (err.message?.startsWith('Only image') || err.message?.startsWith('File type not allowed')) {
-    return res.status(400).json({ error: err.message });
+    return sendError(res, 400, 'File type not allowed. Please select a supported image or video.');
   }
 
   // v1.0.3: Cloudinary (and any upstream provider) errors are infrastructure

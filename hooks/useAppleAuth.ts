@@ -264,7 +264,7 @@ export function useAppleAuth() {
           throw new Error(friendly);
         }
 
-        setError(message + (Platform.OS === 'ios' ? friendlyHints : ''));
+        setError(toAuthErrorMessage(err, 'Apple sign-in failed. Please try again.'));
         throw err;
       } finally {
         setLoading(false);

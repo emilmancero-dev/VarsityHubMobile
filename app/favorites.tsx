@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
 import { Stack, useRouter } from 'expo-router';
@@ -155,8 +156,7 @@ function FavoritesScreen() {
   const error =
     authError ??
     (isError
-      ? (queryError instanceof Error && queryError.message) ||
-        'Unable to load your saved posts. Pull to refresh to try again.'
+      ? toUserMessage(queryError, 'Unable to load your saved posts. Pull to refresh to try again.')
       : null);
 
   const handleRefresh = useCallback(() => {

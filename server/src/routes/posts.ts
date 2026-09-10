@@ -813,7 +813,9 @@ postsRouter.post(
       verifiedMedia = await assertReadyMediaForOwner(req.user!.id, data.media_url, data.poster_url);
     } catch (error: any) {
       if (error?.status !== 422) throw error;
-      return sendError(res, 422, error.message, { code: 'MEDIA_NOT_READY' });
+      return sendError(res, 422, 'This media is not ready. Please upload it again.', {
+        code: 'MEDIA_NOT_READY',
+      });
     }
     if (verifiedMedia) {
       data.media_width = verifiedMedia.width;

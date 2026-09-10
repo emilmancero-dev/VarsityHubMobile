@@ -61,3 +61,44 @@ describe('errorHandler — malformed request URLs', () => {
     expect(captureExceptionMock).toHaveBeenCalledTimes(1);
   });
 });
+
+it('never includes unknown error diagnostics even in development responses', () => {
+  const previous = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'development';
+  try {
+    const res = makeRes();
+    errorHandler(new Error('private-value'), req, res, jest.fn() as any);
+    expect(res.statusCode).toBe(500);
+    expect(JSON.stringify(res.body)).not.toContain('private-value');
+    expect(res.body.details).toBeUndefined();
+  } finally {
+    process.env.NODE_ENV = previous;
+  }
+});
+
+it('does not trust provider errors that imitate Zod validation errors', () => {
+  const res = makeRes();
+  const err = Object.assign(new Error('private-value'), {
+    name: 'ZodError',
+    issues: [{ path: ['provider'], message: 'private-value' }],
+  });
+  errorHandler(err, req, res, jest.fn() as any);
+  expect(res.statusCode).toBe(500);
+  expect(JSON.stringify(res.body)).not.toContain('private-value');
+});
+
+it('does not attach request payloads to unknown-error telemetry', () => {
+  captureExceptionMock.mockClear();
+  errorHandler(
+    new Error('failure'),
+    {
+      ...req,
+      body: { nested: { password: 'private-value' } },
+      query: { key: 'private-value' },
+      params: { id: 'private-value' },
+    },
+    makeRes(),
+    jest.fn() as any
+  );
+  expect(JSON.stringify(captureExceptionMock.mock.calls[0][1])).not.toContain('private-value');
+});

@@ -1,3 +1,4 @@
+import { AppError } from '../lib/errors/AppError.js';
 import { OrganizationRole, Prisma } from '@prisma/client';
 import escapeHtml from 'escape-html';
 import { Response, Router } from 'express';
@@ -1266,14 +1267,9 @@ organizationsRouter.post(
             // over the plan cap. Matches the team invite paths.
             const totalAuthorized = inviteCount + memberCount + 1;
             if (totalAuthorized > limit) {
-              throw Object.assign(new Error('USER_LIMIT_REACHED'), {
-                status: 403,
-                body: {
-                  error: 'USER_LIMIT_REACHED',
-                  message: `Plan limit reached. ${plan} plan allows ${limit} authorized user${limit === 1 ? '' : 's'} for your organization.`,
-                  limit,
-                  current: totalAuthorized,
-                },
+              throw new AppError(403, 'USER_LIMIT_REACHED', {
+                errorCode: 'USER_LIMIT_REACHED',
+                publicMetadata: { limit, current: totalAuthorized },
               });
             }
           }
@@ -1337,10 +1333,12 @@ organizationsRouter.post(
       return res.status(201).json(invite);
     } catch (err: any) {
       if (err instanceof InviteIdentifierError) {
-        return sendError(res, err.statusCode, err.message, { code: err.code });
+        return sendError(res, err.statusCode, 'Please enter a valid username or email address.', {
+          code: err.code,
+        });
       }
-      if (err?.status && err?.body) {
-        return res.status(err.status).json(err.body);
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json(err.toJSON());
       }
       console.error('[organizations] POST /:id/invite error:', err);
       return res.status(500).json({ error: 'Internal server error' });
@@ -1930,8 +1928,8 @@ organizationsRouter.post(
       }
       return res.status(201).json(joinRequest);
     } catch (err: any) {
-      if (err?.statusCode && err?.body) {
-        return res.status(err.statusCode).json(err.body);
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json(err.toJSON());
       }
       console.error('[organizations] POST /:organizationId/join error:', err);
       return res.status(500).json({ error: 'Internal server error' });

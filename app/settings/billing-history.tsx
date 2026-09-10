@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 // v1.0.2: Billing history screen — lists the current user's TransactionLog rows.
 // Replaces the matrix row that claimed this existed.
 import { Subscriptions } from '@/api/entities';
@@ -77,11 +78,7 @@ export default function BillingHistory() {
   });
   const rows: Transaction[] = Array.isArray(data?.transactions) ? data!.transactions! : [];
   const loading = isPending;
-  const error = isError
-    ? (queryError as any)?.data?.error ||
-      (queryError as any)?.message ||
-      'Failed to load billing history.'
-    : null;
+  const error = isError ? toUserMessage(queryError, 'Failed to load billing history.') : null;
   const refreshing = isRefetching;
   const onRefresh = () => void refetch();
 

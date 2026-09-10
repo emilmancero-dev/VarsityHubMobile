@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Input } from '@/components/ui/input';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { Colors } from '@/constants/Colors';
@@ -602,10 +603,7 @@ function Step3League() {
       captureException(typeof error === 'string' ? new Error(error) : error, {
         tags: { context: 'onboarding-step-3-join-request' },
       });
-      Alert.alert(
-        'Request Failed',
-        error?.data?.error || error?.message || 'Failed to send join request'
-      );
+      Alert.alert('Request Failed', toUserMessage(error, 'Failed to send join request'));
     } finally {
       setSaving(false);
       setRequestingJoin(false);
@@ -988,36 +986,12 @@ function Step3League() {
           'The name or description contains harmful language. Please revise.'
         );
       } else {
-        // v1.0.3: surface the ACTUAL server error instead of the useless
-        // "Something went wrong" fallback. Users spent an entire device
-        // testing session hitting this dialog with no way to tell what
-        // was rejected. Server errors carry actionable info — show it.
-        const serverData = e?.data || e?.response?.data;
-        const serverError = serverData?.error || serverData?.message;
-        const zodIssues = serverData?.issues || serverData?.details?.issues;
-        let detail = '';
-        if (Array.isArray(zodIssues) && zodIssues.length > 0) {
-          detail = zodIssues
-            .slice(0, 3)
-            .map(
-              (i: any) =>
-                `${Array.isArray(i.path) ? i.path.join('.') : i.path || 'field'}: ${i.message}`
-            )
-            .join('\n');
-        } else if (typeof serverError === 'string' && serverError.length < 300) {
-          detail = serverError;
-        } else if (
-          typeof e?.message === 'string' &&
-          e.message.length < 300 &&
-          !/^HTTP \d/.test(e.message)
-        ) {
-          detail = e.message;
-        }
-        const status = e?.status || e?.response?.status;
-        const title = status ? `Create failed (${status})` : 'Create failed';
         Alert.alert(
-          title,
-          detail || 'Please try again, or contact support@varsityhub.app if this keeps happening.'
+          'Create failed',
+          toUserMessage(
+            e,
+            'Please check your entries and try again, or contact support@varsityhub.app.'
+          )
         );
       }
     } finally {

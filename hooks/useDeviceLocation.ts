@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Platform } from 'react-native';
@@ -90,7 +91,7 @@ export function useDeviceLocation(): UseDeviceLocationResult {
         setError(null);
       }
     } catch (e: any) {
-      const errMsg = e?.message || 'Failed to fetch location';
+      const errMsg = toUserMessage(e, 'Failed to fetch location');
       if (__DEV__) console.warn('[location] Fetch failed:', errMsg);
       setError(errMsg);
     } finally {
@@ -116,7 +117,7 @@ export function useDeviceLocation(): UseDeviceLocationResult {
       await fetchLocation();
       return true;
     } catch (e: any) {
-      const errMsg = e?.message || 'Failed to request location permission';
+      const errMsg = toUserMessage(e, 'Failed to request location permission');
       setError(errMsg);
       setPermissionGranted(false);
       setLoading(false);

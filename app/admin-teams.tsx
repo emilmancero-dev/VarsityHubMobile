@@ -48,7 +48,7 @@ function AdminTeamsScreen() {
           ? 'Your admin session expired. Please sign in again.'
           : e?.status === 403
             ? 'Access denied (admin only).'
-            : e?.message || 'Failed to load teams'
+            : toUserMessage(e, 'Failed to load teams')
       );
     } finally {
       setLoading(false);

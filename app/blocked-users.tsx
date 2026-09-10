@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { User } from '@/api/entities';
 import { Input } from '@/components/ui/input';
 import { Colors } from '@/constants/Colors';
@@ -66,7 +67,7 @@ function BlockedUsersScreen() {
       await refetch();
       Alert.alert('Blocked', `@${match.username || trimmed} cannot message you.`);
     } catch (err: any) {
-      const message = err?.response?.data?.error || err?.message || 'Unable to block user.';
+      const message = toUserMessage(err, 'Unable to block user.');
       Alert.alert('Error', message);
     } finally {
       setBusy(false);
@@ -80,7 +81,7 @@ function BlockedUsersScreen() {
         await User.unblock(userId);
         await refetch();
       } catch (err: any) {
-        const message = err?.response?.data?.error || err?.message || 'Unable to unblock user.';
+        const message = toUserMessage(err, 'Unable to unblock user.');
         Alert.alert('Error', message);
       } finally {
         setBusy(false);

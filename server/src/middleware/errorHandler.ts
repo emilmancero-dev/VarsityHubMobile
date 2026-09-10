@@ -5,6 +5,7 @@
  * Should be added as the last middleware in Express app.
  */
 
+import { ZodError } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
 import { captureException, getSentryRouteTag } from '../lib/sentry.js';
 import { AppError } from '../lib/errors/AppError.js';
@@ -75,7 +76,7 @@ export function errorHandler(
   }
 
   // Handle Zod validation errors (from safeParse)
-  if (err.name === 'ZodError' && 'issues' in err) {
+  if (err instanceof ZodError) {
     const zodError = err as any;
     const validationError = new ValidationError('Invalid input', {
       validationIssues: zodError.issues.map((issue: any) => ({
@@ -139,27 +140,12 @@ export function errorHandler(
     extra: {
       path: req.path,
       method: req.method,
-      body: req.body
-        ? Object.fromEntries(
-            Object.entries(req.body).map(([k, v]) =>
-              /password|secret|token|code/i.test(k) ? [k, '[REDACTED]'] : [k, v]
-            )
-          )
-        : undefined,
-      query: req.query,
-      params: req.params,
     },
   });
 
   // Send generic error response (don't leak internal details)
   sendError(res, 500, 'Internal server error', {
     code: 'INTERNAL_SERVER_ERROR',
-    ...(process.env.NODE_ENV === 'development' && {
-      details: {
-        message: err.message,
-        stack: err.stack,
-      },
-    }),
   });
 }
 

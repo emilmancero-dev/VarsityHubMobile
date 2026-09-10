@@ -20,8 +20,11 @@ export async function launchMediaLibraryAsync(
     ): Promise<ImagePicker.ImagePickerResult>;
   }>('VarsityMediaPicker');
   if (!native) {
-    throw new Error(
-      'Video selection requires the latest app build. Please update VarsityHub and try again.'
+    throw Object.assign(
+      new Error(
+        'Video selection requires the latest app build. Please update VarsityHub and try again.'
+      ),
+      { code: 'MEDIA_PICKER_UPDATE_REQUIRED' }
     );
   }
   const includeImages =
