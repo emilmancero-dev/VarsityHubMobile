@@ -1,3 +1,6 @@
+import { storyRequestIdentity, recoverStoryRequest } from '../lib/storyRequestRecovery.js';
+import type { Prisma } from '@prisma/client';
+import { assertReadyMediaForOwner } from '../lib/mediaUploadOwnership.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -77,6 +80,49 @@ import { registerIdValidation } from '../middleware/validateParams.js';
 
 export const eventsRouter = Router();
 registerIdValidation(eventsRouter);
+
+// Story surfaces use the same approval, contributor and private-team rules as events.
+const EVENT_VISIBILITY_SELECT = {
+  id: true,
+  creator_id: true,
+  approval_status: true,
+  game_id: true,
+} as const;
+async function canViewEventRecord(
+  event: {
+    id: string;
+    creator_id: string | null;
+    approval_status: string | null;
+    game_id: string | null;
+  },
+  req: AuthedRequest
+): Promise<boolean> {
+  const viewerId = req.user?.id ?? null;
+  if (viewerId && (await getIsAdmin(req as any))) return true;
+  if (event.approval_status !== 'approved' && (!viewerId || event.creator_id !== viewerId)) {
+    if (
+      !viewerId ||
+      !(await viewerHasPostedOnEntity({
+        userId: viewerId,
+        eventId: event.id,
+        gameId: event.game_id,
+      }))
+    )
+      return false;
+  }
+  const where = mergeAndWhere<Prisma.EventWhereInput>(
+    { id: event.id },
+    buildPrivateTeamEventVisibilityWhere(await getExcludedPrivateTeamIds(viewerId))
+  );
+  mergeAndWhere(where, {
+    OR: [
+      { game_id: null },
+      { game: { is: { opponent_approval_status: { notIn: ['pending', 'declined'] } } } },
+      { game: { is: { date: { lt: new Date() } } } },
+    ],
+  });
+  return Boolean(await prisma.event.findFirst({ where, select: { id: true } }));
+}
 
 type SportsLeagueScheduleStatus = 'provider_backed' | 'event_seeded' | 'catalog_only';
 
@@ -1491,7 +1537,7 @@ eventsRouter.get(
         select: EVENT_VISIBILITY_SELECT,
       });
       if (!event) return sendError(res, 404, 'Not found');
-      if (!(await canViewEventRecord(event as any, req.user?.id ?? null))) {
+      if (!(await canViewEventRecord(event, req))) {
         return sendError(res, 404, 'Not found');
       }
 
@@ -1570,13 +1616,26 @@ eventsRouter.post(
     const id = String(req.params.id);
     const parsed = storySchema.safeParse(req.body || {});
     if (!parsed.success) return sendError(res, 400, 'Invalid payload');
+    const requestIdentity = storyRequestIdentity(req.user.id, 'event:' + id, parsed.data);
+    const replayStory = async () => {
+      try {
+        const existing = await recoverStoryRequest(prisma, requestIdentity, req.user!.id);
+        if (!existing) return false;
+        res.status(200).json(existing);
+      } catch (error: any) {
+        if (error?.status !== 409) throw error;
+        sendError(res, 409, error.message, { code: 'IDEMPOTENCY_CONFLICT' });
+      }
+      return true;
+    };
+    if (await replayStory()) return;
 
     const event = await prisma.event.findUnique({
       where: { id },
       select: { ...EVENT_VISIBILITY_SELECT, description: true, title: true },
     });
     if (!event) return sendError(res, 404, 'Not found');
-    if (!(await canViewEventRecord(event as any, req.user.id))) {
+    if (!(await canViewEventRecord(event, req))) {
       return sendError(res, 404, 'Not found');
     }
 
@@ -1610,11 +1669,26 @@ eventsRouter.post(
     }
 
     const loc = parsed.data.location;
+    let verifiedMedia;
+    try {
+      verifiedMedia = await assertReadyMediaForOwner(
+        req.user.id,
+        parsed.data.media_url,
+        parsed.data.poster_url,
+        20.25 // Nominal 20s story + 250ms frame/audio mux tolerance, matching the client trim gate.
+      );
+    } catch (error: any) {
+      if (error?.status !== 422) throw error;
+      return sendError(res, 422, error.message, { code: error.code || 'MEDIA_NOT_READY' });
+    }
     const createData: any = {
+      ...(requestIdentity
+        ? { id: requestIdentity.id, client_request_hash: requestIdentity.hash }
+        : {}),
       event_id: id,
       user_id: req.user.id,
       media_url: parsed.data.media_url,
-      poster_url: parsed.data.poster_url ?? undefined,
+      poster_url: verifiedMedia?.poster_url ?? parsed.data.poster_url ?? undefined,
       caption: parsed.data.caption ? stripHtml(parsed.data.caption) : undefined,
     };
     if (typeof loc?.lat === 'number') createData.lat = loc.lat;
@@ -1624,6 +1698,7 @@ eventsRouter.post(
     try {
       story = await prisma.story.create({ data: createData });
     } catch (error: any) {
+      if (error?.code === 'P2002' && (await replayStory())) return;
       if (!isMissingStoryLocationColumnError(error)) {
         console.error('[eventStories] Failed to create story:', error);
         return sendError(res, 500, 'Failed to create story');

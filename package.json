@@ -1,7 +1,7 @@
 {
   "name": "varsityhubmobile",
   "main": "expo-router/entry",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "scripts": {
     "start": "expo start",
     "predev": "lsof -ti:8081 | xargs kill -9 2>/dev/null || true; lsof -ti:4000 | xargs kill -9 2>/dev/null || true",

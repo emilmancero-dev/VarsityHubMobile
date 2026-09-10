@@ -204,6 +204,7 @@ jest.mock('@/api/entities', () => ({
     getByEvent: jest.fn().mockResolvedValue({ items: [] }),
   },
   Event: {
+    stories: jest.fn().mockResolvedValue({ items: [] }),
     get: jest.fn().mockResolvedValue({
       id: 'event-1',
       title: 'UMass at Rutgers',

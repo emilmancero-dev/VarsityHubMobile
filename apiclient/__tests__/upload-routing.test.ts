@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
+const mockVideoUpload = jest.fn(async () => ({
+  url: 'https://media.test/clip.mp4',
+  provider: 'cloudinary',
+  type: 'video',
+}));
+jest.mock('../videoUpload', () => ({ uploadVideo: mockVideoUpload }));
+
 const mockAuth = {
   getToken: jest.fn(async () => 'test-token'),
   refreshToken: jest.fn(async () => ({
@@ -130,6 +137,12 @@ describe('uploadFile routing', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    mockVideoUpload.mockReset();
+    mockVideoUpload.mockResolvedValue({
+      url: 'https://media.test/clip.mp4',
+      provider: 'cloudinary',
+      type: 'video',
+    });
     fetchMock.mockReset();
     mockAuth.getToken.mockReset();
     mockAuth.refreshToken.mockReset();
@@ -160,6 +173,19 @@ describe('uploadFile routing', () => {
     delete (global as any).XMLHttpRequest;
     (global as any).FormData = originalFormData;
   });
+
+  it.each([0, 10 * 1024 * 1024 + 1])(
+    'blocks unreadable or oversized prepared images (%s) before any provider request',
+    async size => {
+      mockGetInfoAsync.mockResolvedValue({ exists: true, size });
+      const { uploadFile } = await import('../upload');
+      await expect(
+        uploadFile('https://api.test', 'file:///photo.jpg', 'photo.jpg', 'image/jpeg')
+      ).rejects.toThrow('Image is unreadable or too large');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(MockXHR.instances).toHaveLength(0);
+    }
+  );
 
   it('routes PDFs to /uploads/files instead of the media-only upload path', async () => {
     fetchMock.mockResolvedValue({
@@ -419,12 +445,14 @@ describe('uploadFile routing', () => {
     const { uploadFile } = await import('../upload');
     await uploadFile('https://api.test', '/tmp/trimmed-output.mp4', 'clip.mov', 'video/quicktime');
 
-    const filePart = MockXHR.instances[0]?.requestBody?.get('file');
-    expect(filePart).toEqual({
-      uri: 'file:///tmp/trimmed-output.mp4',
-      name: 'clip.mov',
-      type: 'video/mp4',
-    });
+    expect(mockVideoUpload).toHaveBeenCalledWith(
+      'file:///tmp/trimmed-output.mp4',
+      'clip.mov',
+      'video/mp4',
+      undefined
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(MockXHR.instances).toHaveLength(0);
   });
 
   it('mirrors signed Cloudinary constraints into the direct-upload form body', async () => {
@@ -451,8 +479,8 @@ describe('uploadFile routing', () => {
     expect(form?.get('max_bytes')).toBe('157286400');
   });
 
-  it('falls back to the server proxy when Cloudinary rejects the direct upload', async () => {
-    MockXHR.nextStatus = 401;
+  it('falls back to the server proxy on provider service failure', async () => {
+    MockXHR.nextStatus = 503;
     MockXHR.nextResponseText = JSON.stringify({ error: { message: 'Invalid Signature' } });
     mockSignatureThenFallbackUpload();
 
@@ -478,23 +506,28 @@ describe('uploadFile routing', () => {
     });
   });
 
-  it('surfaces signature-endpoint failures for video uploads instead of a generic message', async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 503,
-      json: async () => ({ error: 'Direct upload not available — Cloudinary not configured' }),
-      statusText: 'Service Unavailable',
-    });
-
+  it('propagates resumable video failures without silently starting another upload', async () => {
+    mockVideoUpload.mockRejectedValueOnce(new Error('Transfer interrupted; retry to continue'));
     const { uploadFile } = await import('../upload');
-
     await expect(
       uploadFile('https://api.test', 'file:///tmp/clip.mp4', 'clip.mp4', 'video/mp4')
-    ).rejects.toThrow('Direct upload not available');
+    ).rejects.toThrow('Transfer interrupted');
+    expect(mockVideoUpload).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not bypass a permanent direct upload rejection using a proxy', async () => {
+    MockXHR.nextStatus = 400;
+    mockSignatureThenFallbackUpload();
+    const { uploadFile } = await import('../upload');
+    await expect(
+      uploadFile('https://api.test', 'file:///tmp/pic.jpg', 'pic.jpg', 'image/jpeg')
+    ).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('carries onboarding upload context into the media fallback query string', async () => {
-    MockXHR.nextStatus = 401;
+    MockXHR.nextStatus = 503;
     MockXHR.nextResponseText = JSON.stringify({ error: { message: 'Invalid Signature' } });
     mockSignatureThenFallbackUpload();
 

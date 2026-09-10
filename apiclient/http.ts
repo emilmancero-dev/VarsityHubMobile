@@ -1,3 +1,4 @@
+import { throwIfUploadAborted, waitForUploadRetry } from '@/utils/resumableUpload';
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 // TODO(transport-hardening): Remove this grandfather when api/http gets typed
 // request/response generics and a typed transport error contract. The current
@@ -284,6 +285,8 @@ async function request(
   retries: number = 1,
   behavior: HttpBehaviorOptions = {}
 ): Promise<any> {
+  const externalSignal = options.signal ?? undefined;
+  throwIfUploadAborted(externalSignal);
   const base = getBaseUrl();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -307,7 +310,10 @@ async function request(
   // Add timeout to prevent hanging requests. Register the controller with
   // the inflight set so abortAllInflight() on sign-out can cancel this
   // request before user A's response leaks into user B's session.
+  throwIfUploadAborted(externalSignal);
   const controller = new AbortController();
+  const abortExternal = () => controller.abort();
+  externalSignal?.addEventListener('abort', abortExternal, { once: true });
   inflightControllers.add(controller);
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -323,8 +329,7 @@ async function request(
       headers,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
-    inflightControllers.delete(controller);
+    throwIfUploadAborted(externalSignal);
     // HTTP response received
     captureBreadcrumb(`HTTP ${res.status} ${path}`, 'http', { status: res.status, path });
 
@@ -335,6 +340,7 @@ async function request(
     }
 
     const text = await res.text();
+    throwIfUploadAborted(externalSignal);
     const ct = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
     let data: any = null;
     if (ct.includes('application/json')) {
@@ -389,7 +395,11 @@ async function request(
         if (newToken) {
           // Retry the original request with the fresh token
           headers['Authorization'] = `Bearer ${newToken}`;
-          const retryRes = await fetch(base + path, { ...options, headers, signal: undefined });
+          const retryRes = await fetch(base + path, {
+            ...options,
+            headers,
+            signal: controller.signal,
+          });
           if (retryRes.ok) {
             const retryText = await retryRes.text();
             const retryCt =
@@ -476,6 +486,7 @@ async function request(
   } catch (error: any) {
     clearTimeout(timeoutId);
     inflightControllers.delete(controller);
+    throwIfUploadAborted(externalSignal);
     // Suppress verbose logging for expected auth errors in dev mode
     const isAuthError = path.includes('/auth/') || path.includes('/me');
     const isAbortError = error.name === 'AbortError';
@@ -617,9 +628,15 @@ async function request(
           console.log(
             `[http] Retrying 502 Bad Gateway after ${delay}ms... (${effectiveRetries}/${maxRetriesFor502} retries left)`
           );
-        await new Promise(r => setTimeout(r, delay));
+        await waitForUploadRetry(delay, externalSignal);
         // Retry with original retries count but ensure we don't exceed maxRetriesFor502
-        return request(path, options, timeoutMs, Math.min(retries - 1, maxRetriesFor502 - 1));
+        return request(
+          path,
+          options,
+          timeoutMs,
+          Math.min(retries - 1, maxRetriesFor502 - 1),
+          behavior
+        );
       }
 
       // If all retries exhausted, provide user-friendly error
@@ -661,7 +678,7 @@ async function request(
       if (retries > 0 && isRetryable) {
         // Exponential backoff: small delay before retry
         await new Promise(r => setTimeout(r, Math.min(1000, timeoutMs * 0.1)));
-        return request(path, options, timeoutMs, retries - 1);
+        return request(path, options, timeoutMs, retries - 1, behavior);
       }
       throw err;
     }
@@ -696,8 +713,8 @@ async function request(
       // request may have already reached and been processed by the server.
       if (retries > 0 && isRetryable) {
         const delay = Math.min(2000, 500 * Math.pow(2, 1 - retries)); // Exponential backoff
-        await new Promise(r => setTimeout(r, delay));
-        return request(path, options, timeoutMs, retries - 1);
+        await waitForUploadRetry(delay, externalSignal);
+        return request(path, options, timeoutMs, retries - 1, behavior);
       }
       throw err;
     }
@@ -710,6 +727,10 @@ async function request(
       captureException(error, { path, base, method: options.method || 'GET' });
     }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    inflightControllers.delete(controller);
+    externalSignal?.removeEventListener('abort', abortExternal);
   }
 }
 
@@ -758,11 +779,12 @@ export function httpPostWithOptions(
   body: any,
   timeoutMs: number,
   retries: number = 0,
-  behavior?: HttpBehaviorOptions
+  behavior?: HttpBehaviorOptions,
+  signal?: AbortSignal
 ) {
   return request(
     path,
-    { method: 'POST', body: JSON.stringify(body || {}) },
+    { method: 'POST', body: JSON.stringify(body || {}), signal },
     timeoutMs,
     Math.max(0, retries),
     behavior

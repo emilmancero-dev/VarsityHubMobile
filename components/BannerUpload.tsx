@@ -103,7 +103,7 @@ export function BannerUpload({
         ...pickerMediaTypesProp(),
         allowsEditing: false, // Allow full image without cropping
         allowsMultipleSelection: false,
-        quality: 0.8,
+        quality: 1,
         exif: false,
         base64: false,
       });

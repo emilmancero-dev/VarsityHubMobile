@@ -1,10 +1,8 @@
 import { useEventListener } from 'expo';
 import { Image } from 'expo-image';
-import { VideoView, useVideoPlayer, type VideoContentFit } from 'expo-video';
-import { useFocusEffect } from '@react-navigation/native';
+import { VideoView, type VideoContentFit } from 'expo-video';
+import { usePlaybackLifecycle } from '@/hooks/usePlaybackLifecycle';
 import React from 'react';
-import { toUserMessage } from '@/utils/toUserMessage';
-import { ensurePlaybackAudioSession } from '@/utils/audioSession';
 import {
   ActivityIndicator,
   Pressable,
@@ -66,124 +64,11 @@ export function VideoPlayer({
   contentFit = 'contain',
   poster,
 }: VideoPlayerProps) {
-  const [retryKey, setRetryKey] = React.useState(0);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  // Videos ALWAYS play with sound (owner decision 2026-07-16). The mute toggle
-  // that used to float over the media was removed along with it. Setting
-  // `muted = false` alone is not enough on iOS — see ensurePlaybackAudioSession.
-  ensurePlaybackAudioSession();
-  // Callers pass mediaUrl! assertions; a missing uri must not crash the
-  // player. Pass a null source (expo-video accepts it) and render the
-  // error overlay below instead of skipping hooks with an early return.
-  const source = React.useMemo(() => (uri ? { uri } : null), [uri]);
-  const player = useVideoPlayer(source, p => {
-    if (!uri) return;
-    p.volume = 1.0;
-    p.muted = false;
-    if (autoPlay && !paused) {
-      try {
-        p.play();
-      } catch (e) {
-        // Video player may not be ready yet - non-critical
-        if (__DEV__) console.warn('[VideoPlayer] Initial play failed:', e);
-      }
-    }
+  const { player, isLoading, errorMessage, retry } = usePlaybackLifecycle(uri, {
+    autoPlay,
+    paused,
   });
-
-  useEventListener(player, 'playToEnd', () => {
-    if (onEnd) onEnd();
-  });
-
-  useEventListener(player, 'statusChange', ({ status, error }) => {
-    if (status === 'loading') {
-      setIsLoading(true);
-      setErrorMessage(null);
-      return;
-    }
-    if (status === 'readyToPlay') {
-      setIsLoading(false);
-      setErrorMessage(null);
-      return;
-    }
-    if (status === 'error') {
-      setIsLoading(false);
-      setErrorMessage(toUserMessage(error, 'Video unavailable'));
-    }
-  });
-
-  React.useEffect(() => {
-    setIsLoading(true);
-    setErrorMessage(null);
-  }, [uri, retryKey]);
-
-  // Control playback based on paused prop
-  React.useEffect(() => {
-    if (!player) return;
-    try {
-      if (paused) {
-        player.pause();
-      } else if (autoPlay) {
-        player.play();
-      }
-    } catch (e) {
-      // Video state change failed - non-critical
-      if (__DEV__) console.warn('[VideoPlayer] Play/pause state change failed:', e);
-    }
-  }, [paused, player, autoPlay]);
-
-  // Restart video when autoPlay changes from false to true
-  React.useEffect(() => {
-    if (!player || !autoPlay || paused) return;
-    try {
-      player.replay();
-    } catch (e) {
-      // Replay failed - non-critical
-      if (__DEV__) console.warn('[VideoPlayer] Replay failed:', e);
-    }
-  }, [autoPlay, player, paused]);
-
-  // Read the LATEST playback intent from inside the focus effect without
-  // putting these props in its dep array — a dep change re-runs the effect,
-  // and its cleanup pauses, so `paused` churn would stutter playback.
-  const autoPlayRef = React.useRef(autoPlay);
-  autoPlayRef.current = autoPlay;
-  const pausedRef = React.useRef(paused);
-  pausedRef.current = paused;
-
-  // Now that audio is always on and routed through the `playback` category, a
-  // video left playing on a backgrounded screen keeps talking over whatever the
-  // user opened next. Pause on blur, and resume on refocus — otherwise tapping
-  // into a profile and coming back leaves the clip frozen mid-play, which is
-  // the "video sitting at 0:00" complaint all over again. Neither the play
-  // effect above nor the props change on refocus, so the resume has to happen
-  // here.
-  useFocusEffect(
-    React.useCallback(() => {
-      // Resume ONLY if this player is still meant to be playing. `paused` is
-      // how every caller says "not my turn": the post-detail hero sets it
-      // unless it's the active pager page with the fullscreen modal closed,
-      // and stories/GVFS set it for every non-active item. Honouring it is
-      // what keeps two videos from playing at once — a worse bug than the
-      // freeze this fixes.
-      if (autoPlayRef.current && !pausedRef.current) {
-        try {
-          player?.play();
-        } catch (e) {
-          // Non-critical: player may not be ready yet
-          if (__DEV__) console.warn('[VideoPlayer] Resume on focus failed:', e);
-        }
-      }
-      return () => {
-        try {
-          player?.pause();
-        } catch (e) {
-          // Non-critical: player may already be released
-          if (__DEV__) console.warn('[VideoPlayer] Pause on blur failed:', e);
-        }
-      };
-    }, [player])
-  );
+  useEventListener(player, 'playToEnd', () => onEnd?.());
 
   return (
     <View style={style}>
@@ -225,11 +110,7 @@ export function VideoPlayer({
       ) : null}
       {uri && errorMessage ? (
         <Pressable
-          onPress={() => {
-            setIsLoading(true);
-            setErrorMessage(null);
-            setRetryKey(prev => prev + 1);
-          }}
+          onPress={retry}
           style={styles.overlay}
           accessibilityRole="button"
           accessibilityLabel="Retry video playback"

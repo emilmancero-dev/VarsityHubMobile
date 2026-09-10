@@ -1,11 +1,17 @@
+import { persistPreparedMedia, deleteConfirmedMediaDraft } from './mediaDraftFiles';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import {
   MAX_VIDEO_SIZE_BYTES,
   MAX_VIDEO_SIZE_MB,
+  POST_MAX_DURATION_S,
   VIDEO_COMPRESSION_THRESHOLD_MB,
+  VIDEO_COMPRESSION_THRESHOLD_BYTES,
   VIDEO_MAX_LONG_EDGE_PX,
   VIDEO_TARGET_BITRATE_BPS,
+  VIDEO_BITRATE_HEADROOM,
 } from '@/constants/video';
 import { captureException } from '@/utils/sentry';
 
@@ -47,8 +53,7 @@ function clampFraction(value: number): number {
  * (module missing vs. compression crashed mid-way) are reported to Sentry so
  * they are distinguishable and visible instead of silently swallowed.
  *
- * iOS also benefits from ImagePicker's videoExportPreset at the picker level,
- * so even without the compressor the file is transcoded by the OS.
+ * Library acquisition preserves source bytes; this is the only encoding pass.
  *
  * `onProgress` receives a 0..1 fraction. react-native-compressor has always
  * exposed this (third arg of Video.compress, backed by the native
@@ -89,20 +94,7 @@ export async function compressVideoSafe(
     const compressed: string = await CompressorVideo.compress(
       uri,
       {
-        // 'manual' — NOT 'auto'. This is the fix for "the video quality is still
-        // bad even though it's 1080p" (2026-07-16).
-        //
-        // 'auto' hard-caps the output bitrate at 1,669,000 bps regardless of
-        // resolution: see makeVideoBitrate() in the package's
-        // ios/Video/VideoMain.swift and android AutoVideoCompression.kt, both of
-        // which clamp to `maxBitrate = 1669000`. maxSize only ever controlled the
-        // RESOLUTION, so the earlier maxSize:1920 fix (1df5d898) worked — the
-        // owner's fest clips really did land at 1080x1920 — and yet they still
-        // looked bad, because 1.67 Mbps over 1080x1920@30fps is ~0.027 bits per
-        // pixel. On high-motion sports footage that smears and blocks.
-        //
-        // 'manual' honours maxSize the same way (it scales the long edge, portrait
-        // included) but uses the bitrate we pass instead of the auto clamp.
+        // Manual bitrate preserves detail without the auto-mode low bitrate clamp.
         compressionMethod: 'manual',
         bitrate: VIDEO_TARGET_BITRATE_BPS,
         minimumFileSizeForCompress: 1, // compress any video (value is in MB)
@@ -129,12 +121,12 @@ export async function compressVideoSafe(
 
 export async function getVideoFileSize(uri: string): Promise<number> {
   try {
-    const info = await FileSystem.getInfoAsync(uri, { size: true } as any);
-    if (info && info.exists && typeof (info as any).size === 'number') {
-      return (info as any).size;
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists && !info.isDirectory && Number.isFinite(info.size)) {
+      return info.size;
     }
   } catch {
-    // Ignore size lookup failures — upload prep remains best-effort.
+    // Callers distinguish unreadable files from valid nonzero sizes.
   }
   return 0;
 }
@@ -155,15 +147,18 @@ type PrepareVideoForUploadOptions = {
  * Best-effort: returns 0 when the native metadata reader is unavailable (old
  * binary) or fails, so callers fall back to a size-only decision.
  */
-async function getVideoLongEdgePx(uri: string): Promise<number> {
-  if (!getVideoMetaData) return 0;
+async function readVideoMetadata(uri: string): Promise<{ longEdge: number; duration: number }> {
+  if (!getVideoMetaData) return { longEdge: 0, duration: 0 };
   try {
     const meta = await getVideoMetaData(uri);
     const w = typeof meta?.width === 'number' ? meta.width : 0;
     const h = typeof meta?.height === 'number' ? meta.height : 0;
-    return Math.max(w, h);
+    return {
+      longEdge: Math.max(w, h),
+      duration: Number.isFinite(meta?.duration) ? meta.duration : 0,
+    };
   } catch {
-    return 0;
+    return { longEdge: 0, duration: 0 };
   }
 }
 
@@ -176,20 +171,20 @@ async function getVideoLongEdgePx(uri: string): Promise<number> {
  *
  * Smart compression policy (owner: "strong and smart, not a patch"): a video is
  * re-encoded to 1080p H.264 @ VIDEO_TARGET_BITRATE_BPS only when it is genuinely
- * over-spec — either it exceeds the 150MB upload cap (size) OR it is larger than
+ * over-spec — it exceeds the 150MB upload cap, has a bitrate above 5Mbps on
+ * a clip larger than 3MB, OR it is larger than
  * 1080p on screen (a 4K/1440p clip, which is needless bandwidth for phone-viewed
  * highlights). A clip that already fits AND is already <= 1080p uploads as-is at
- * capture quality — the on-device transcode (the slowest step of an upload) is
+ * capture quality when its bitrate is also efficient — the on-device transcode is
  * skipped. The picker runs Passthrough, so this is the ONLY transcode a video
  * ever gets, and only when it earns one. Callers may force a lower size bound
  * via `compressionThresholdBytes`.
  *
  * Trade-off: a skipped clip keeps its source codec (e.g. HEVC). Native players
- * handle it; if universal desktop-web playback is ever required, normalize with
- * a lightweight remux or a server-side derivative — never a blanket re-encode,
- * which is exactly the slowness this avoids.
+ * handle it; universal desktop-web playback requires a compatible encoded
+ * derivative. Remuxing alone does not change an unsupported codec.
  */
-export async function prepareVideoForUpload(
+async function prepareVideoUncached(
   uri: string,
   options: PrepareVideoForUploadOptions = {}
 ): Promise<{
@@ -200,16 +195,34 @@ export async function prepareVideoForUpload(
 }> {
   const sizeThresholdBytes = options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES;
   const originalSizeBytes = await getVideoFileSize(uri);
-  const longEdgePx = await getVideoLongEdgePx(uri);
+  if (!Number.isFinite(originalSizeBytes) || originalSizeBytes <= 0) {
+    throw new Error('Could not read the selected video file. Please select it again.');
+  }
+  const metadata = await readVideoMetadata(uri);
+  // Match the composer/trimmer tolerance for frame and AAC/container rounding.
+  if (metadata.duration > POST_MAX_DURATION_S + 0.25) {
+    throw new Error(
+      `Video is too long. Trim it to ${POST_MAX_DURATION_S} seconds before uploading.`
+    );
+  }
+  if (originalSizeBytes > VIDEO_COMPRESSION_THRESHOLD_BYTES && metadata.duration <= 0) {
+    throw new Error(
+      'Could not read video details to prepare this upload. Please select the video again.'
+    );
+  }
+  const longEdgePx = metadata.longEdge;
+  const overBitrate =
+    metadata.duration > 0 &&
+    originalSizeBytes > VIDEO_COMPRESSION_THRESHOLD_BYTES &&
+    (originalSizeBytes * 8) / metadata.duration > VIDEO_TARGET_BITRATE_BPS * VIDEO_BITRATE_HEADROOM;
 
   const overSize = originalSizeBytes <= 0 || originalSizeBytes >= sizeThresholdBytes;
   const overResolution = longEdgePx > VIDEO_MAX_LONG_EDGE_PX;
 
   // In-spec clip (known size that fits AND <= 1080p) → upload as-is, no
-  // transcode. Unknown size (lookup failed) is treated as over-size so the cap
-  // is still enforced. Resolution is best-effort: when unreadable it is 0 and
-  // the decision falls back to size alone.
-  if (!overSize && !overResolution) {
+  // transcode if bitrate is also efficient. Unknown size is rejected above;
+  // unavailable duration/resolution cannot trigger a speculative transcode.
+  if (!overSize && !overResolution && !overBitrate) {
     return {
       uri,
       originalSizeBytes,
@@ -219,17 +232,28 @@ export async function prepareVideoForUpload(
   }
 
   const compressedUri = await compressVideoSafe(uri, options.onCompressProgress);
+  if (compressedUri === uri && (overBitrate || overResolution)) {
+    throw new Error(
+      'Could not prepare this video for upload. Please retry or select a shorter clip.'
+    );
+  }
   let finalUri = compressedUri;
   let finalSizeBytes =
     compressedUri !== uri ? await getVideoFileSize(compressedUri) : originalSizeBytes;
 
+  if (!Number.isFinite(finalSizeBytes) || finalSizeBytes <= 0) {
+    throw new Error('Could not read the prepared video file. Please select it again.');
+  }
+
   // Re-encoding already-compressed input can produce a LARGER file. Never
-  // upload a worse asset than the one we started with.
+  // send extra bytes solely for size reduction. Required resolution normalization
+  // keeps its output, subject to final size/bitrate gates below.
   if (
     compressedUri !== uri &&
     originalSizeBytes > 0 &&
     finalSizeBytes > 0 &&
-    finalSizeBytes >= originalSizeBytes
+    finalSizeBytes >= originalSizeBytes &&
+    !overResolution
   ) {
     finalUri = uri;
     finalSizeBytes = originalSizeBytes;
@@ -241,11 +265,21 @@ export async function prepareVideoForUpload(
   // bytes we send and those don't exist until this function has run. "too large"
   // in the message routes this through uploadErrorAlert's isSize branch.
   if (finalSizeBytes > MAX_VIDEO_SIZE_BYTES) {
-    const err: any = new Error(
+    const err: Error & { code?: string } = new Error(
       `Video is too large after processing (${Math.round(finalSizeBytes / (1024 * 1024))}MB) — the limit is ${MAX_VIDEO_SIZE_MB}MB. Trim it shorter and try again.`
     );
     err.code = 'VIDEO_TOO_LARGE';
     throw err;
+  }
+
+  // Verify savings using actual output bytes, including audio/container data.
+  // A resolved encoder promise does not prove that its bitrate settings were applied.
+  const transferBudget = Math.max(
+    VIDEO_COMPRESSION_THRESHOLD_BYTES,
+    (metadata.duration * VIDEO_TARGET_BITRATE_BPS * VIDEO_BITRATE_HEADROOM) / 8
+  );
+  if (overBitrate && finalSizeBytes > transferBudget) {
+    throw new Error('Video is still too large after processing. Please trim it shorter and retry.');
   }
 
   return {
@@ -254,6 +288,156 @@ export async function prepareVideoForUpload(
     finalSizeBytes,
     wasCompressed: finalUri !== uri,
   };
+}
+
+type PreparedVideo = Awaited<ReturnType<typeof prepareVideoUncached>>;
+type PreparedEntry = { key: string; result: PreparedVideo; outputModified?: number };
+const PREPARED_VIDEO_CACHE_KEY = 'media:prepared-videos:v1';
+let preparationQueue: Promise<unknown> = Promise.resolve();
+
+async function readPreparedEntries(): Promise<PreparedEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(PREPARED_VIDEO_CACHE_KEY);
+    const entries: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .filter(
+        (entry): entry is PreparedEntry =>
+          typeof entry?.key === 'string' &&
+          typeof entry?.result?.uri === 'string' &&
+          Number.isFinite(entry?.result?.finalSizeBytes) &&
+          entry.result.finalSizeBytes > 0
+      )
+      .slice(-5);
+  } catch (error) {
+    captureException(error, { tags: { context: 'video_preparation_cache', stage: 'read' } });
+    return [];
+  }
+}
+
+/** Serialize encoder work and reuse the same prepared file across retries/restarts. */
+export function prepareVideoForUpload(
+  uri: string,
+  options: PrepareVideoForUploadOptions = {}
+): Promise<PreparedVideo> {
+  const work = preparationQueue.then(async () => {
+    if (Platform.OS === 'web') {
+      // Browser Blob sources cannot be inspected by the native FileSystem SDK.
+      // Preserve original codec; the verified server pipeline makes playback derivatives.
+      const response = await fetch(uri);
+      if (!response.ok)
+        throw new Error('Could not read the selected video file. Please select it again.');
+      const size = (await response.blob()).size;
+      if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_VIDEO_SIZE_BYTES) {
+        throw new Error(
+          `Video is unreadable or too large. The upload limit is ${MAX_VIDEO_SIZE_MB} MB.`
+        );
+      }
+      return { uri, originalSizeBytes: size, finalSizeBytes: size, wasCompressed: false };
+    }
+    const source = await FileSystem.getInfoAsync(uri);
+    if (!source.exists || source.isDirectory || !Number.isFinite(source.size) || source.size <= 0) {
+      throw new Error('Could not read the selected video file. Please select it again.');
+    }
+    // Without a modification time there is no stable source identity: do not
+    // reuse a potentially stale encode. Trimmed/replaced files get new keys.
+    const key = Number.isFinite(source.modificationTime)
+      ? JSON.stringify([
+          uri,
+          source.size,
+          source.modificationTime,
+          options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES,
+          VIDEO_TARGET_BITRATE_BPS,
+          VIDEO_MAX_LONG_EDGE_PX,
+          VIDEO_BITRATE_HEADROOM,
+          VIDEO_COMPRESSION_THRESHOLD_BYTES,
+        ])
+      : null;
+    const entries = key ? await readPreparedEntries() : [];
+    const cached = entries.find(
+      entry =>
+        entry.key === key ||
+        (entry.result.uri === uri &&
+          entry.result.finalSizeBytes === source.size &&
+          Number.isFinite(entry.outputModified) &&
+          entry.outputModified === source.modificationTime &&
+          (() => {
+            try {
+              const policy = JSON.parse(entry.key);
+              return (
+                policy[3] === (options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES) &&
+                policy[4] === VIDEO_TARGET_BITRATE_BPS &&
+                policy[5] === VIDEO_MAX_LONG_EDGE_PX &&
+                policy[6] === VIDEO_BITRATE_HEADROOM &&
+                policy[7] === VIDEO_COMPRESSION_THRESHOLD_BYTES
+              );
+            } catch {
+              return false;
+            }
+          })())
+    );
+    if (cached) {
+      const output = await FileSystem.getInfoAsync(cached.result.uri);
+      const outputSize = output.exists && !output.isDirectory ? output.size : 0;
+      if (
+        outputSize === cached.result.finalSizeBytes &&
+        outputSize <= MAX_VIDEO_SIZE_BYTES &&
+        output.exists &&
+        Number.isFinite(cached.outputModified) &&
+        cached.outputModified === output.modificationTime
+      ) {
+        return cached.result;
+      }
+    }
+    const prepared = await prepareVideoUncached(uri, options);
+    const result = { ...prepared, uri: await persistPreparedMedia(prepared.uri) };
+    if (key) {
+      // Index eviction never deletes source/output files: drafts or active
+      // resumable uploads may still reference them. Confirmed saves own cleanup.
+      const output = await FileSystem.getInfoAsync(result.uri);
+      const outputModified = output.exists ? output.modificationTime : undefined;
+      const next = [
+        ...entries.filter(entry => entry.key !== key),
+        { key, result, outputModified },
+      ].slice(-5);
+      try {
+        await AsyncStorage.setItem(PREPARED_VIDEO_CACHE_KEY, JSON.stringify(next));
+      } catch (error) {
+        captureException(error, { tags: { context: 'video_preparation_cache', stage: 'write' } });
+      }
+    }
+    return result;
+  });
+  preparationQueue = work.then(
+    () => undefined,
+    () => undefined
+  );
+  return work;
+}
+
+/** Remove only this source's owned files after confirmed server publication. */
+export function cleanupConfirmedVideoDraft(sourceUri: string): Promise<void> {
+  const cleanup = preparationQueue.then(async () => {
+    const entries = await readPreparedEntries();
+    const matches = entries.filter(entry => {
+      try {
+        return JSON.parse(entry.key)[0] === sourceUri;
+      } catch {
+        return false;
+      }
+    });
+    for (const entry of matches) await deleteConfirmedMediaDraft(entry.result.uri);
+    await deleteConfirmedMediaDraft(sourceUri);
+    await AsyncStorage.setItem(
+      PREPARED_VIDEO_CACHE_KEY,
+      JSON.stringify(entries.filter(entry => !matches.includes(entry)))
+    );
+  });
+  preparationQueue = cleanup.then(
+    () => undefined,
+    () => undefined
+  );
+  return cleanup;
 }
 
 /**

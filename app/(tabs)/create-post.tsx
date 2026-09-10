@@ -1,3 +1,12 @@
+import { persistPreparedMedia } from '@/utils/mediaDraftFiles';
+import { cleanupConfirmedVideoDraft } from '@/utils/compressVideo';
+import { launchMediaLibraryAsync, launchMediaCameraAsync } from '@/utils/pickMedia';
+import {
+  PostRecovery,
+  recoveryForOwner,
+  reusableUpload,
+  newPostRequestId,
+} from '@/utils/postRecovery';
 import { safeGoBack } from '@/utils/navigation';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -192,6 +201,13 @@ function CreatePostScreen() {
   const canTrimVideo = isNativeVideoTrimSupported(Platform.OS);
   const [draftReady, setDraftReady] = useState(false);
   const [contentConsent, setContentConsent] = useState(false);
+  const recoveryRef = useRef<PostRecovery | null>(null);
+  const submittingRef = useRef(false);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const [savingPost, setSavingPost] = useState(false);
+  useEffect(() => () => uploadAbortRef.current?.abort(), []);
+  const currentOwnerRef = useRef(user?.id);
+  currentOwnerRef.current = user?.id;
   const draftLoadedRef = useRef(false);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -235,11 +251,11 @@ function CreatePostScreen() {
   useEffect(() => {
     let active = true;
     void (async () => {
-      if (draftLoadedRef.current) return;
+      if (!user?.id || draftLoadedRef.current) return;
       const draft = await settings.getJson<any>(settings.SETTINGS_KEYS.POST_DRAFT, null);
       if (!active) return;
       draftLoadedRef.current = true;
-      if (!draft || (!draft.content && !draft?.picked?.uri)) {
+      if (!draft || draft.ownerId !== user.id || (!draft.content && !draft?.picked?.uri)) {
         setDraftReady(true);
         return;
       }
@@ -260,6 +276,8 @@ function CreatePostScreen() {
           text: 'Restore',
           onPress: () => {
             setContent(String(draft.content || ''));
+            recoveryRef.current = recoveryForOwner(draft.recovery, user.id);
+            setTrimmedUri(draft.trimmedUri || null);
             if (draft.picked?.uri) {
               setPicked({
                 uri: String(draft.picked.uri),
@@ -267,6 +285,7 @@ function CreatePostScreen() {
                 mime: draft.picked.mime,
                 width: draft.picked.width,
                 height: draft.picked.height,
+                durationS: draft.picked.durationS,
               });
             }
             if (draft.selectedGameId) {
@@ -285,7 +304,7 @@ function CreatePostScreen() {
     return () => {
       active = false;
     };
-  }, [postType]);
+  }, [postType, user?.id]);
 
   // Get media dimensions when picked (for aspect ratio in preview)
   useEffect(() => {
@@ -324,7 +343,7 @@ function CreatePostScreen() {
   }, []);
 
   useEffect(() => {
-    if (!draftReady) return;
+    if (!draftReady || postSuccess) return;
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     draftSaveTimerRef.current = setTimeout(async () => {
       if (submitting) return;
@@ -334,6 +353,9 @@ function CreatePostScreen() {
         return;
       }
       const draft = {
+        ownerId: user?.id,
+        recovery: recoveryForOwner(recoveryRef.current, user?.id),
+        trimmedUri,
         content: content,
         picked,
         selectedGameId: selectedGameId || null,
@@ -346,7 +368,18 @@ function CreatePostScreen() {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [content, picked, selectedGameId, selectedEventId, postType, submitting, draftReady]);
+  }, [
+    content,
+    picked,
+    selectedGameId,
+    selectedEventId,
+    postType,
+    submitting,
+    draftReady,
+    postSuccess,
+    trimmedUri,
+    user?.id,
+  ]);
 
   // Request location permission before event uploads. Event-page posts require
   // device-origin GPS server-side; asking only after media selection can waste
@@ -504,15 +537,18 @@ function CreatePostScreen() {
   const pickFromLibraryRaw = async (media: 'image' | 'video') => {
     try {
       if (media === 'video') setPickPreparing('Preparing video…');
-      const r = await ImagePicker.launchImageLibraryAsync({
+      const r = await launchMediaLibraryAsync({
         ...pickerMediaTypeFor(media),
         allowsEditing: false, // Don't crop - preserve original photo
-        quality: media === 'image' ? 0.85 : undefined,
+        quality: media === 'image' ? 1 : undefined,
         exif: false,
         videoExportPreset: VIDEO_CAPTURE_PRESET,
       } as any);
       if (!r.canceled && r.assets && r.assets[0]) {
-        const a = { ...r.assets[0], uri: await materializeICloudAssetIfNeeded(r.assets[0].uri) };
+        const a = {
+          ...r.assets[0],
+          uri: await persistPreparedMedia(await materializeICloudAssetIfNeeded(r.assets[0].uri)),
+        };
 
         // Validate file type
         const mimeType = a.mimeType || (media === 'image' ? 'image/jpeg' : 'video/mp4');
@@ -585,10 +621,10 @@ function CreatePostScreen() {
       // until the promise resolves — after the export has already run. Keep the
       // label media-neutral rather than guessing.
       setPickPreparing('Preparing media…');
-      const r = await ImagePicker.launchCameraAsync({
+      const r = await launchMediaCameraAsync({
         ...pickerAllMediaTypesProp(),
         allowsEditing: false,
-        quality: 0.85,
+        quality: 1,
         exif: false,
         videoExportPreset: VIDEO_CAPTURE_PRESET,
         // Stops video recording at the cap; ignored for photos.
@@ -596,7 +632,10 @@ function CreatePostScreen() {
         legacy: false,
       } as any);
       if (!r.canceled && r.assets && r.assets[0]) {
-        const a = { ...r.assets[0], uri: await materializeICloudAssetIfNeeded(r.assets[0].uri) };
+        const a = {
+          ...r.assets[0],
+          uri: await persistPreparedMedia(await materializeICloudAssetIfNeeded(r.assets[0].uri)),
+        };
 
         // Auto-detect media type from asset
         const mimeType = a.mimeType || (a.type === 'video' ? 'video/mp4' : 'image/jpeg');
@@ -763,6 +802,10 @@ function CreatePostScreen() {
       return;
     }
 
+    if (recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload) {
+      void doConfirmPost();
+      return;
+    }
     if (__DEV__) console.warn('[CreatePost] confirmPost called');
     if (__DEV__)
       console.warn(
@@ -828,10 +871,12 @@ function CreatePostScreen() {
   };
 
   const doConfirmPost = async () => {
+    if (submittingRef.current) return;
     // 90s highlight cap: an over-limit pick must go through the trimmer (which
     // clamps its window to the cap) before it can post. Trimmed output is
     // capped by construction, so only the untrimmed original needs checking.
     if (
+      !recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload &&
       picked?.type === 'video' &&
       !trimmedUri &&
       typeof picked.durationS === 'number' &&
@@ -843,6 +888,10 @@ function CreatePostScreen() {
       );
       return;
     }
+    submittingRef.current = true;
+    const uploadController = new AbortController();
+    uploadAbortRef.current = uploadController;
+    setSavingPost(false);
     setSubmitting(true);
     setMediaPhase(picked?.type === 'video' ? 'compressing' : 'uploading');
     setPhaseProgress(0);
@@ -857,7 +906,41 @@ function CreatePostScreen() {
         media_bytes?: number;
         media_duration_s?: number;
       } = {};
-      if (picked?.uri) {
+      const ownerId = user!.id;
+      const source = picked?.type === 'video' && trimmedUri ? trimmedUri : picked?.uri;
+      const savedUpload = source ? reusableUpload(recoveryRef.current, ownerId, source) : null;
+      const persistRecovery = async (recovery: PostRecovery) => {
+        if (currentOwnerRef.current !== ownerId)
+          throw new Error('Your account changed. Please reopen the composer.');
+        recoveryRef.current = recovery;
+        await settings.setJson(settings.SETTINGS_KEYS.POST_DRAFT, {
+          ownerId,
+          content,
+          picked,
+          trimmedUri,
+          selectedGameId,
+          selectedEventId,
+          postType,
+          recovery,
+        });
+        const persisted = await settings.getJson<any>(settings.SETTINGS_KEYS.POST_DRAFT, null);
+        if (JSON.stringify(persisted?.recovery) !== JSON.stringify(recovery)) {
+          throw new Error(
+            'Could not save upload recovery. Free some device storage and try again.'
+          );
+        }
+      };
+      await persistRecovery(recoveryForOwner(recoveryRef.current, ownerId) || { ownerId });
+      if (savedUpload) {
+        finalMediaUrl = savedUpload.url;
+        finalPosterUrl = savedUpload.posterUrl || '';
+        Object.assign(mediaMeta, savedUpload.meta);
+      }
+      if (
+        picked?.uri &&
+        !savedUpload &&
+        !recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload
+      ) {
         if (__DEV__) console.warn('[CreatePost] Uploading media...');
         const { getApiBaseUrl } = await import('@/api/http');
         const base = getApiBaseUrl();
@@ -880,6 +963,10 @@ function CreatePostScreen() {
         // so we upload a single canonical video asset instead of a second
         // thumbnail file and extra signature/upload call.
         const mainUpload = uploadFile(base, uploadUri, name, mime, {
+          signal: uploadController.signal,
+          onPhase: phase => {
+            if (phase === 'processing') setMediaPhase('finalizing');
+          },
           onProgress: pct => setPhaseProgress(pct),
           ...(prepared ? { timeoutMs: uploadTimeoutMsForSize(prepared.finalSizeBytes) } : {}),
         }).catch((uploadErr: any) => {
@@ -899,6 +986,7 @@ function CreatePostScreen() {
         });
         const res = await mainUpload;
         finalMediaUrl = res?.url || '';
+        finalPosterUrl = (res as any)?.poster_url || '';
         if (!finalMediaUrl) {
           throw new Error('Media upload succeeded but returned no URL. Please try again.');
         }
@@ -909,6 +997,11 @@ function CreatePostScreen() {
         if (typeof res?.height === 'number') mediaMeta.media_height = res.height;
         if (typeof res?.bytes === 'number') mediaMeta.media_bytes = res.bytes;
         if (typeof res?.duration === 'number') mediaMeta.media_duration_s = res.duration;
+        await persistRecovery({
+          ownerId,
+          sourceUri: source,
+          upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
+        });
         // The bytes are in. The poster upload + the create call are what's left,
         // and neither is worth its own bar segment.
         setMediaPhase('finalizing');
@@ -936,7 +1029,9 @@ function CreatePostScreen() {
               if (thumb?.uri) {
                 if (typeof thumb.width === 'number') mediaMeta.media_width = thumb.width;
                 if (typeof thumb.height === 'number') mediaMeta.media_height = thumb.height;
-                const posterRes = await uploadFile(base, thumb.uri, 'poster.jpg', 'image/jpeg');
+                const posterRes = await uploadFile(base, thumb.uri, 'poster.jpg', 'image/jpeg', {
+                  signal: uploadController.signal,
+                });
                 finalPosterUrl = posterRes?.url || '';
                 if (__DEV__) console.warn('[CreatePost] Poster uploaded:', finalPosterUrl);
               }
@@ -945,17 +1040,11 @@ function CreatePostScreen() {
             if (__DEV__) console.warn('[CreatePost] Poster generation failed:', posterErr?.message);
           }
         }
-        // Clean up temp trimmed files after successful upload
-        try {
-          const filesToClean = [trimmedUri].filter(
-            (f): f is string => !!f && f.startsWith(LegacyFileSystem.cacheDirectory || '')
-          );
-          for (const f of filesToClean) {
-            LegacyFileSystem.deleteAsync(f, { idempotent: true }).catch(() => {});
-          }
-        } catch {
-          /* non-critical cleanup */
-        }
+        await persistRecovery({
+          ownerId,
+          sourceUri: source,
+          upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
+        });
       }
       const trimmedContent = sanitizeText(content);
 
@@ -983,12 +1072,38 @@ function CreatePostScreen() {
         console.warn('[CreatePost] Final payload keys:', Object.keys(payload).join(', '));
 
       // Require event link for highlight posts to ensure they surface on the event page
-      if (postType === 'highlight' && !payload.game_id && !payload.event_id) {
+      if (
+        !recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload &&
+        postType === 'highlight' &&
+        !payload.game_id &&
+        !payload.event_id
+      ) {
         throw new Error('Please attach an event to share a highlight.');
       }
 
       if (__DEV__) console.warn('[CreatePost] Calling Post.create...');
-      await Post.create(payload);
+      if (uploadController.signal.aborted)
+        throw new Error('Upload paused. Your draft is saved; retry when ready.');
+      setSavingPost(true);
+      const pendingPayload = recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload || {
+        ...payload,
+        client_request_id: newPostRequestId(),
+      };
+      await persistRecovery({
+        ...recoveryForOwner(recoveryRef.current, ownerId),
+        ownerId,
+        pendingPayload,
+      });
+      if (currentOwnerRef.current !== ownerId)
+        throw new Error('Your account changed. Please reopen the composer.');
+      await Post.create(pendingPayload);
+      for (const source of [picked?.uri, trimmedUri]) {
+        if (source)
+          void cleanupConfirmedVideoDraft(source).catch(error => {
+            if (__DEV__) console.warn('[CreatePost] Confirmed media cleanup failed:', error);
+          });
+      }
+      recoveryRef.current = null;
       clearPostCache();
       if (__DEV__) console.warn('[CreatePost] Post created successfully!');
       if (selectedEventIds.length > 0) {
@@ -1038,6 +1153,10 @@ function CreatePostScreen() {
       // Keep checkmark state briefly, then navigate — no full-screen popup
       setTimeout(finish, 800);
     } catch (e: any) {
+      if (uploadController.signal.aborted && !recoveryRef.current?.pendingPayload) {
+        setError('Upload paused. Your draft is saved; retry when ready.');
+        return;
+      }
       if (__DEV__)
         console.error('[CreatePost] Error creating post:', {
           message: e?.message,
@@ -1131,6 +1250,9 @@ function CreatePostScreen() {
         }
       }
     } finally {
+      submittingRef.current = false;
+      uploadAbortRef.current = null;
+      setSavingPost(false);
       setSubmitting(false);
       setPhaseProgress(0);
       if (!postSuccess) setPreviewVisible(false);
@@ -1304,7 +1426,18 @@ function CreatePostScreen() {
                       <VideoTrimmer
                         uri={picked.uri}
                         maxDurationS={POST_MAX_DURATION_S}
-                        onTrimComplete={u => setTrimmedUri(u)}
+                        onTrimComplete={u => {
+                          void persistPreparedMedia(u)
+                            .then(setTrimmedUri)
+                            .catch(error => {
+                              Alert.alert(
+                                'Could not save trim',
+                                error instanceof Error
+                                  ? error.message
+                                  : 'Please trim the video again.'
+                              );
+                            });
+                        }}
                         onTrimReset={() => setTrimmedUri(null)}
                       />
                     ) : null}
@@ -1986,6 +2119,21 @@ function CreatePostScreen() {
                 </View>
               )}
 
+              {submitting && !savingPost && (
+                <Pressable
+                  onPress={() => uploadAbortRef.current?.abort()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel upload"
+                  style={{ padding: 12, alignItems: 'center' }}
+                >
+                  <Text style={{ color: Colors[colorScheme].text }}>Cancel upload</Text>
+                </Pressable>
+              )}
+              {submitting && savingPost && (
+                <Text style={{ color: Colors[colorScheme].mutedText, textAlign: 'center' }}>
+                  Saving your post. If the connection drops, retry to recover it.
+                </Text>
+              )}
               {/* Action Buttons */}
               <View style={styles.previewActions}>
                 <Pressable
@@ -1995,6 +2143,7 @@ function CreatePostScreen() {
                     { backgroundColor: Colors[colorScheme].surface },
                   ]}
                   onPress={() => setPreviewVisible(false)}
+                  disabled={submitting}
                   accessibilityRole="button"
                   accessibilityLabel="Edit post"
                 >

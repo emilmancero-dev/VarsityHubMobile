@@ -1,3 +1,5 @@
+import { storyRequestIdentity, recoverStoryRequest } from '../lib/storyRequestRecovery.js';
+import { assertReadyMediaForOwner } from '../lib/mediaUploadOwnership.js';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { logAdminActivity } from '../lib/adminActivityLogger.js';
@@ -147,6 +149,12 @@ const locationSchema = z
   .optional();
 
 export const storySchema = z.object({
+  client_request_id: z
+    .string()
+    .min(16)
+    .max(128)
+    .regex(/^[a-zA-Z0-9_-]+$/)
+    .optional(),
   media_url: z
     .string()
     .url({ message: 'media_url must be a valid URL' })
@@ -338,6 +346,19 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
     const id = String(req.params.id);
     const parsed = storySchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+    const requestIdentity = storyRequestIdentity(req.user.id, 'game:' + id, parsed.data);
+    const replayStory = async () => {
+      try {
+        const existing = await recoverStoryRequest(p, requestIdentity, req.user!.id);
+        if (!existing) return false;
+        res.status(200).json(existing);
+      } catch (error: any) {
+        if (error?.status !== 409) throw error;
+        sendError(res, 409, error.message, { code: 'IDEMPOTENCY_CONFLICT' });
+      }
+      return true;
+    };
+    if (await replayStory()) return;
 
     {
       const game = await p.game.findUnique({
@@ -402,11 +423,26 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
     const lat = location?.lat ?? null;
     const lng = location?.lng ?? null;
 
+    let verifiedMedia;
+    try {
+      verifiedMedia = await assertReadyMediaForOwner(
+        req.user.id,
+        parsed.data.media_url,
+        parsed.data.poster_url,
+        20.25 // Nominal 20s story + 250ms frame/audio mux tolerance, matching the client trim gate.
+      );
+    } catch (error: any) {
+      if (error?.status !== 422) throw error;
+      return sendError(res, 422, error.message, { code: error.code || 'MEDIA_NOT_READY' });
+    }
     const createData: any = {
+      ...(requestIdentity
+        ? { id: requestIdentity.id, client_request_hash: requestIdentity.hash }
+        : {}),
       game_id: id,
       user_id: req.user.id,
       media_url: parsed.data.media_url,
-      poster_url: parsed.data.poster_url ?? undefined,
+      poster_url: verifiedMedia?.poster_url ?? parsed.data.poster_url ?? undefined,
       caption: parsed.data.caption ? stripHtml(parsed.data.caption) : undefined,
     };
     if (typeof lat === 'number') createData.lat = lat;
@@ -416,6 +452,7 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
     try {
       story = await p.story.create({ data: createData });
     } catch (error: any) {
+      if (error?.code === 'P2002' && (await replayStory())) return;
       if (!isMissingStoryLocationColumnError(error)) {
         console.error('[stories] Failed to create story:', error);
         return res.status(500).json({ error: 'Failed to create story' });

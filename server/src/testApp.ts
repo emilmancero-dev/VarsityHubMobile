@@ -24,6 +24,7 @@ import { supportRouter } from './routes/support.js';
 import { teamInvitesRouter } from './routes/team-invites.js';
 import { teamMembershipsRouter } from './routes/team-memberships.js';
 import { teamsRouter } from './routes/teams.js';
+import { mediaUploadWebhookRouter } from './routes/mediaUploadWebhook.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { usersRouter } from './routes/users.js';
 import { groupChatsRouter } from './routes/group-chats.js';
@@ -37,6 +38,16 @@ import { publicSiteRouter } from './routes/publicSite.js';
 const app = express();
 app.disable('x-powered-by');
 
+app.use(
+  '/webhooks/media/cloudinary',
+  express.raw({ type: 'application/json', limit: '5mb' }),
+  mediaUploadWebhookRouter
+);
+app.use(
+  '/v1/webhooks/media/cloudinary',
+  express.raw({ type: 'application/json', limit: '5mb' }),
+  mediaUploadWebhookRouter
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(authMiddleware);

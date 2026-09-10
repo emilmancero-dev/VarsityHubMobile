@@ -1,3 +1,4 @@
+import { launchMediaLibraryAsync, launchMediaCameraAsync } from '@/utils/pickMedia';
 import CustomActionModal from '@/components/CustomActionModal';
 import CoachAccessRedirecting from '@/components/CoachAccessRedirecting';
 import { Colors } from '@/constants/Colors';
@@ -795,10 +796,10 @@ export default function TeamChatScreen() {
 
   const pickImage = useCallback(async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
+      const result = await launchMediaLibraryAsync({
         ...pickerMediaTypesProp(),
         allowsEditing: false,
-        quality: 0.8,
+        quality: 1,
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -813,9 +814,9 @@ export default function TeamChatScreen() {
 
   const takePhoto = useCallback(async () => {
     try {
-      const result = await ImagePicker.launchCameraAsync({
+      const result = await launchMediaCameraAsync({
         allowsEditing: false,
-        quality: 0.8,
+        quality: 1,
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -1154,6 +1155,7 @@ export default function TeamChatScreen() {
         });
 
         showToast('File uploaded successfully!');
+        return true;
       } catch (error) {
         if (__DEV__) console.error('File upload failed:', error);
 
@@ -1185,6 +1187,7 @@ export default function TeamChatScreen() {
         } else {
           showModal('Error', 'Failed to upload file to server');
         }
+        return false;
       }
     },
     [
@@ -1222,10 +1225,10 @@ export default function TeamChatScreen() {
 
         if (type === 'media') {
           // Use image picker for media
-          const result = await ImagePicker.launchImageLibraryAsync({
+          const result = await launchMediaLibraryAsync({
             ...pickerAllMediaTypesProp(),
             allowsEditing: false,
-            quality: 0.8,
+            quality: 1,
             videoExportPreset: VIDEO_CAPTURE_PRESET,
           });
 
@@ -1291,7 +1294,7 @@ export default function TeamChatScreen() {
     setIsUploadingFile(true);
     try {
       const prepared = await prepareVideoForUpload(videoTrimmedUri ?? videoToTrim.uri);
-      await sendFileMessage(
+      const sent = await sendFileMessage(
         {
           uri: prepared.uri,
           name: videoToTrim.name,
@@ -1300,6 +1303,10 @@ export default function TeamChatScreen() {
         },
         { timeoutMs: uploadTimeoutMsForSize(prepared.finalSizeBytes) }
       );
+      if (sent) {
+        setVideoToTrim(null);
+        setVideoTrimmedUri(null);
+      }
     } catch (e: any) {
       showToast(
         e?.status === 429
@@ -1309,8 +1316,6 @@ export default function TeamChatScreen() {
       );
     } finally {
       setIsUploadingFile(false);
-      setVideoToTrim(null);
-      setVideoTrimmedUri(null);
     }
   }, [videoToTrim, videoTrimmedUri, sendFileMessage, showToast]);
 

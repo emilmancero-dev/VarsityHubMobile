@@ -95,6 +95,15 @@ function withJobTags(jobName: string, context: Record<string, any> = {}) {
 
 const SCHEDULED_JOBS: ScheduledJob[] = [
   {
+    name: 'cleanup-abandoned-media-uploads',
+    cron: '30 3 * * *',
+    description: 'Expire abandoned video uploads older than 48 hours (100 per sweep)',
+    handler: async () => {
+      const { cleanupAbandonedMediaUploads } = await import('../lib/mediaUploadCleanup.js');
+      await cleanupAbandonedMediaUploads();
+    },
+  },
+  {
     name: 'game-reminders-12hr',
     cron: '0 * * * *', // Every hour at minute 0
     description: 'Send 12-hour game reminders',

@@ -18,9 +18,10 @@ import { prisma } from '../lib/prisma.js';
 import { addBreadcrumb, captureException } from '../lib/sentry.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import type { AuthedRequest } from '../middleware/auth.js';
-import { uploadLimiter } from '../middleware/rateLimiters.js';
+import { uploadLimiter, uploadStatusLimiter } from '../middleware/rateLimiters.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireVerified } from '../middleware/requireVerified.js';
+import { completeVideoUpload, openVideoUpload } from '../lib/mediaUploadSession.js';
 
 // Magic byte signatures for file type validation (prevents MIME spoofing)
 const MAGIC_BYTES: Array<{ mime: string; bytes: number[]; offset?: number }> = [
@@ -127,8 +128,12 @@ const requireVerifiedUnlessScopedAdBannerUpload = asyncHandler(
     // verifies their email. Non-upload routes (e.g. /sign, /files) still require
     // verification via the else branch below.
     const isUploadRoute =
-      (req.method === 'GET' && req.path === '/cloudinary-signature') ||
-      (req.method === 'POST' && req.path === '/');
+      (req.method === 'GET' &&
+        (req.path === '/cloudinary-signature' || req.path === '/r2-presign')) ||
+      (req.method === 'POST' &&
+        (req.path === '/' ||
+          req.path === '/video-sessions' ||
+          /^\/video-sessions\/[a-f0-9]{64}\/complete$/.test(req.path)));
 
     if (!isUploadRoute) {
       return requireVerified(req as any, res, next);
@@ -262,6 +267,52 @@ const fileUpload = multer({
 });
 
 export const uploadsRouter = Router();
+
+uploadsRouter.post(
+  '/video-sessions',
+  requireAuth as any,
+  requireVerifiedUnlessScopedAdBannerUpload as any,
+  uploadLimiter as any,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      return res.json(await openVideoUpload(req.user!.id, req.body || {}));
+    } catch (error: any) {
+      const status = [400, 409, 410].includes(error?.status) ? error.status : 503;
+      if (status === 503) captureException(error, { context: 'media_upload_session' });
+      return sendError(
+        res,
+        status,
+        status === 503 ? 'Upload service unavailable. Please retry.' : error.message
+      );
+    }
+  })
+);
+
+uploadsRouter.post(
+  '/video-sessions/:id/complete',
+  requireAuth as any,
+  requireVerifiedUnlessScopedAdBannerUpload as any,
+  uploadStatusLimiter as any,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const id = String(req.params.id);
+    if (!/^[a-f0-9]{64}$/.test(id)) return sendError(res, 400, 'Invalid upload session');
+    try {
+      return res.json(await completeVideoUpload(req.user!.id, id));
+    } catch (error: any) {
+      const status = [404, 409, 410, 422].includes(error?.status) ? error.status : 503;
+      if (status === 503) captureException(error, { context: 'media_upload_completion' });
+      return sendError(
+        res,
+        status,
+        status === 503
+          ? 'Video processing is temporarily unavailable. Please retry.'
+          : error.message
+      );
+    }
+  })
+);
 
 // Add error logging middleware
 uploadsRouter.use((req, res, next) => {

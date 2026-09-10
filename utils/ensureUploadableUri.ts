@@ -1,94 +1,58 @@
+import { Image } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { materializeICloudAssetIfNeeded } from './materializeICloudAsset';
 
-/**
- * Max dimension (width or height) for uploaded images.
- * Images larger than this are resized to fit within this limit, preserving aspect ratio.
- */
 const MAX_IMAGE_DIMENSION = 1920;
-
-/**
- * JPEG compression quality (0-1). 0.8 = 80% quality.
- */
 const IMAGE_COMPRESS_QUALITY = 0.8;
 
-/**
- * Check if a mime type or URI corresponds to an image (not video, not PDF, etc.)
- */
-function isImageFile(mimeType?: string, uri?: string): boolean {
-  if (mimeType) return mimeType.startsWith('image/');
-  if (!uri) return false;
-  const lower = uri.toLowerCase();
-  return /\.(jpg|jpeg|png|gif|webp|heic|heif)(\?.*)?$/.test(lower);
+/** Only downscale the long edge; small images must never be enlarged. */
+export function imageUploadResize(width: number, height: number) {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('Could not read image dimensions. Please select the image again.');
+  }
+  if (Math.max(width, height) <= MAX_IMAGE_DIMENSION) return [];
+  return [
+    { resize: width >= height ? { width: MAX_IMAGE_DIMENSION } : { height: MAX_IMAGE_DIMENSION } },
+  ];
 }
 
 /**
- * Compress and resize an image for upload.
- * - Forces iCloud download on iOS when needed (v1.0.2)
- * - Resizes to max 1920px on the longest side (maintains aspect ratio)
- * - Compresses to 80% JPEG quality
- * - Skips videos and non-image files
- *
- * Returns the processed URI and updated mimeType.
- * If compression fails, returns the original URI as a fallback.
+ * Prepare an image once, at the upload boundary. Preserve formats that can carry
+ * animation or transparency; JPEG/HEIC photos become bounded JPEGs. Failures are
+ * surfaced instead of silently uploading an unprepared, possibly oversized file.
  */
 export async function compressImageForUpload(
   uri: string,
   mimeType?: string
 ): Promise<{ uri: string; mimeType?: string }> {
-  // Don't compress non-images (videos, PDFs, etc.)
-  if (!isImageFile(mimeType, uri)) {
-    return { uri, mimeType };
-  }
-
-  // v1.0.2: force iCloud download before manipulation
   const localUri = await materializeICloudAssetIfNeeded(uri);
-
-  // Attempt 1: resize to max dimension + compress
-  try {
-    if (__DEV__) console.log('[media] Compressing image for upload (max 1920px, 80% quality)...');
-    const manip = await ImageManipulator.manipulateAsync(
-      localUri,
-      [{ resize: { width: MAX_IMAGE_DIMENSION } }],
-      { compress: IMAGE_COMPRESS_QUALITY, format: ImageManipulator.SaveFormat.JPEG }
-    );
-    if (manip?.uri) {
-      if (__DEV__) console.log('[media] Image compressed to:', manip.uri);
-      return { uri: manip.uri, mimeType: 'image/jpeg' };
-    }
-  } catch (e) {
-    if (__DEV__) console.warn('[media] Image compression attempt 1 failed:', e);
+  const extension = uri.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
+  const type =
+    mimeType?.toLowerCase().split(';')[0] ||
+    { jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif' }[
+      extension || ''
+    ];
+  // PNG/APNG, GIF and WebP may contain alpha or animation. Re-encoding through
+  // ImageManipulator can flatten those properties, so keep their original bytes.
+  if (!type || !['image/jpeg', 'image/jpg', 'image/heic', 'image/heif'].includes(type)) {
+    return { uri: localUri, mimeType };
   }
-
-  // Attempt 2: compress without resize (in case the resize dimension caused issues)
-  try {
-    const manip = await ImageManipulator.manipulateAsync(localUri, [], {
-      compress: IMAGE_COMPRESS_QUALITY,
-      format: ImageManipulator.SaveFormat.JPEG,
-    });
-    if (manip?.uri) {
-      if (__DEV__) console.log('[media] Image compressed (no resize fallback) to:', manip.uri);
-      return { uri: manip.uri, mimeType: 'image/jpeg' };
-    }
-  } catch (e) {
-    if (__DEV__) console.warn('[media] Image compression attempt 2 also failed:', e);
-  }
-
-  // Fallback: return the (possibly materialized) local URI
-  return { uri: localUri, mimeType };
+  const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+    Image.getSize(localUri, (width, height) => resolve({ width, height }), reject);
+  });
+  const result = await ImageManipulator.manipulateAsync(
+    localUri,
+    imageUploadResize(dimensions.width, dimensions.height),
+    { compress: IMAGE_COMPRESS_QUALITY, format: ImageManipulator.SaveFormat.JPEG }
+  );
+  if (!result.uri) throw new Error('Could not prepare this image. Please select it again.');
+  return { uri: result.uri, mimeType: 'image/jpeg' };
 }
 
-/**
- * Ensure a picked asset URI is suitable for upload via FormData.
- * - For images: compress + resize via ImageManipulator (max 1920px, 80% quality)
- * - For videos: pass through as-is (FormData handles ph:// URIs directly on iOS)
- *
- * Note: React Native's FormData sends the URI as-is to the server,
- * which iOS HTTP layer translates to the actual file content.
- */
+/** Resolve Photos references without performing a second image conversion. */
 export async function ensureUploadableUri(
   uri: string,
   mimeType?: string
 ): Promise<{ uri: string; mimeType?: string }> {
-  return compressImageForUpload(uri, mimeType);
+  return { uri: await materializeICloudAssetIfNeeded(uri), mimeType };
 }

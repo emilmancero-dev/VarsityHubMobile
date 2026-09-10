@@ -6,9 +6,3 @@ declare module 'react-native-view-shot' {
     options?: any
   ): Promise<string>;
 }
-
-declare module 'expo-media-library' {
-  export type PermissionResponse = { status: 'granted' | 'denied' | 'undetermined' };
-  export function requestPermissionsAsync(): Promise<PermissionResponse>;
-  export function saveToLibraryAsync(uri: string): Promise<any>;
-}

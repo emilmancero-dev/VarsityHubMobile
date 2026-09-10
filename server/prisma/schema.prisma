@@ -561,6 +561,7 @@ model Game {
 
 model Post {
   id String @id @default(cuid())
+  client_request_hash String?
 
   author_id String
   author    User   @relation(fields: [author_id], references: [id], onDelete: Cascade)
@@ -639,6 +640,21 @@ model Post {
   @@index([country_code, deleted_at, upvotes_count, created_at])
   @@index([type, created_at])
   @@index([event_id, created_at])
+}
+
+// Durable owner-bound direct upload checkpoint. No credentials are stored here.
+model MediaUpload {
+  id String @id
+  owner_id String
+  content_type String
+  expected_bytes Int
+  public_id String @unique
+  state String @default("uploading")
+  result Json?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  @@index([owner_id, created_at])
+  @@index([state, created_at])
 }
 
 model Poll {
@@ -1168,6 +1184,7 @@ model EventVote {
 
 model Story {
   id String @id @default(cuid())
+  client_request_hash String?
 
   // A story hangs off EITHER a game OR an event page. Games carry scores; pro
   // and other game-less event pages don't, so their stories key on event_id.

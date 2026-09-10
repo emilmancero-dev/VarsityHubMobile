@@ -58,3 +58,5 @@ ios/Pods/
 ios/build/
 server/ios/Pods/
 server/ios/build/
+
+.agents/

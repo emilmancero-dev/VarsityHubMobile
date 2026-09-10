@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const uploadSrc = readFileSync(join(process.cwd(), 'apiclient', 'upload.ts'), 'utf8');
+const videoSrc = readFileSync(join(process.cwd(), 'apiclient', 'videoUpload.ts'), 'utf8');
 
 describe('client upload telemetry contract', () => {
   it('apiclient/upload.ts imports captureException from the shared sentry util', () => {
@@ -16,10 +17,9 @@ describe('client upload telemetry contract', () => {
   });
 
   it('video direct-upload hard failures are reported with context tags', () => {
-    // One capture per hard-fail site (uploadFile + uploadFileWithProgress).
-    const captures = uploadSrc.match(/captureException\(/g) || [];
-    expect(captures.length).toBeGreaterThanOrEqual(2);
-    expect(uploadSrc).toContain("context: 'video_upload'");
-    expect(uploadSrc).toContain("stage: 'direct_upload_failed'");
+    // Both public entry points now share one video transport and one error boundary.
+    expect(videoSrc).toContain('captureException(');
+    expect(videoSrc).toContain("context: 'video_upload'");
+    expect(videoSrc).toContain("stage: 'session_transfer_or_processing'");
   });
 });
