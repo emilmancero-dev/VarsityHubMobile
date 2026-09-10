@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { serializeGameCard, serializeEventCard, type SerializeCtx } from './eventCardSerializer.js';
 import { getViewerTeamScopeDetails } from './viewerTeamScope.js';
 import { normalizeSportToSlug } from './sportsTaxonomy.js';
@@ -17,6 +17,8 @@ export type EventDiscoveryParams = {
   limit?: number;
   viewerId?: string | null;
   now?: Date;
+  /** Precomputed using the shared post visibility filters; absent means no visible posts. */
+  visiblePostWhere?: Prisma.PostWhereInput;
 };
 
 const MAP_LOOKAHEAD_MS = 5 * 24 * 60 * 60 * 1000;
@@ -161,7 +163,8 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
   const surface = params.surface ?? 'all';
   const scope = params.scope ?? 'public';
   const limit = Math.max(1, Math.min(params.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
-  const explicitWindow = params.from != null || params.to != null;
+  const visiblePostWhere = params.visiblePostWhere ?? { id: { in: [] } };
+  const postCount = { select: { posts: { where: visiblePostWhere } } };
 
   let from: Date;
   let to: Date;
@@ -198,6 +201,9 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
     };
   }
 
+  // A selected day that contains now is still today's schedule, including
+  // fixtures that have already started. Only a wholly past selection needs posts.
+  const pastCutoff = from <= now && to >= now ? from : now;
   const dateWhere = { gte: from, lte: to };
   const queryLimit = Math.min(limit * 2, MAX_LIMIT);
   const followingTeamIdList = followingTeamIds ? [...followingTeamIds] : [];
@@ -246,14 +252,32 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
 
   const [games, events] = await Promise.all([
     db.game.findMany({
-      where: gameWhere,
+      where: {
+        ...gameWhere,
+        ...(surface === 'map'
+          ? {
+              AND: [
+                ...((gameWhere as any).AND ?? []),
+                {
+                  OR: [
+                    { date: { gte: pastCutoff } },
+                    { posts: { some: visiblePostWhere } },
+                    { events: { some: { posts: { some: visiblePostWhere } } } },
+                  ],
+                },
+              ],
+            }
+          : {}),
+      },
       orderBy: { date: 'asc' },
       take: queryLimit,
       include: {
+        _count: postCount,
         events: {
           orderBy: { date: 'asc' },
           take: 1,
           include: {
+            _count: postCount,
             proHomeTeam: { select: { league: true, primary_color: true } },
             proAwayTeam: { select: { league: true, primary_color: true } },
           },
@@ -269,22 +293,15 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
         game_id: null,
         date: dateWhere,
         ...(scope === 'following' ? { team_id: { in: followingTeamIdList } } : {}),
-        // Default map load: a past event page only earns a map pin if it has
-        // media; otherwise old event-only pages are noise. Explicit date-picker
-        // loads are different: users with event upload access need the past
-        // event to surface before the first media post exists.
-        ...(surface === 'map' && !explicitWindow
-          ? {
-              OR: [
-                { date: { gte: now } },
-                { posts: { some: { media_url: { not: null }, deleted_at: null } } },
-              ],
-            }
+        // Selected past days follow the same rule: visible content earns the pin.
+        ...(surface === 'map'
+          ? { OR: [{ date: { gte: pastCutoff } }, { posts: { some: visiblePostWhere } }] }
           : {}),
       },
       orderBy: { date: 'asc' },
       take: queryLimit,
       include: {
+        _count: postCount,
         team: { select: { sport: true } },
         sportsLeague: {
           select: { id: true, slug: true, name: true, sport_slug: true, level: true, gender: true },
@@ -339,8 +356,14 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
   const viewerState = await loadViewerState(db, params.viewerId, eventIds, now);
 
   const ctx: SerializeCtx = { now, from, to, viewerState };
-  const gameItems = scopedGames.map((game: any) => serializeGameCard(game, ctx));
-  const eventItems = scopedEvents.map((event: any) => serializeEventCard(event, ctx));
+  const gameItems = scopedGames.map((game: any) => ({
+    ...serializeGameCard(game, ctx),
+    has_posts: (game._count?.posts ?? 0) > 0 || (game.events?.[0]?._count?.posts ?? 0) > 0,
+  }));
+  const eventItems = scopedEvents.map((event: any) => ({
+    ...serializeEventCard(event, ctx),
+    has_posts: (event._count?.posts ?? 0) > 0,
+  }));
 
   const merged = [...gameItems, ...eventItems].sort((a, b) => {
     if (a.feed_priority !== b.feed_priority) return a.feed_priority - b.feed_priority;
@@ -368,7 +391,13 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
   return {
     items:
       surface === 'map'
-        ? filtered.filter(item => item.map_visibility.visible).slice(0, limit)
+        ? filtered
+            .filter(
+              item =>
+                item.map_visibility.visible &&
+                (item.has_posts || (item.date != null && new Date(item.date) >= pastCutoff))
+            )
+            .slice(0, limit)
         : filtered.slice(0, limit),
     meta: {
       surface,

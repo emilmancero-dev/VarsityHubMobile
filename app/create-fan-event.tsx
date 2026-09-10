@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import KeyboardAwareScreen from '@/components/KeyboardAwareScreen';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthProvider';
@@ -398,7 +399,7 @@ function CreateFanEventScreen() {
         const uploadError = error as CreateEventError;
         Alert.alert(
           'Upload Failed',
-          uploadError?.message || 'Failed to upload event photo. Please try again.'
+          toUserMessage(uploadError, 'Failed to upload event photo. Please try again.')
         );
       }
     }
@@ -429,7 +430,7 @@ function CreateFanEventScreen() {
         const uploadError = error as CreateEventError;
         Alert.alert(
           'Upload Failed',
-          uploadError?.message || 'Failed to upload event photo. Please try again.'
+          toUserMessage(uploadError, 'Failed to upload event photo. Please try again.')
         );
       }
     }
@@ -585,16 +586,11 @@ function CreateFanEventScreen() {
       } else if (errorCode === 'EVENT_LIMIT_EXCEEDED') {
         Alert.alert(
           'Event Limit Reached',
-          errorMessage ||
-            "You've reached your limit of 3 pending events. Wait for one to be approved or rejected before submitting another.",
+          "You've reached your limit of 3 pending events. Wait for one to be approved or rejected before submitting another.",
           [{ text: 'OK' }]
         );
       } else {
-        const detailedError =
-          errorMessage ||
-          e?.data?.message ||
-          e?.message ||
-          'Failed to create event. Please try again.';
+        const detailedError = toUserMessage(e, 'Failed to create event. Please try again.');
         if (__DEV__)
           console.error('[CreateFanEvent] Create event error:', {
             error: e,

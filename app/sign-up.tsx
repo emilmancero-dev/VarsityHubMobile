@@ -409,7 +409,7 @@ export default function SignUpScreen() {
       } else if (e?.message?.includes('email')) {
         errorMessage = 'Please enter a valid email address.';
       } else if (e?.message) {
-        errorMessage = e.message;
+        errorMessage = toAuthErrorMessage(e, 'Sign up failed. Please try again.');
       }
 
       setError(errorMessage);
@@ -445,7 +445,10 @@ export default function SignUpScreen() {
       captureException(typeof e === 'string' ? new Error(e) : e, {
         tags: { context: 'google-signup' },
       });
-      setError(getOAuthExistingAccountMessage(e, 'Google') || message);
+      setError(
+        getOAuthExistingAccountMessage(e, 'Google') ||
+          toAuthErrorMessage(e, 'Google sign-up failed. Please try again.')
+      );
     }
   };
 
@@ -479,7 +482,10 @@ export default function SignUpScreen() {
       if (typeof message === 'string' && message.toLowerCase().includes('cancel')) {
         return;
       }
-      setError(getOAuthExistingAccountMessage(e, 'Apple') || message);
+      setError(
+        getOAuthExistingAccountMessage(e, 'Apple') ||
+          toAuthErrorMessage(e, 'Apple sign-up failed. Please try again.')
+      );
     }
   };
 

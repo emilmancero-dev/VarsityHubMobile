@@ -1,3 +1,7 @@
+import {
+  scrubErrorEvent,
+  scrubTransactionEvent,
+} from '@varsityhub/shared/runtime/sentrySanitization';
 import * as Sentry from '@sentry/node';
 import { normalizeSentryBreadcrumbData } from '@varsityhub/shared/runtime/sentrySanitization';
 import type { Express, Request } from 'express';
@@ -143,6 +147,7 @@ export function initSentry(app: Express) {
     // errors handled as 400 by errorHandler; this is defense-in-depth so they
     // never reach Sentry even if captured elsewhere.
     ignoreErrors: [/Failed to decode param/, 'URIError'],
+    beforeSendTransaction: scrubTransactionEvent,
     beforeSend(event: any) {
       // Drop everything from dev machines. Local runs (e.g. the
       // stripe-webhook-reconciliation cron with placeholder Stripe keys) share
@@ -166,7 +171,7 @@ export function initSentry(app: Express) {
       }
       // Defense-in-depth: scrub any request data (bodies, cookies, auth
       // headers, token query params) that slipped in before shipping.
-      return scrubSentryRequestData(event);
+      return scrubErrorEvent(scrubSentryRequestData(event));
     },
   });
 

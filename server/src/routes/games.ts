@@ -354,7 +354,12 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
         res.status(200).json(existing);
       } catch (error: any) {
         if (error?.status !== 409) throw error;
-        sendError(res, 409, error.message, { code: 'IDEMPOTENCY_CONFLICT' });
+        sendError(
+          res,
+          409,
+          'This request conflicts with a previous submission. Please refresh and try again.',
+          { code: 'IDEMPOTENCY_CONFLICT' }
+        );
       }
       return true;
     };
@@ -376,12 +381,9 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
         },
       });
 
-      const isDemoMatchup =
-        typeof game?.description === 'string' && game.description.includes('[DEMO_MATCHUP]');
-
       const isAdmin = await getIsAdmin(req as any);
 
-      if (!isDemoMatchup && !isAdmin && game?.events && game.events.length > 0) {
+      if (!isAdmin && game?.events && game.events.length > 0) {
         const event = game.events[0];
         const location = parsed.data.location;
         const hasDeviceOriginLocation =
@@ -433,7 +435,19 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
       );
     } catch (error: any) {
       if (error?.status !== 422) throw error;
-      return sendError(res, 422, error.message, { code: error.code || 'MEDIA_NOT_READY' });
+      return sendError(
+        res,
+        422,
+        error.code === 'MEDIA_DURATION_EXCEEDED'
+          ? 'Stories are limited to 20 seconds. Trim this video and retry.'
+          : 'This media is not ready. Please upload it again.',
+        {
+          code:
+            error.code === 'MEDIA_DURATION_EXCEEDED'
+              ? 'MEDIA_DURATION_EXCEEDED'
+              : 'MEDIA_NOT_READY',
+        }
+      );
     }
     const createData: any = {
       ...(requestIdentity
@@ -2117,10 +2131,7 @@ gamesRouter.post(
       return res.status(201).json({ ok: true, created_count: created.length, games: created });
     } catch (err: any) {
       console.error('[games/bulk] failed — rolled back:', err?.message || err);
-      return res.status(500).json({
-        error: 'Bulk game creation failed and was rolled back.',
-        detail: err?.message || 'unknown',
-      });
+      return sendError(res, 500, 'Unable to create games. Please try again.');
     }
   })
 );

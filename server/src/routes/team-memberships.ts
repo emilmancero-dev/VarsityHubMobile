@@ -1,3 +1,4 @@
+import { AppError } from '../lib/errors/AppError.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { sendError } from '../lib/http/sendError.js';
@@ -112,14 +113,7 @@ teamMembershipsRouter.post(
               where: { team_id: teamIdStr, role: 'owner', status: 'active' },
             });
             if (activeOwnerCount <= 1) {
-              const error = new Error('SOLE_OWNER');
-              (error as any).status = 400;
-              (error as any).body = {
-                error: 'SOLE_OWNER',
-                message:
-                  'Cannot demote the only owner. Transfer ownership to another member first.',
-              };
-              throw error;
+              throw new AppError(400, 'SOLE_OWNER', { errorCode: 'SOLE_OWNER' });
             }
           }
           const guard = await guardTeamMembershipMutation(tx, {
@@ -128,12 +122,7 @@ teamMembershipsRouter.post(
             existingMembership,
           });
           if (!guard.ok) {
-            const error = new Error(
-              guard.body.code || guard.body.error || 'TEAM_MEMBERSHIP_GUARD_FAILED'
-            );
-            (error as any).status = guard.status;
-            (error as any).body = guard.body;
-            throw error;
+            throw new AppError(guard.status, guard.body.error, { errorCode: guard.body.code });
           }
 
           return tx.teamMembership.upsert({
@@ -156,8 +145,8 @@ teamMembershipsRouter.post(
       );
       return res.status(201).json(m);
     } catch (err: any) {
-      if (err?.status && err?.body) {
-        return res.status(err.status).json(err.body);
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json(err.toJSON());
       }
       console.error('[team-memberships] POST / error:', err);
       return sendError(res, 500, 'Internal server error');

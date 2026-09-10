@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 // ⚠️ WORKING - DO NOT MODIFY WITHOUT EXPLICIT PERMISSION
 // Google OAuth fixed 2026-02-24; proxy detection fixed 2026-02-24
 // iOS native: uses iOS client ID with native redirect scheme
@@ -273,7 +274,7 @@ export function useGoogleAuth() {
         }
 
         const message = err?.message || 'Unable to sign in with Google';
-        setError(message);
+        setError(toUserMessage(err, 'Unable to sign in with Google. Please try again.'));
         throw err instanceof Error ? err : new Error(message);
       } finally {
         setLoading(false);

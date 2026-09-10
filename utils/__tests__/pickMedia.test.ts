@@ -79,3 +79,10 @@ test('retains image-only camera controls without changing capture mode', async (
   await launchMediaCameraAsync(options);
   expect(ImagePicker.launchCameraAsync).toHaveBeenCalledWith(options);
 });
+
+test('keeps update-required recovery guidance through the public error boundary', async () => {
+  const { toUserMessage } = require('../toUserMessage');
+  (requireOptionalNativeModule as jest.Mock).mockReturnValue(null);
+  const error = await launchMediaLibraryAsync({ mediaTypes: ['videos'] }).catch(error => error);
+  expect(toUserMessage(error)).toContain('update VarsityHub');
+});

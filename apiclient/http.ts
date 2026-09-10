@@ -185,6 +185,25 @@ function shouldCaptureTerminalHttpError(error: unknown): boolean {
   return status >= 500;
 }
 
+function parseResponseBody(text: string, contentType: string, status: number): any {
+  if (!contentType.includes('application/json')) return text;
+  if (text === '') return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Error responses still surface their HTTP status when their body is malformed.
+    if (status < 200 || status >= 300) return null;
+    // Never include the body or parser exception: either can contain private data.
+    // Preserve the actual status; a protocol failure is not a retryable HTTP 502.
+    throw Object.assign(new Error('The server returned an invalid response. Please try again.'), {
+      name: 'HttpProtocolError',
+      code: 'INVALID_JSON_RESPONSE',
+      isProtocolError: true,
+      status,
+    });
+  }
+}
+
 /**
  * If an identical GET (same path + auth token) is already in flight,
  * return its pending promise so callers share the response. Otherwise
@@ -288,6 +307,7 @@ async function request(
   const externalSignal = options.signal ?? undefined;
   throwIfUploadAborted(externalSignal);
   const base = getBaseUrl();
+  const telemetryPath = path.split(/[?#]/, 1)[0];
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as any),
@@ -319,9 +339,9 @@ async function request(
 
   try {
     // HTTP request initiated
-    captureBreadcrumb(`HTTP ${options.method || 'GET'} ${path}`, 'http', {
+    captureBreadcrumb(`HTTP ${options.method || 'GET'} ${telemetryPath}`, 'http', {
       base,
-      path,
+      path: telemetryPath,
       hasAuth: !!token,
     });
     const res = await fetch(base + path, {
@@ -331,7 +351,10 @@ async function request(
     });
     throwIfUploadAborted(externalSignal);
     // HTTP response received
-    captureBreadcrumb(`HTTP ${res.status} ${path}`, 'http', { status: res.status, path });
+    captureBreadcrumb(`HTTP ${res.status} ${telemetryPath}`, 'http', {
+      status: res.status,
+      path: telemetryPath,
+    });
 
     // Handle 304 Not Modified: return a special object or null.
     // The caller can then decide whether to use cached data or ignore.
@@ -342,16 +365,7 @@ async function request(
     const text = await res.text();
     throwIfUploadAborted(externalSignal);
     const ct = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
-    let data: any = null;
-    if (ct.includes('application/json')) {
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = null;
-      }
-    } else {
-      data = text; // plain text or HTML
-    }
+    const data = parseResponseBody(text, ct, res.status);
 
     if (!res.ok) {
       const isRailwayErrorPage = isRailwayInfrastructureError(res.status, ct, data);
@@ -405,14 +419,7 @@ async function request(
             const retryCt =
               (retryRes.headers && retryRes.headers.get && retryRes.headers.get('content-type')) ||
               '';
-            if (retryCt.includes('application/json')) {
-              try {
-                return retryText ? JSON.parse(retryText) : null;
-              } catch {
-                return null;
-              }
-            }
-            return retryText;
+            return parseResponseBody(retryText, retryCt, retryRes.status);
           }
           // Retry also failed — parse actual retry response and throw its error
           const retryText = await retryRes.text().catch(() => '');
@@ -487,6 +494,13 @@ async function request(
     clearTimeout(timeoutId);
     inflightControllers.delete(controller);
     throwIfUploadAborted(externalSignal);
+    if (error.isProtocolError) {
+      captureException(error, {
+        path: telemetryPath,
+        method: options.method || 'GET',
+      });
+      throw error;
+    }
     // Suppress verbose logging for expected auth errors in dev mode
     const isAuthError = path.includes('/auth/') || path.includes('/me');
     const isAbortError = error.name === 'AbortError';

@@ -21,12 +21,13 @@ const row = (table: string, primary: number, backup: number | null): PerTableCou
 });
 
 describe('evaluateFreshness (shared pass/fail definition)', () => {
-  it('byte-for-byte identical → ok, 0 drift', () => {
+  it('equal row counts → within budget without proving content or freshness', () => {
     const r = evaluateFreshness([row('User', 100, 100), row('Post', 50, 50)], 10);
     expect(r.ok).toBe(true);
     expect(r.deficit).toBe(0);
     expect(r.driftPct).toBe(0);
-    expect(r.reason).toMatch(/byte-for-byte/i);
+    expect(r.reason).toMatch(/row counts/i);
+    expect(r.reason).toMatch(/does not prove content equality or freshness/i);
   });
 
   it('trails by a few rows within budget → ok (expected between 6h syncs)', () => {
@@ -60,10 +61,30 @@ describe('evaluateFreshness (shared pass/fail definition)', () => {
     expect(r.driftPct).toBe(0);
   });
 
-  it('backup AHEAD of primary (negative deficit) is within budget → ok', () => {
+  it('backup ahead → no deficit, without claiming content equality or freshness', () => {
     const r = evaluateFreshness([row('User', 100, 103)], 10);
     expect(r.ok).toBe(true);
-    expect(r.deficit).toBe(-3);
+    expect(r.deficit).toBe(0);
+    expect(r.reason).toMatch(/does not prove content equality or freshness/i);
+  });
+
+  it('surplus rows in one table cannot cancel another table deficit', () => {
+    const r = evaluateFreshness([row('User', 100, 0), row('Post', 100, 200)], 10);
+    expect(r.primaryTotal).toBe(r.backupTotal);
+    expect(r.deficit).toBe(100);
+    expect(r.driftPct).toBe(50);
+    expect(r.ok).toBe(false);
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])('invalid drift budget %s fails closed', budget => {
+    const r = evaluateFreshness([row('User', 100, 100)], budget);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/finite non-negative/i);
+  });
+
+  it('zero drift budget accepts equal counts and rejects any deficit', () => {
+    expect(evaluateFreshness([row('User', 100, 100)], 0).ok).toBe(true);
+    expect(evaluateFreshness([row('User', 100, 99)], 0).ok).toBe(false);
   });
 });
 
@@ -86,12 +107,25 @@ describe('checkBackupFreshness env guards (the alert must stay SILENT when uncon
     expect(r.perTable).toEqual([]);
   });
 
-  it('backup URL equals primary → configured:false, ok:true (not a real backup, but no alert)', async () => {
+  it('backup URL equals primary → configured:true, ok:false (a configuration failure)', async () => {
     process.env.DATABASE_URL = 'postgresql://user@localhost:5432/same';
     process.env.DATABASE_BACKUP_URL = 'postgresql://user@localhost:5432/same';
     const r = await checkBackupFreshness();
     restore();
-    expect(r.configured).toBe(false);
-    expect(r.ok).toBe(true);
+    expect(r.configured).toBe(true);
+    expect(r.ok).toBe(false);
+  });
+
+  it('invalid budget fails before connecting to a configured database', async () => {
+    process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:1/primary';
+    process.env.DATABASE_BACKUP_URL = 'postgresql://test:test@127.0.0.1:1/backup';
+    try {
+      const r = await checkBackupFreshness({ maxDriftPct: NaN });
+      expect(r.configured).toBe(true);
+      expect(r.ok).toBe(false);
+      expect(r.reason).toMatch(/finite non-negative/i);
+    } finally {
+      restore();
+    }
   });
 });

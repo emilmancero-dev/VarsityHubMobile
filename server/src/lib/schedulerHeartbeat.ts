@@ -214,14 +214,73 @@ async function getRedis(): Promise<any | null> {
   if (!url) return null;
   try {
     const { default: Redis } = await import('ioredis');
+    if (_closing) return null;
     const RedisCtor = Redis as unknown as new (u: string, o?: any) => any;
-    _redis = new RedisCtor(url, { maxRetriesPerRequest: 1, lazyConnect: true });
+    _redis = new RedisCtor(url, {
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+      connectTimeout: 5_000,
+      commandTimeout: 5_000,
+    });
     await _redis.connect();
     return _redis;
   } catch {
+    _redis?.disconnect?.();
     _redis = null;
     return null;
   }
+}
+
+/** Backup evidence is mandatory and cross-replica: unlike heartbeats it must
+ * never fall back to memory or hide a failed write. Reuse this store's managed
+ * connection and shutdown drain. Sanitize errors because Redis URLs may carry
+ * credentials. */
+async function withBackupEvidenceStore<T>(operation: (redis: any) => Promise<T>): Promise<T> {
+  let expired = false;
+  const operationWork = (async () => {
+    try {
+      if (_closing || !process.env.REDIS_URL) throw new Error('unavailable');
+      const redis = await getRedis();
+      if (!redis || _closing || expired) throw new Error('unavailable');
+      return await operation(redis);
+    } catch {
+      throw new Error('Backup sync evidence store unavailable');
+    }
+  })();
+  // ioredis's command timeout does not cover its readiness handshake. Bound
+  // the whole evidence operation as well. A timed-out begin may later land in
+  // Redis, but its copy never starts; the orphan then remains safely nonhealthy.
+  let deadline: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    deadline = setTimeout(() => {
+      expired = true;
+      reject(new Error('Backup sync evidence store unavailable'));
+    }, 5_000);
+  });
+  const work = Promise.race([operationWork, timeout]).finally(() => clearTimeout(deadline));
+  const settled = work.then(
+    () => {},
+    () => {}
+  );
+  _pendingWrites.add(settled);
+  void settled.finally(() => _pendingWrites.delete(settled));
+  return work;
+}
+
+export async function readBackupEvidenceRecord(key: string): Promise<string | null> {
+  return withBackupEvidenceStore(redis => redis.get(key));
+}
+
+export async function transitionBackupEvidenceRecord(
+  key: string,
+  script: string,
+  runId: string,
+  transition: 'begin' | 'succeeded' | 'failed',
+  configFingerprint: string
+): Promise<void> {
+  await withBackupEvidenceStore(redis =>
+    redis.eval(script, 1, key, runId, transition, configFingerprint)
+  );
 }
 
 /** Best-effort: records that a job ran. Never throws — a heartbeat-write

@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -200,14 +201,10 @@ function CreateEventScreen() {
       if (isSessionExpiryError(e)) {
         return;
       }
-      let errorMsg = e?.data?.error || e?.message || 'Failed to create event.';
-      // Surface Zod validation details if available
-      const issues = e?.data?.issues;
-      if (issues && Array.isArray(issues)) {
-        errorMsg = issues
-          .map((i: any) => `${i.path?.join?.('.') || i.path}: ${i.message}`)
-          .join('\n');
-      }
+      const errorMsg = toUserMessage(
+        e,
+        'Failed to create event. Please check your entries and try again.'
+      );
       Alert.alert('Error', errorMsg);
     } finally {
       setSubmitting(false);

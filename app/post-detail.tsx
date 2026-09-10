@@ -456,7 +456,7 @@ export default function PostDetailScreen() {
   const error = !currentPostId
     ? 'No post ID provided'
     : currentQuery?.isError && !post
-      ? (currentQuery.error as any)?.message || 'Failed to load post'
+      ? toUserMessage(currentQuery.error, 'Failed to load post')
       : null;
   // A still-in-flight fetch must render as loading, never fall through to the
   // error cards. Two gaps this covers: hasRenderedOnceRef latches true after
@@ -797,9 +797,7 @@ export default function PostDetailScreen() {
                 } else {
                   Alert.alert(
                     'Error',
-                    error?.data?.error ||
-                      error?.message ||
-                      'Failed to submit report. Please try again.'
+                    toUserMessage(error, 'Failed to submit report. Please try again.')
                   );
                 }
               }
@@ -841,9 +839,7 @@ export default function PostDetailScreen() {
                 } else {
                   Alert.alert(
                     'Error',
-                    error?.data?.error ||
-                      error?.message ||
-                      'Failed to submit report. Please try again.'
+                    toUserMessage(error, 'Failed to submit report. Please try again.')
                   );
                 }
               }
@@ -1100,6 +1096,7 @@ export default function PostDetailScreen() {
                   <VideoPlayer
                     uri={media.mediaUrl!}
                     style={styles.heroVideo}
+                    contentFit="cover"
                     autoPlay
                     paused={!isActivePost || fullscreenMedia}
                   />

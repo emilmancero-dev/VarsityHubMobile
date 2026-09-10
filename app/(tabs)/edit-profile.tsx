@@ -255,7 +255,7 @@ export default function EditProfileScreen() {
       if (__DEV__) console.error('Avatar upload error:', error);
       Alert.alert(
         'Upload Failed',
-        error?.message || 'Failed to upload profile picture. Please try again.'
+        toUserMessage(error, 'Failed to upload profile picture. Please try again.')
       );
     } finally {
       setUploadingAvatar(false);
@@ -326,7 +326,7 @@ export default function EditProfileScreen() {
       if (__DEV__) console.error('Header image upload error:', error);
       Alert.alert(
         'Upload Failed',
-        error?.message || 'Failed to upload background image. Please try again.'
+        toUserMessage(error, 'Failed to upload background image. Please try again.')
       );
     } finally {
       setUploadingHeaderImage(false);
@@ -436,7 +436,7 @@ export default function EditProfileScreen() {
         await User.updateMe(directFields);
       } catch (e: any) {
         if (__DEV__) console.error('updateMe error:', e);
-        errors.push(e?.message || 'Failed to update profile fields');
+        errors.push(toUserMessage(e, 'Failed to update profile fields'));
       }
 
       if (Object.keys(preferences).length > 0) {
@@ -444,7 +444,7 @@ export default function EditProfileScreen() {
           await User.updatePreferences(preferences);
         } catch (e: any) {
           if (__DEV__) console.error('updatePreferences error:', e);
-          errors.push(e?.message || 'Failed to update preferences');
+          errors.push(toUserMessage(e, 'Failed to update preferences'));
         }
       }
 

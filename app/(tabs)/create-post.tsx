@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { persistPreparedMedia } from '@/utils/mediaDraftFiles';
 import { cleanupConfirmedVideoDraft } from '@/utils/compressVideo';
 import { launchMediaLibraryAsync, launchMediaCameraAsync } from '@/utils/pickMedia';
@@ -6,6 +7,8 @@ import {
   recoveryForOwner,
   reusableUpload,
   newPostRequestId,
+  assertCreatedPost,
+  recoveryAfterPostRejection,
 } from '@/utils/postRecovery';
 import { safeGoBack } from '@/utils/navigation';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -872,6 +875,9 @@ function CreatePostScreen() {
 
   const doConfirmPost = async () => {
     if (submittingRef.current) return;
+    const hadPendingPayload = Boolean(
+      recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload
+    );
     // 90s highlight cap: an over-limit pick must go through the trimmer (which
     // clamps its window to the cap) before it can post. Trimmed output is
     // capped by construction, so only the untrimmed original needs checking.
@@ -912,7 +918,6 @@ function CreatePostScreen() {
       const persistRecovery = async (recovery: PostRecovery) => {
         if (currentOwnerRef.current !== ownerId)
           throw new Error('Your account changed. Please reopen the composer.');
-        recoveryRef.current = recovery;
         await settings.setJson(settings.SETTINGS_KEYS.POST_DRAFT, {
           ownerId,
           content,
@@ -924,11 +929,17 @@ function CreatePostScreen() {
           recovery,
         });
         const persisted = await settings.getJson<any>(settings.SETTINGS_KEYS.POST_DRAFT, null);
-        if (JSON.stringify(persisted?.recovery) !== JSON.stringify(recovery)) {
+        if (currentOwnerRef.current !== ownerId)
+          throw new Error('Your account changed. Please reopen the composer.');
+        if (
+          persisted?.ownerId !== ownerId ||
+          JSON.stringify(persisted?.recovery) !== JSON.stringify(recovery)
+        ) {
           throw new Error(
             'Could not save upload recovery. Free some device storage and try again.'
           );
         }
+        recoveryRef.current = recovery;
       };
       await persistRecovery(recoveryForOwner(recoveryRef.current, ownerId) || { ownerId });
       if (savedUpload) {
@@ -1096,7 +1107,20 @@ function CreatePostScreen() {
       });
       if (currentOwnerRef.current !== ownerId)
         throw new Error('Your account changed. Please reopen the composer.');
-      await Post.create(pendingPayload);
+      try {
+        assertCreatedPost(await Post.create(pendingPayload));
+      } catch (error) {
+        const editableRecovery =
+          currentOwnerRef.current === ownerId
+            ? recoveryAfterPostRejection(
+                recoveryForOwner(recoveryRef.current, ownerId),
+                error,
+                !hadPendingPayload
+              )
+            : null;
+        if (editableRecovery) await persistRecovery(editableRecovery);
+        throw error;
+      }
       for (const source of [picked?.uri, trimmedUri]) {
         if (source)
           void cleanupConfirmedVideoDraft(source).catch(error => {
@@ -1174,7 +1198,7 @@ function CreatePostScreen() {
         setTimeout(() => safeGoBack(router, '/(tabs)/feed'), 800);
         return;
       } else if (issues.length) {
-        setError(issues.map(i => i.message).join('\n'));
+        setError('Please check your post and try again.');
       } else {
         // Provide more helpful error messages
         if (e?.status === 404 && hasSelectedEvent) {
@@ -1197,12 +1221,12 @@ function CreatePostScreen() {
             // rule stays server-side, so just show it. Title is deliberately
             // neutral — the old 'Not Yet' read as "come back later" on a
             // finished event, where there is no later.
-            const msg = e?.data?.message || 'Posting is not open for this event.';
+            const msg = toUserMessage(e, 'Posting is not open for this event.');
             Alert.alert('Posting Closed', msg);
             setError(msg);
           } else if (code === 'TOO_FAR_FROM_VENUE') {
             const dist = e?.data?.distance;
-            const msg = e?.data?.message || 'You must be within 3 km of the venue to post.';
+            const msg = toUserMessage(e, 'You must be within 3 km of the venue to post.');
             analytics.track(ANALYTICS_EVENTS.GEOFENCE_BLOCKED, { distance: dist });
             Alert.alert(
               'Not at the Venue',
@@ -1232,12 +1256,7 @@ function CreatePostScreen() {
             // `message` over `error`: on this envelope `error` is the CODE, so
             // the old order showed users raw strings like
             // "EXCLUSIVE_POSTER_ONLY" whenever a code had no branch above.
-            const msg =
-              e?.data?.message ||
-              (typeof e?.data?.error === 'string' && !/^[A-Z][A-Z0-9_]{2,}$/.test(e.data.error)
-                ? e.data.error
-                : null) ||
-              'You do not have permission to post to this event.';
+            const msg = toUserMessage(e, 'You do not have permission to post to this event.');
             Alert.alert('Cannot Post', msg);
             setError(msg);
           }
@@ -1245,7 +1264,7 @@ function CreatePostScreen() {
           setError(
             e?.status === 429
               ? 'You have hit the hourly upload limit. Wait a few minutes and try again.'
-              : e?.message || 'Failed to create post. Please try again.'
+              : toUserMessage(e, 'Failed to create post. Please try again.')
           );
         }
       }
@@ -1432,9 +1451,7 @@ function CreatePostScreen() {
                             .catch(error => {
                               Alert.alert(
                                 'Could not save trim',
-                                error instanceof Error
-                                  ? error.message
-                                  : 'Please trim the video again.'
+                                toUserMessage(error, 'Please trim the video again.')
                               );
                             });
                         }}

@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import DateField from '@/components/ui/DateField';
 import { Input } from '@/components/ui/input';
 import PrimaryButton from '@/components/ui/PrimaryButton';
@@ -535,17 +536,10 @@ export default function Step2Basic() {
         tags: { context: 'onboarding-step-2' },
       });
       dispatch({ type: 'SAVE_FAIL', error: e });
-      // Surface the actual server error: check e.data (our http client), e.response?.data (axios-style)
-      const serverData = e?.data || e?.response?.data;
-      let errorMessage = serverData?.error || e?.message || 'Please try again.';
-      // Surface Zod validation details if available
-      const zodIssues = serverData?.issues || serverData?.details?.issues || null;
-      if (zodIssues && Array.isArray(zodIssues)) {
-        const details = zodIssues
-          .map((i: any) => `${i.path?.join?.('.') || i.path}: ${i.message}`)
-          .join('\n');
-        if (details) errorMessage = details;
-      }
+      const errorMessage = toUserMessage(
+        e,
+        'Unable to save your information. Check your entries and try again.'
+      );
       Alert.alert('Failed to save', errorMessage, [{ text: 'OK', style: 'default' }]);
     } finally {
       setSaving(false);

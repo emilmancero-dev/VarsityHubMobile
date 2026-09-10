@@ -53,7 +53,9 @@ describeDb('Checkout session finalization', () => {
       await prisma.$queryRawUnsafe('SELECT 1');
       dbReady = true;
     } catch {
-      dbReady = false;
+      throw new Error(
+        'Payment finalization tests require a reachable test database. The database connectivity check failed; no payment assertions ran.'
+      );
     }
   });
 
@@ -122,8 +124,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('finalizes membership checkout and marks subscription transaction completed', async () => {
-    if (!dbReady) return;
-
     const sessionId = `sess_membership_finalize_${Date.now()}`;
     createdSessionIds.push(sessionId);
 
@@ -194,8 +194,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('syncs an active Stripe subscription into user entitlements and completion state', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const subscriptionId = `sub_sync_finalize_${now}`;
     const customerId = `cus_sync_finalize_${now}`;
@@ -276,8 +274,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('replays a pending Apple subscription purchase into a completed entitlement', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const originalTransactionId = `apple-sub-original-${now}`;
     const appleTransactionId = `apple-sub-transaction-${now}`;
@@ -354,8 +350,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('finalizes ad checkout and marks ad transaction completed', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const sessionId = `sess_ad_finalize_${now}`;
     createdSessionIds.push(sessionId);
@@ -429,8 +423,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('releases slot-full ad inventory back to unpaid in one DB step', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const user = await prisma.user.create({
       data: {
@@ -477,8 +469,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('retries slot-full inventory release successfully when the ad is still recoverable', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const user = await prisma.user.create({
       data: {
@@ -520,8 +510,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('cron recovers slot-full refunds that were refunded but left marked release_pending', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const user = await prisma.user.create({
       data: {
@@ -586,8 +574,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('claims each Apple ad receipt transaction id and treats same-user retries as idempotent', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const user = await prisma.user.create({
       data: {
@@ -674,8 +660,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('rejects Apple ad receipt replay across different purchases', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const [firstUser, secondUser] = await Promise.all([
       prisma.user.create({
@@ -753,8 +737,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('upgrades a pending Apple ad transaction log to completed instead of duplicating it', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const appleTransactionId = `apple-ad-pending-${now}`;
     createdAppleTransactionIds.push(appleTransactionId);
@@ -829,8 +811,6 @@ describeDb('Checkout session finalization', () => {
   });
 
   it('rejects Apple ad finalization when the target slot is already full and rolls back claims', async () => {
-    if (!dbReady) return;
-
     const now = Date.now();
     const targetDate = '2035-04-01';
     const [buyer, competingUserA, competingUserB] = await Promise.all([

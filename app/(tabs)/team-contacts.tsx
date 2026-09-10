@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { launchMediaLibraryAsync, launchMediaCameraAsync } from '@/utils/pickMedia';
 import CustomActionModal from '@/components/CustomActionModal';
 import CoachAccessRedirecting from '@/components/CoachAccessRedirecting';
@@ -1311,7 +1312,7 @@ export default function TeamChatScreen() {
       showToast(
         e?.status === 429
           ? 'Too many uploads — wait a few minutes and try again.'
-          : e?.message || 'Failed to send video',
+          : toUserMessage(e, 'Failed to send video'),
         'error'
       );
     } finally {

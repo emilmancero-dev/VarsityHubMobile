@@ -5,21 +5,49 @@
  * asserts the backup is complete and the deferred FK columns are back-filled.
  *
  * Usage:
+ *   Start a disposable local Redis instance first (or use its Unix socket).
+ *   Set VERIFY_REDIS_URL explicitly; ambient REDIS_URL is never used by this drill.
  *   createdb vh_dbbackup_verify_primary
  *   createdb vh_dbbackup_verify_backup
  *   DATABASE_URL="postgresql://$(whoami)@localhost:5432/vh_dbbackup_verify_primary" npx prisma db push --skip-generate
  *   DATABASE_URL="postgresql://$(whoami)@localhost:5432/vh_dbbackup_verify_backup" npx prisma db push --skip-generate
  *   VERIFY_PRIMARY_URL="postgresql://$(whoami)@localhost:5432/vh_dbbackup_verify_primary" \
  *   VERIFY_BACKUP_URL="postgresql://$(whoami)@localhost:5432/vh_dbbackup_verify_backup" \
+ *   VERIFY_REDIS_URL="redis://127.0.0.1:6379" \
  *     npx tsx scripts/verify-db-backup-sync.ts
  *
  * DESTRUCTIVE on both databases (seeds the primary, truncates the backup) —
  * refuses to run against anything but localhost.
  */
 import { PrismaClient } from '@prisma/client';
+import { closeHeartbeatStore } from '../src/lib/schedulerHeartbeat.js';
 
 const PRIMARY = process.env.VERIFY_PRIMARY_URL;
 const BACKUP = process.env.VERIFY_BACKUP_URL;
+const VERIFY_REDIS = process.env.VERIFY_REDIS_URL;
+
+// The drill now records durable evidence. Require an explicitly selected local
+// store before any seed/copy, so an ambient production REDIS_URL is never used.
+let localRedis = false;
+if (VERIFY_REDIS?.startsWith('/')) {
+  localRedis = true; // absolute Unix socket path
+} else if (VERIFY_REDIS) {
+  try {
+    const url = new URL(VERIFY_REDIS);
+    localRedis =
+      ['redis:', 'rediss:'].includes(url.protocol) &&
+      ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  } catch {
+    // Invalid input receives the same sanitized configuration message below.
+  }
+}
+if (!localRedis || !VERIFY_REDIS) {
+  console.error(
+    'Set VERIFY_REDIS_URL to an explicit local Redis URL or absolute Unix socket path.'
+  );
+  process.exit(1);
+}
+process.env.REDIS_URL = VERIFY_REDIS;
 
 if (!PRIMARY || !BACKUP) {
   console.error('Set VERIFY_PRIMARY_URL and VERIFY_BACKUP_URL (see header comment).');
@@ -167,7 +195,9 @@ async function main() {
   await assertBackup('run2');
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exitCode = 1;
-});
+main()
+  .catch(err => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => closeHeartbeatStore());

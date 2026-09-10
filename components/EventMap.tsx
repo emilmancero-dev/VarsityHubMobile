@@ -30,66 +30,10 @@ import { EventMapData, EventMapProps } from './EventMap.types';
 
 export type { EventMapData, EventMapProps } from './EventMap.types';
 
-const SPORT_MARKER_COLORS: Record<string, string> = {
-  football: '#2563EB',
-  basketball: '#EA580C',
-  beach_volleyball: '#0EA5E9',
-  bowling: '#7E22CE',
-  baseball: '#16A34A',
-  softball: '#84CC16',
-  soccer: '#059669',
-  ice_hockey: '#0891B2',
-  water_polo: '#2563EB',
-  skiing: '#0369A1',
-  fencing: '#475569',
-  field_hockey: '#0D9488',
-  lacrosse: '#7C3AED',
-  mma: '#B91C1C',
-  auto_racing: '#111827',
-  stunt: '#E11D48',
-  acrobatics_tumbling: '#BE123C',
-  volleyball: '#DB2777',
-  wrestling: '#B45309',
-  tennis: '#65A30D',
-  golf: '#15803D',
-  track_field: '#DC2626',
-  cross_country: '#9333EA',
-  swimming: '#0284C7',
-  cheerleading: '#E11D48',
-  dance: '#C026D3',
-  gymnastics: '#BE123C',
-  crew: '#0F766E',
-  esports: '#4F46E5',
-};
+import { resolveMarkerColor } from '@/utils/mapMarkerColor';
+export { resolveMarkerColor } from '@/utils/mapMarkerColor';
 
 const SINGLE_EVENT_REGION_DELTA = 0.35;
-
-function isHexColor(value?: string | null): value is string {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim());
-}
-
-export function resolveMarkerColor(
-  event: Pick<
-    EventMapData,
-    'marker_color' | 'pro_home_color' | 'pro_away_color' | 'sport' | 'type'
-  >,
-  fallback: string
-): string {
-  if (isHexColor(event.marker_color)) return event.marker_color;
-  if (isHexColor(event.pro_home_color)) return event.pro_home_color;
-  if (isHexColor(event.pro_away_color)) return event.pro_away_color;
-  if (event.sport && SPORT_MARKER_COLORS[event.sport]) return SPORT_MARKER_COLORS[event.sport];
-  switch (event.type) {
-    case 'game':
-      return '#FF6B6B';
-    case 'event':
-      return '#4ECDC4';
-    case 'post':
-      return '#95E1D3';
-    default:
-      return fallback;
-  }
-}
 
 function formatPreviewDate(date?: string | null): string | null {
   if (!date) return null;
@@ -229,21 +173,26 @@ export default function EventMap({
   const searchFilteredEvents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return events;
-    return events.filter(event =>
-      [
-        event.title,
-        event.location,
-        event.sport,
-        event.league_slug,
-        event.league_name,
-        event.league_level,
-        event.league_gender,
-      ].some(value =>
-        String(value ?? '')
-          .toLowerCase()
-          .includes(query)
+    const anchor = Date.now();
+    return events
+      .filter(event =>
+        [
+          event.title,
+          event.location,
+          event.sport,
+          event.league_slug,
+          event.league_name,
+          event.league_level,
+          event.league_gender,
+        ].some(value =>
+          String(value ?? '')
+            .toLowerCase()
+            .includes(query)
+        )
       )
-    );
+      .sort(
+        (a, b) => Math.abs(Date.parse(a.date) - anchor) - Math.abs(Date.parse(b.date) - anchor)
+      );
   }, [events, searchQuery]);
 
   // Filter events that have coordinates (use != null so lat/lng of 0 are accepted).
@@ -554,7 +503,9 @@ export default function EventMap({
                 { backgroundColor: resolveMarkerColor({ type: 'game' }, Colors[colorScheme].tint) },
               ]}
             />
-            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>Game</Text>
+            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
+              Other games
+            </Text>
           </View>
           <View style={styles.legendRow}>
             <View
@@ -569,8 +520,12 @@ export default function EventMap({
               ]}
             />
             <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
-              Sport/team
+              Team/sport colors vary
             </Text>
+          </View>
+          <View style={styles.legendRow}>
+            <View style={[styles.legendDot, { backgroundColor: '#D4AF37' }]} />
+            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>Has posts</Text>
           </View>
           <View style={styles.legendRow}>
             <View style={[styles.legendDot, { backgroundColor: Colors[colorScheme].tint }]} />
@@ -591,16 +546,16 @@ export default function EventMap({
           >
             <Ionicons name="map-outline" size={48} color={Colors[colorScheme].tint} />
             <Text style={[styles.noEventsTitle, { color: Colors[colorScheme].text }]}>
-              No Games or Events with Locations Yet
+              No matching events on the map
             </Text>
             <Text style={[styles.noEventsDescription, { color: Colors[colorScheme].mutedText }]}>
-              Games and events appear on the map once location data has been added.
+              Try another date, sport, or league. Only events with a mapped location appear here.
             </Text>
             <View style={styles.emptyStateHints}>
               <View style={styles.hint}>
                 <Ionicons name="information-circle" size={16} color={Colors[colorScheme].tint} />
                 <Text style={[styles.hintText, { color: Colors[colorScheme].mutedText }]}>
-                  Add locations to see games and events on the map
+                  Past dates show pages with posts
                 </Text>
               </View>
             </View>

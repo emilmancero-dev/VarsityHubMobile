@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 /**
  * Hook to track upload progress with visual feedback
  */
@@ -114,7 +115,7 @@ export function useUploadProgress(): UseUploadProgressReturn {
 
         return result;
       } catch (err: any) {
-        const errorMessage = err?.message || 'Upload failed';
+        const errorMessage = toUserMessage(err, 'Upload failed');
         setState(prev => ({
           ...prev,
           uploading: false,

@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Team } from '@/api/entities';
 import { Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -22,7 +23,7 @@ function FollowedTeamsScreen() {
   });
   const items = Array.isArray(data) ? data : [];
   const loading = isPending;
-  const errorMessage = isError ? (error as any)?.message || 'Failed to load' : null;
+  const errorMessage = isError ? toUserMessage(error, 'Failed to load') : null;
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}

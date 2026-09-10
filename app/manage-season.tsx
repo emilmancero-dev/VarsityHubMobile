@@ -442,7 +442,7 @@ function ManageSeasonScreen() {
               setActionModal({
                 visible: true,
                 title: 'Error',
-                message: err?.message || 'Failed to update game status',
+                message: toUserMessage(err, 'Failed to update game status'),
                 options: [{ label: 'OK', onPress: () => {}, color: undefined }],
               });
             }
@@ -526,7 +526,7 @@ function ManageSeasonScreen() {
                 setActionModal({
                   visible: true,
                   title: 'Error',
-                  message: error?.message || 'Failed to save score. Please try again.',
+                  message: toUserMessage(error, 'Failed to save score. Please try again.'),
                   options: [{ label: 'OK', onPress: () => {}, color: undefined }],
                 });
               }
@@ -576,7 +576,7 @@ function ManageSeasonScreen() {
       setActionModal({
         visible: true,
         title: 'Approval Failed',
-        message: error?.message || 'We could not approve this game. Please try again.',
+        message: toUserMessage(error, 'We could not approve this game. Please try again.'),
         options: [{ label: 'OK', onPress: () => {} }],
       });
     }
@@ -611,7 +611,7 @@ function ManageSeasonScreen() {
               setActionModal({
                 visible: true,
                 title: 'Rejection Failed',
-                message: error?.message || 'We could not reject this game. Please try again.',
+                message: toUserMessage(error, 'We could not reject this game. Please try again.'),
                 options: [{ label: 'OK', onPress: () => {} }],
               });
             }
@@ -832,19 +832,13 @@ function ManageSeasonScreen() {
       if (__DEV__) console.error('Error status:', error?.status);
       if (__DEV__) console.error('Error data:', error?.data);
       if (__DEV__) console.error('Error message:', error?.message);
-      const details = error?.data?.issues ? `\nDetails: ${JSON.stringify(error.data.issues)}` : '';
-      const rawMsg =
-        (typeof error?.data === 'object' ? error.data?.error || error.data?.message : null) ||
-        error?.message ||
-        'Unknown error';
-      const errorMsg =
-        typeof rawMsg === 'string' && (rawMsg.includes('<') || rawMsg.startsWith('Cannot '))
-          ? 'Server error. Please try again.'
-          : rawMsg;
       setActionModal({
         visible: true,
         title: 'Error',
-        message: `Failed to save event: ${errorMsg}${details}`,
+        message: toUserMessage(
+          error,
+          'Failed to save event. Please check your entries and try again.'
+        ),
         options: [{ label: 'OK', onPress: () => {}, color: undefined }],
       });
     }

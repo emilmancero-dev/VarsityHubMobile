@@ -1,3 +1,4 @@
+import { toUserMessage } from './toUserMessage';
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
 import { ICLOUD_ERROR_MESSAGE, ICLOUD_ERROR_TITLE, isICloudError } from '@/utils/isICloudError';
@@ -49,17 +50,6 @@ export function showUploadErrorAlert(
     /HTTP 5\d\d/i.test(rawMessage);
   const isSize = /too large|size|413/i.test(rawMessage);
 
-  // Final safety net for information disclosure: a user-facing string must never
-  // contain an origin/API URL or the infra hostname. Any raw message we might
-  // echo (server body, upstream provider body) is run through this before it
-  // reaches Alert; if it carries one, it's replaced with a generic line.
-  const GENERIC_UPLOAD_FAILED = 'Upload failed. Please try again.';
-  const safeUserMessage = (msg?: string): string => {
-    const text = String(msg || '').trim();
-    if (!text) return GENERIC_UPLOAD_FAILED;
-    return /https?:\/\//i.test(text) || /railway/i.test(text) ? GENERIC_UPLOAD_FAILED : text;
-  };
-
   // Session expiry is handled centrally by AuthProvider (via sessionEvents):
   // it clears local state, shows a toast, and navigates to /sign-in. Showing
   // a modal that tells the user to "sign out and sign back in" would be
@@ -94,9 +84,7 @@ export function showUploadErrorAlert(
     // never mention signing in/out.
     Alert.alert(
       'Upload Unavailable',
-      safeUserMessage(
-        rawMessage || 'The upload service is temporarily unavailable. Please try again in a minute.'
-      )
+      'Uploads are temporarily unavailable. Please try again in a minute.'
     );
   } else if (isAuth) {
     // A genuine 401 that isn't upstream means the request wasn't authenticated:
@@ -121,19 +109,12 @@ export function showUploadErrorAlert(
   } else if (isServer) {
     Alert.alert(
       'Server Error',
-      safeUserMessage(
-        rawMessage || 'The upload service is temporarily unavailable. Please try again in a minute.'
-      )
+      'Uploads are temporarily unavailable. Please try again in a minute.'
     );
   } else if (isSize) {
-    Alert.alert(
-      'File Too Large',
-      safeUserMessage(
-        rawMessage || 'Files must be under the allowed size limit. Please try a smaller upload.'
-      )
-    );
+    Alert.alert('File Too Large', 'Please try a smaller file.');
   } else if (rawMessage) {
-    Alert.alert('Upload Failed', safeUserMessage(rawMessage));
+    Alert.alert(fallbackTitle, toUserMessage(error, fallbackMessage));
   } else {
     Alert.alert(fallbackTitle, fallbackMessage);
   }

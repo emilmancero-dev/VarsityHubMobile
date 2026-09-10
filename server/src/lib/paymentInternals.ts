@@ -1,3 +1,4 @@
+import { AppError } from './errors/AppError.js';
 import type { AdStatus, Prisma } from '@prisma/client';
 import type { Stripe } from 'stripe';
 import { debugLog } from './debugLog.js';
@@ -537,20 +538,15 @@ export function isUniqueConstraintError(error: unknown, fieldName?: string): boo
 }
 
 function buildAppleTransactionClaimConflictError() {
-  const error = new Error('APPLE_TRANSACTION_ALREADY_CLAIMED');
-  (error as any).statusCode = 409;
-  (error as any).body = {
-    error: 'APPLE_TRANSACTION_ALREADY_CLAIMED',
-    message: 'One or more Apple purchase receipts were already used by a different purchase.',
-  };
-  return error;
+  return new AppError(409, 'APPLE_TRANSACTION_ALREADY_CLAIMED', {
+    errorCode: 'APPLE_TRANSACTION_ALREADY_CLAIMED',
+  });
 }
 
 function buildAppleReceiptReuseError() {
-  const error = new Error('APPLE_RECEIPT_ALREADY_USED');
-  (error as any).statusCode = 409;
-  (error as any).body = { error: 'Receipt already used by another account' };
-  return error;
+  return new AppError(409, 'Receipt already used by another account', {
+    errorCode: 'APPLE_RECEIPT_ALREADY_USED',
+  });
 }
 
 export function normalizeAppleTransactionIds(ids: Array<string | null | undefined>) {
@@ -925,13 +921,9 @@ async function reserveAppleTransactionClaims(
     new Set(params.appleTransactionIds.map(id => String(id).trim()).filter(Boolean))
   ).sort();
   if (normalizedIds.length === 0) {
-    const error = new Error('APPLE_TRANSACTION_IDS_REQUIRED');
-    (error as any).statusCode = 400;
-    (error as any).body = {
-      error: 'APPLE_TRANSACTION_IDS_REQUIRED',
-      message: 'Missing Apple transaction ids.',
-    };
-    throw error;
+    throw new AppError(400, 'APPLE_TRANSACTION_IDS_REQUIRED', {
+      errorCode: 'APPLE_TRANSACTION_IDS_REQUIRED',
+    });
   }
 
   const existingClaims = await tx.appleTransactionClaim.findMany({

@@ -6,6 +6,8 @@ export interface EventMapData {
   event_id?: string | null;
   /** Canonical game id, when the marker represents a game-backed event page. */
   game_id?: string | null;
+  /** Viewer-visible, non-deleted posts exist on this page. */
+  has_posts?: boolean;
   title: string;
   date: string;
   location?: string;

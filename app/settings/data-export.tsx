@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { DataExport } from '@/api/entities';
 import { Colors } from '@/constants/Colors';
 import { captureBreadcrumb, captureException } from '@/utils/sentry';
@@ -144,7 +145,7 @@ export default function DataExportScreen() {
       const result = await DataExport.list();
       setRows(Array.isArray(result) ? result : []);
     } catch (e: any) {
-      const message = e?.data?.error || e?.message || 'Failed to load exports.';
+      const message = toUserMessage(e, 'Failed to load exports.');
       setError(message);
       captureBreadcrumb('data export load failed', 'data-export', {
         action: 'load',
@@ -227,7 +228,7 @@ export default function DataExportScreen() {
             : 'You can request one export every 24 hours.'
         );
       } else {
-        Alert.alert('Unable to Request Export', serverError || 'Please try again later.');
+        Alert.alert('Unable to Request Export', toUserMessage(e, 'Please try again later.'));
         captureBreadcrumb('data export request failed', 'data-export', {
           action: 'request',
           status: e?.status,
@@ -259,36 +260,27 @@ export default function DataExportScreen() {
         await Linking.openURL(result.url);
         void load('silent');
       } catch (e: any) {
-        const errorCode = e?.data?.error || e?.message || '';
         if (e?.status === 409) {
           Alert.alert('Export Not Ready', 'This archive is still being built.');
         } else if (e?.status === 410) {
           Alert.alert('Export Expired', 'This archive has expired. Request a new export.');
         } else if (e?.status === 503) {
-          Alert.alert(
-            'Export Failed',
-            e?.data?.error_category
-              ? `The export failed (${e.data.error_category}). Request a new one.`
-              : 'This export failed. Request a new one.'
-          );
+          Alert.alert('Export Failed', 'This export failed. Request a new one.');
         } else {
-          Alert.alert('Download Failed', errorCode || 'Unable to open the archive.');
+          Alert.alert('Download Failed', toUserMessage(e, 'Unable to open the archive.'));
           captureBreadcrumb('data export download failed', 'data-export', {
             action: 'download',
             export_id: row.id,
             status: e?.status,
           });
-          captureException(
-            e instanceof Error ? e : new Error(String(errorCode || 'download_failed')),
-            {
-              action: 'download',
-              screen: 'settings-data-export',
-              export_id: row.id,
-              status: e?.status,
-              server_error: e?.data?.error,
-              error_category: e?.data?.error_category,
-            }
-          );
+          captureException(e instanceof Error ? e : new Error('download_failed'), {
+            action: 'download',
+            screen: 'settings-data-export',
+            export_id: row.id,
+            status: e?.status,
+            server_error: e?.data?.error,
+            error_category: e?.data?.error_category,
+          });
         }
         void load('silent');
       } finally {
@@ -327,10 +319,7 @@ export default function DataExportScreen() {
                 );
                 void load('silent');
               } catch (e: any) {
-                Alert.alert(
-                  'Delete Failed',
-                  e?.data?.error || e?.message || 'Unable to update this export.'
-                );
+                Alert.alert('Delete Failed', toUserMessage(e, 'Unable to update this export.'));
                 captureBreadcrumb('data export delete failed', 'data-export', {
                   action: 'delete',
                   export_id: row.id,

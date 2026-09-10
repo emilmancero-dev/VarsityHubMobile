@@ -77,6 +77,7 @@ export function toMapEvents(
       id: String(item.id),
       event_id: item.event_id ?? (item.source_type === 'event' ? String(item.id) : null),
       game_id: item.game_id ?? (item.source_type === 'game' ? String(item.id) : null),
+      has_posts: item.has_posts === true,
       title: item.title || (item.source_type === 'game' ? 'Game' : 'Event'),
       date: item.date || now.toISOString(),
       location: item.location ?? undefined,

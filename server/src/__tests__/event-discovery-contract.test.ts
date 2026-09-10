@@ -181,7 +181,7 @@ describe('event discovery contract', () => {
     );
   });
 
-  it('default map surface requires media before surfacing past event-only pages', async () => {
+  it('default map surface requires viewer-visible posts before surfacing past pages', async () => {
     const now = new Date('2026-08-31T12:00:00.000Z');
     const db: any = {
       game: { findMany: jest.fn(async () => []) },
@@ -200,16 +200,13 @@ describe('event discovery contract', () => {
     expect(db.event.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          OR: [
-            { date: { gte: now } },
-            { posts: { some: { media_url: { not: null }, deleted_at: null } } },
-          ],
+          OR: [{ date: { gte: now } }, { posts: { some: { id: { in: [] } } } }],
         }),
       })
     );
   });
 
-  it('explicit past-date map surface can return event-only pages before media exists', async () => {
+  it('explicit past-date map surface hides empty event pages', async () => {
     const now = new Date('2026-09-02T19:30:00.000Z');
     const eventDate = new Date('2026-08-29T17:05:00.000Z');
     const db: any = {
@@ -248,21 +245,12 @@ describe('event discovery contract', () => {
 
     expect(db.event.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.not.objectContaining({
-          OR: [
-            { date: { gte: now } },
-            { posts: { some: { media_url: { not: null }, deleted_at: null } } },
-          ],
+        where: expect.objectContaining({
+          OR: [{ date: { gte: now } }, { posts: { some: { id: { in: [] } } } }],
         }),
       })
     );
-    expect(result.items).toEqual([
-      expect.objectContaining({
-        id: 'yankees-event',
-        title: 'Red Sox at Yankees',
-        map_visibility: expect.objectContaining({ visible: true }),
-      }),
-    ]);
+    expect(result.items).toEqual([]);
   });
 
   it('keeps standalone sports-league events in sport-filtered discovery', async () => {

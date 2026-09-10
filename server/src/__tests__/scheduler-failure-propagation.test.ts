@@ -28,10 +28,21 @@ for (const [module, exports] of Object.entries(modules)) {
   jest.unstable_mockModule(`../lib/${module}.js`, () => exports);
 }
 jest.unstable_mockModule('../lib/prisma.js', () => ({ prisma: {} }));
+const syncDatabaseBackup =
+  jest.fn<
+    () => Promise<{ success: boolean; tablesSync: number; totalRows: number; error?: string }>
+  >();
+jest.unstable_mockModule('../lib/dbBackupSync.js', () => ({ syncDatabaseBackup }));
+const recordHeartbeat = jest.fn<() => Promise<void>>().mockResolvedValue();
+jest.unstable_mockModule('../lib/schedulerHeartbeat.js', () => ({
+  recordHeartbeat,
+  closeHeartbeatStore: jest.fn<() => Promise<void>>().mockResolvedValue(),
+}));
 const capture = jest.fn();
+const captureCheckIn = jest.fn<(...args: any[]) => string>().mockReturnValue('check-in-id');
 jest.unstable_mockModule('../lib/sentry.js', () => ({
   captureException: capture,
-  captureSchedulerCheckIn: jest.fn(),
+  captureSchedulerCheckIn: captureCheckIn,
   captureMessage: jest.fn(),
 }));
 const getRepeatableJobs = jest.fn<() => Promise<unknown[]>>();
@@ -51,16 +62,96 @@ jest.unstable_mockModule('ioredis', () => ({ default: class {} }));
 jest.useFakeTimers();
 const { SCHEDULED_JOBS, setupScheduler, startSchedulerWorker } =
   await import('../jobs/scheduler.js');
+const { runMonitoredJob } = await import('../lib/schedulerMonitoring.js');
 const originalRedis = process.env.REDIS_URL;
+const originalBackupUrl = process.env.DATABASE_BACKUP_URL;
 afterAll(() => {
   jest.useRealTimers();
   if (originalRedis === undefined) delete process.env.REDIS_URL;
   else process.env.REDIS_URL = originalRedis;
+  if (originalBackupUrl === undefined) delete process.env.DATABASE_BACKUP_URL;
+  else process.env.DATABASE_BACKUP_URL = originalBackupUrl;
 });
 beforeEach(() => {
   capture.mockClear();
+  captureCheckIn.mockClear();
+  recordHeartbeat.mockClear();
+  syncDatabaseBackup.mockReset();
   workerConstruct.mockReset();
   process.env.REDIS_URL = 'redis://isolated-test';
+  process.env.DATABASE_BACKUP_URL = 'postgresql://test:test@127.0.0.1:1/backup';
+});
+
+describe('backup sync reports its actual outcome', () => {
+  const backupJob = SCHEDULED_JOBS.find(job => job.name === 'db-backup-sync')!;
+
+  it('rejects a returned backup failure', async () => {
+    syncDatabaseBackup.mockResolvedValue({
+      success: false,
+      tablesSync: 1,
+      totalRows: 10,
+      error: 'Post table could not be copied',
+    });
+    await expect(backupJob.handler()).rejects.toThrow('Post table could not be copied');
+  });
+
+  it('preserves a thrown backup dependency error', async () => {
+    syncDatabaseBackup.mockRejectedValue(failure);
+    await expect(backupJob.handler()).rejects.toBe(failure);
+  });
+
+  it.each(['Backup schema not configured', 'DATABASE_BACKUP_URL not configured'])(
+    'rejects configuration failure %s when backup storage is configured',
+    async error => {
+      syncDatabaseBackup.mockResolvedValue({ success: false, tablesSync: 0, totalRows: 0, error });
+      await expect(backupJob.handler()).rejects.toThrow(error);
+    }
+  );
+
+  it.each(['returned failure', 'thrown error'] as const)(
+    'reports an error check-in and heartbeat for %s',
+    async outcome => {
+      if (outcome === 'returned failure') {
+        syncDatabaseBackup.mockResolvedValue({
+          success: false,
+          tablesSync: 0,
+          totalRows: 0,
+          error: 'Backup connection failed',
+        });
+      } else {
+        syncDatabaseBackup.mockRejectedValue(failure);
+      }
+      await expect(runMonitoredJob(backupJob)).rejects.toThrow();
+      expect(captureCheckIn.mock.calls.map(([checkIn]) => checkIn.status)).toEqual([
+        'in_progress',
+        'error',
+      ]);
+      expect(recordHeartbeat).toHaveBeenCalledWith('db-backup-sync', 'error');
+    }
+  );
+
+  it('reports a successful backup as successful', async () => {
+    syncDatabaseBackup.mockResolvedValue({ success: true, tablesSync: 2, totalRows: 10 });
+    await expect(runMonitoredJob(backupJob)).resolves.toBeUndefined();
+    expect(captureCheckIn.mock.calls.map(([checkIn]) => checkIn.status)).toEqual([
+      'in_progress',
+      'ok',
+    ]);
+    expect(recordHeartbeat).toHaveBeenCalledWith('db-backup-sync', 'ok');
+  });
+
+  it('preserves the unconfigured skip without claiming monitoring success', async () => {
+    delete process.env.DATABASE_BACKUP_URL;
+    syncDatabaseBackup.mockResolvedValue({
+      success: false,
+      tablesSync: 0,
+      totalRows: 0,
+      error: 'DATABASE_BACKUP_URL not configured',
+    });
+    await expect(runMonitoredJob(backupJob)).resolves.toBeUndefined();
+    expect(captureCheckIn).not.toHaveBeenCalled();
+    expect(recordHeartbeat).not.toHaveBeenCalled();
+  });
 });
 
 describe('scheduler failures remain failures', () => {

@@ -1,9 +1,9 @@
 /**
- * backupFreshness — the ONE source of truth for "is the DR backup current?".
+ * backupFreshness — successful-sync evidence and row-count checks for the DR backup.
  *
  * The `db-backup-sync` scheduler job (every 6h) replicates the primary Postgres
  * into the backup instance (DATABASE_BACKUP_URL). This module connects to BOTH
- * and compares them table-by-table, computing the aggregate row drift. It is the
+ * and compares them table-by-table, summing positive row deficits. It is the
  * shared core behind two callers:
  *   - the runnable drill (`scripts/verify-backup-freshness.ts`, on-demand / CI), and
  *   - the `db-backup-freshness-check` scheduler job, which captures to Sentry when
@@ -11,23 +11,26 @@
  *
  * Both share this logic so the pass/fail definition can never drift between them.
  *
- * A backup is EXPECTED to trail the primary by a handful of recent rows between
- * 6-hourly syncs — that is not a failure. A failure is a missing table, an
- * unreachable backup, or an aggregate row deficit past the drift budget
- * (default 10%, override with BACKUP_MAX_DRIFT_PCT) — the signature of a sync
- * that has silently stopped or is erroring mid-run.
+ * A missing table, unreachable backup, or summed row deficit past the budget
+ * (default 10%, override with BACKUP_MAX_DRIFT_PCT) fails this check. Counts are
+ * a heuristic: equal counts or surplus backup rows do not prove content equality
+ * or restorability. Updates and deletes can be invisible to the count check.
+ * Separately, target-specific Redis evidence must show a successful copy started
+ * within BACKUP_MAX_SUCCESS_AGE_HOURS (default 12), with no newer pending/failed
+ * attempt. Evidence is rechecked after counts to detect concurrent copies.
  */
 import { PrismaClient } from '@prisma/client';
 import { TABLES_IN_ORDER } from './dbBackupTables.js';
+import { readBackupSyncEvidence, type BackupSyncEvidence } from './backupSyncEvidence.js';
 
 export const DEFAULT_MAX_DRIFT_PCT = Number(process.env.BACKUP_MAX_DRIFT_PCT ?? '10');
 
 export type PerTableCount = { table: string; primary: number; backup: number | null };
 
 export type BackupFreshnessResult = {
-  /** false when DATABASE_BACKUP_URL is unset or equals the primary — a clean skip, not a failure. */
+  /** false when DATABASE_BACKUP_URL is unset; identical configured targets are a failure. */
   configured: boolean;
-  /** true when the backup is reachable, complete, and within the drift budget. */
+  /** true when recent successful-sync evidence and the table-count checks pass; not a restore proof. */
   ok: boolean;
   /** Human-readable pass/fail summary (also used as the Sentry message when !ok). */
   reason: string;
@@ -38,7 +41,34 @@ export type BackupFreshnessResult = {
   deficit: number;
   driftPct: number;
   maxDriftPct: number;
+  lastSuccessfulSyncAt?: number | null;
+  lastSuccessfulSyncStartedAt?: number | null;
+  maxSuccessAgeHours?: number;
 };
+
+function evidenceFailure(evidence: BackupSyncEvidence, maxAgeHours: number): string | null {
+  if (evidence.status !== 'succeeded') {
+    return `Backup successful sync evidence is ${evidence.status}; freshness cannot be verified`;
+  }
+  const started = evidence.lastSuccessfulSyncStartedAt;
+  const completed = evidence.lastSuccessfulSyncAt;
+  const now = Date.now();
+  if (
+    typeof started !== 'number' ||
+    !Number.isFinite(started) ||
+    started <= 0 ||
+    typeof completed !== 'number' ||
+    !Number.isFinite(completed) ||
+    completed < started ||
+    completed > now
+  ) {
+    return 'Backup successful sync timestamps are invalid or in the future';
+  }
+  if (now - started > maxAgeHours * 60 * 60_000) {
+    return `Last successful sync started more than ${maxAgeHours} hours ago; backup is stale`;
+  }
+  return null;
+}
 
 /**
  * Pure verdict over already-counted tables — the single place the pass/fail
@@ -52,10 +82,17 @@ export function evaluateFreshness(
   const missing = perTable.filter(r => r.backup === null).map(r => r.table);
   const primaryTotal = perTable.reduce((sum, r) => sum + r.primary, 0);
   const backupTotal = perTable.reduce((sum, r) => sum + (r.backup ?? 0), 0);
-  const deficit = primaryTotal - backupTotal;
+  const deficit = perTable.reduce((sum, r) => sum + Math.max(0, r.primary - (r.backup ?? 0)), 0);
   const driftPct = primaryTotal === 0 ? 0 : (deficit / primaryTotal) * 100;
   const base = { perTable, missing, primaryTotal, backupTotal, deficit, driftPct, maxDriftPct };
 
+  if (!Number.isFinite(maxDriftPct) || maxDriftPct < 0) {
+    return {
+      ok: false,
+      reason: 'BACKUP_MAX_DRIFT_PCT must be a finite non-negative number',
+      ...base,
+    };
+  }
   if (missing.length > 0) {
     return {
       ok: false,
@@ -66,7 +103,7 @@ export function evaluateFreshness(
   if (driftPct > maxDriftPct) {
     return {
       ok: false,
-      reason: `Backup is ${driftPct.toFixed(1)}% behind the primary (${deficit} rows), past the ${maxDriftPct}% budget — the sync has likely stopped or is erroring mid-run`,
+      reason: `Backup row counts are ${driftPct.toFixed(1)}% behind the primary (${deficit} rows across deficient tables), past the ${maxDriftPct}% budget`,
       ...base,
     };
   }
@@ -74,8 +111,8 @@ export function evaluateFreshness(
     ok: true,
     reason:
       deficit > 0
-        ? `Backup current within budget — trails by ${deficit} row(s) (${driftPct.toFixed(2)}%), expected between 6-hourly syncs`
-        : 'Backup byte-for-byte current with the primary — 0 row drift',
+        ? `Backup row counts within budget — ${deficit} row(s) missing across deficient tables (${driftPct.toFixed(2)}%); this does not prove content equality or freshness`
+        : 'Backup row counts within budget — no per-table row deficit; this does not prove content equality or freshness',
     ...base,
   };
 }
@@ -103,6 +140,8 @@ export async function checkBackupFreshness(
   opts: { maxDriftPct?: number } = {}
 ): Promise<BackupFreshnessResult> {
   const maxDriftPct = opts.maxDriftPct ?? DEFAULT_MAX_DRIFT_PCT;
+  // Two six-hour cycles; measured from copy start, not a potentially much later completion.
+  const maxSuccessAgeHours = Number(process.env.BACKUP_MAX_SUCCESS_AGE_HOURS ?? '12');
   const primaryUrl = process.env.DATABASE_URL;
   const backupUrl = process.env.DATABASE_BACKUP_URL;
 
@@ -114,6 +153,9 @@ export async function checkBackupFreshness(
     deficit: 0,
     driftPct: 0,
     maxDriftPct,
+    maxSuccessAgeHours,
+    lastSuccessfulSyncAt: null,
+    lastSuccessfulSyncStartedAt: null,
   };
 
   if (!primaryUrl) {
@@ -126,12 +168,43 @@ export async function checkBackupFreshness(
   }
   if (primaryUrl === backupUrl) {
     return {
-      configured: false,
-      ok: true,
+      configured: true,
+      ok: false,
       reason: 'DATABASE_BACKUP_URL equals DATABASE_URL (no separate backup)',
       ...empty,
     };
   }
+
+  if (!Number.isFinite(maxDriftPct) || maxDriftPct < 0) {
+    return { configured: true, ...evaluateFreshness([], maxDriftPct) };
+  }
+
+  if (!Number.isFinite(maxSuccessAgeHours) || maxSuccessAgeHours <= 0) {
+    return {
+      configured: true,
+      ...empty,
+      ok: false,
+      reason: 'BACKUP_MAX_SUCCESS_AGE_HOURS must be a finite positive number',
+    };
+  }
+  let evidence: BackupSyncEvidence;
+  try {
+    evidence = await readBackupSyncEvidence(primaryUrl, backupUrl);
+  } catch {
+    return {
+      configured: true,
+      ...empty,
+      ok: false,
+      reason: 'Backup sync evidence store is unavailable or invalid',
+    };
+  }
+  const successDetails = {
+    lastSuccessfulSyncAt: evidence.lastSuccessfulSyncAt,
+    lastSuccessfulSyncStartedAt: evidence.lastSuccessfulSyncStartedAt,
+    maxSuccessAgeHours,
+  };
+  const failure = evidenceFailure(evidence, maxSuccessAgeHours);
+  if (failure) return { configured: true, ...empty, ...successDetails, ok: false, reason: failure };
 
   const primary = makeClient(primaryUrl);
   const backup = makeClient(backupUrl);
@@ -169,7 +242,43 @@ export async function checkBackupFreshness(
       perTable.push({ table, primary: p, backup: b });
     }
 
-    return { configured: true, ...evaluateFreshness(perTable, maxDriftPct) };
+    const counts = evaluateFreshness(perTable, maxDriftPct);
+    let after: BackupSyncEvidence;
+    try {
+      after = await readBackupSyncEvidence(primaryUrl, backupUrl);
+    } catch {
+      return {
+        configured: true,
+        ...counts,
+        ...successDetails,
+        ok: false,
+        reason: 'Backup sync evidence store is unavailable or invalid',
+      };
+    }
+    const afterFailure = evidenceFailure(after, maxSuccessAgeHours);
+    if (
+      afterFailure ||
+      after.successfulRunId !== evidence.successfulRunId ||
+      after.lastSuccessfulSyncAt !== evidence.lastSuccessfulSyncAt ||
+      after.lastSuccessfulSyncStartedAt !== evidence.lastSuccessfulSyncStartedAt
+    ) {
+      return {
+        configured: true,
+        ...counts,
+        ...successDetails,
+        ok: false,
+        reason:
+          afterFailure || 'Backup sync evidence changed during the count check; retry the check',
+      };
+    }
+    return {
+      configured: true,
+      ...counts,
+      ...successDetails,
+      reason: counts.ok
+        ? `Recent helper-reported successful sync and row counts within budget; this does not prove content equality or a successful restore`
+        : counts.reason,
+    };
   } finally {
     await primary.$disconnect().catch(() => {});
     await backup.$disconnect().catch(() => {});

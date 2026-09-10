@@ -38,5 +38,6 @@ export function buildEventDetailRoute(
 }
 
 export function buildEventDetailHref(eventId: string | number): string {
-  return `${EVENT_DETAIL_PATHNAME}?id=${encodeURIComponent(normalizeEventId(eventId))}`;
+  const id = encodeURIComponent(normalizeEventId(eventId));
+  return `/game/${id}?eventId=${id}`;
 }

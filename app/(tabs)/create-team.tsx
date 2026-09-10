@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import CoachAccessRedirecting from '@/components/CoachAccessRedirecting';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthProvider';
@@ -495,7 +496,7 @@ function CreateTeamScreen() {
         const message =
           status === 401
             ? 'Sign in with a coach account to view your plan limits.'
-            : err?.message || 'Unable to load plan limits.';
+            : toUserMessage(err, 'Unable to load plan limits.');
         setLimitsError(message);
       } finally {
         if (mounted) setLimitsLoading(false);
@@ -639,8 +640,10 @@ function CreateTeamScreen() {
                     if (__DEV__) console.error('Failed to update subscription:', err);
                     Alert.alert(
                       'Error',
-                      err?.message ||
+                      toUserMessage(
+                        err,
                         'Failed to update subscription. Please try again or contact support.'
+                      )
                     );
                     setSubmitting(false);
                   }
@@ -668,10 +671,7 @@ function CreateTeamScreen() {
           'Could not create your organization. Please try again or select an existing organization.'
         );
       } else {
-        Alert.alert(
-          'Error',
-          e?.data?.error || e?.message || 'Failed to create team. Please try again.'
-        );
+        Alert.alert('Error', toUserMessage(e, 'Failed to create team. Please try again.'));
       }
       setSubmitting(false);
     }
@@ -833,7 +833,7 @@ function CreateTeamScreen() {
           'Error',
           rollbackFailed
             ? 'Failed to create team, and billing could not be restored automatically. Please check your subscription settings.'
-            : e?.data?.error || e?.message || 'Failed to create team. Please try again.'
+            : toUserMessage(e, 'Failed to create team. Please try again.')
         );
       }
     } finally {

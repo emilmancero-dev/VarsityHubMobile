@@ -190,13 +190,17 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
           console.log(
             `[Scheduler] DB backup sync: ${result.tablesSync} tables, ${result.totalRows} rows`
           );
-        } else if (result.error?.includes('not configured')) {
+        } else if (
+          !process.env.DATABASE_BACKUP_URL &&
+          result.error === 'DATABASE_BACKUP_URL not configured'
+        ) {
           // Silent skip — no backup URL set
         } else {
-          console.error('[Scheduler] DB backup sync failed:', result.error);
+          throw new Error(result.error || 'DB backup sync failed');
         }
       } catch (error) {
         console.error('[Scheduler] DB backup sync error:', error);
+        throw error;
       }
     },
   },
