@@ -51,12 +51,26 @@ describe('prepareVideoForUpload', () => {
     expect(compressMock).not.toHaveBeenCalled();
   });
 
-  it('compresses larger clips once at the upload boundary', async () => {
+  it('skips a mid-size clip that already fits the upload cap (no wasteful re-encode)', async () => {
+    // Owner decision 2026-09-09: a 24MB clip is well under the 150MB cap, so it
+    // uploads as-is at capture quality instead of paying for a full 1080p
+    // transcode. This is the fix for slow uploads — the on-device re-encode was
+    // the slowest step and it was running on clips that never needed shrinking.
+    getInfoAsyncMock.mockResolvedValue({ exists: true, size: 24 * 1024 * 1024 } as any);
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(result.wasCompressed).toBe(false);
+    expect(result.uri).toBe('file:///clip.mp4');
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
+  it('compresses only when the clip exceeds the upload cap', async () => {
     getInfoAsyncMock.mockImplementation(async (uri: string) => {
       if (uri === 'file:///compressed.mp4') {
-        return { exists: true, size: 5 * 1024 * 1024 } as any;
+        return { exists: true, size: 50 * 1024 * 1024 } as any;
       }
-      return { exists: true, size: 24 * 1024 * 1024 } as any;
+      return { exists: true, size: 170 * 1024 * 1024 } as any; // over the 150MB cap
     });
     compressMock.mockResolvedValue('file:///compressed.mp4' as any);
 
@@ -81,8 +95,8 @@ describe('prepareVideoForUpload', () => {
     expect(result).toMatchObject({
       uri: 'file:///compressed.mp4',
       wasCompressed: true,
-      originalSizeBytes: 24 * 1024 * 1024,
-      finalSizeBytes: 5 * 1024 * 1024,
+      originalSizeBytes: 170 * 1024 * 1024,
+      finalSizeBytes: 50 * 1024 * 1024,
     });
   });
 
@@ -101,7 +115,7 @@ describe('compression progress', () => {
     getInfoAsyncMock.mockImplementation(async (uri: string) =>
       uri === 'file:///compressed.mp4'
         ? ({ exists: true, size: 5 * 1024 * 1024 } as any)
-        : ({ exists: true, size: 24 * 1024 * 1024 } as any)
+        : ({ exists: true, size: 170 * 1024 * 1024 } as any)
     );
     compressMock.mockImplementation(async (_uri: any, _opts: any, onProgress: any) => {
       onProgress?.(0.25);
@@ -122,7 +136,7 @@ describe('compression progress', () => {
     getInfoAsyncMock.mockImplementation(async (uri: string) =>
       uri === 'file:///compressed.mp4'
         ? ({ exists: true, size: 5 * 1024 * 1024 } as any)
-        : ({ exists: true, size: 24 * 1024 * 1024 } as any)
+        : ({ exists: true, size: 170 * 1024 * 1024 } as any)
     );
     compressMock.mockImplementation(async (_uri: any, _opts: any, onProgress: any) => {
       // Four readings that all round to 30%, then a real move to 31%.

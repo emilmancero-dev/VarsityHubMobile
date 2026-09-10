@@ -3,7 +3,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import {
   MAX_VIDEO_SIZE_BYTES,
   MAX_VIDEO_SIZE_MB,
-  VIDEO_COMPRESSION_THRESHOLD_BYTES,
   VIDEO_COMPRESSION_THRESHOLD_MB,
   VIDEO_TARGET_BITRATE_BPS,
 } from '@/constants/video';
@@ -148,6 +147,15 @@ type PrepareVideoForUploadOptions = {
  * - trims should operate on the currently selected asset without extra passes
  * - stories/posts should compress once, not multiple times across screens
  * - small clips skip unnecessary CPU work and battery drain
+ *
+ * Compression policy (owner decision 2026-09-09 — speed over marginal size):
+ * the on-device 1080p re-encode is the SLOWEST part of an upload, so we only
+ * pay for it when the clip would otherwise blow the upload cap. A clip that
+ * already fits (<= MAX_VIDEO_SIZE_BYTES) uploads AS-IS at capture quality — no
+ * transcode, no wait. Only over-cap clips (e.g. a ~90s 1080p export at ~170MB)
+ * are re-encoded, and only to bring them under the cap. Callers that want
+ * aggressive compression can still force a lower bound via
+ * `compressionThresholdBytes`.
  */
 export async function prepareVideoForUpload(
   uri: string,
@@ -158,9 +166,11 @@ export async function prepareVideoForUpload(
   finalSizeBytes: number;
   wasCompressed: boolean;
 }> {
-  const thresholdBytes = options.compressionThresholdBytes ?? VIDEO_COMPRESSION_THRESHOLD_BYTES;
+  const thresholdBytes = options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES;
   const originalSizeBytes = await getVideoFileSize(uri);
 
+  // Known size under the threshold → skip the re-encode entirely. Unknown size
+  // (0, lookup failed) falls through to compress so the cap is still enforced.
   if (originalSizeBytes > 0 && originalSizeBytes < thresholdBytes) {
     return {
       uri,

@@ -139,6 +139,9 @@ const GameDetailsScreen = () => {
     kind: 'photo' | 'video';
   } | null>(null);
   const [storyBusy, setStoryBusy] = useState(false);
+  // Human-readable phase during a story upload ("Processing video… 42%",
+  // "Uploading…") so a video story's on-device transcode doesn't read as a hang.
+  const [storyStatus, setStoryStatus] = useState<string | null>(null);
   const [storyPreview, setStoryPreview] = useState<{
     uri: string;
     mimeType: string;
@@ -1360,17 +1363,28 @@ const GameDetailsScreen = () => {
       // This callback only handles videos (images upload inline in the picker
       // handler). Prepare the final asset once, right before upload.
       const rawUri = storyTrimmedUri || storyPreview.uri;
-      const prepared = await prepareVideoForUpload(rawUri);
+      // Only over-cap clips re-encode now (see prepareVideoForUpload); when it
+      // does run, surface the transcode as its own phase so it doesn't look
+      // frozen. Under-cap clips skip straight to uploading.
+      setStoryStatus('Processing video…');
+      const prepared = await prepareVideoForUpload(rawUri, {
+        onCompressProgress: fraction =>
+          setStoryStatus(`Processing video… ${Math.round(fraction * 100)}%`),
+      });
       const uploadUri = prepared.uri;
       const ensured = await (
         await import('../../utils/ensureUploadableUri')
       ).ensureUploadableUri(uploadUri, storyPreview.mimeType);
+      setStoryStatus('Uploading…');
       const uploaded = await uploadFile(
         base,
         ensured.uri,
         storyPreview.fileName,
         ensured.mimeType || storyPreview.mimeType,
-        { timeoutMs: uploadTimeoutMsForSize(prepared.finalSizeBytes) }
+        {
+          timeoutMs: uploadTimeoutMsForSize(prepared.finalSizeBytes),
+          onProgress: pct => setStoryStatus(pct >= 100 ? 'Finishing up…' : `Uploading… ${pct}%`),
+        }
       );
       const mediaUrl = uploaded?.path || uploaded?.url;
       if (!mediaUrl) throw new Error('Upload failed');
@@ -1480,6 +1494,7 @@ const GameDetailsScreen = () => {
       }
     } finally {
       setStoryBusy(false);
+      setStoryStatus(null);
       setStoryPreview(null);
       setStoryTrimmedUri(null);
     }
@@ -2984,14 +2999,28 @@ const GameDetailsScreen = () => {
                   app.
                 </Text>
               )}
+              {storyBusy && storyStatus ? (
+                <Text
+                  style={{
+                    color: '#E5E7EB',
+                    textAlign: 'center',
+                    marginTop: 12,
+                    fontWeight: '600',
+                  }}
+                >
+                  {storyStatus}
+                </Text>
+              ) : null}
               <View
                 style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 12 }}
               >
                 <Pressable
+                  disabled={storyBusy}
                   onPress={() => {
                     setStoryPreview(null);
                     setStoryTrimmedUri(null);
                     setStoryBusy(false);
+                    setStoryStatus(null);
                   }}
                   style={{
                     backgroundColor: '#333',
