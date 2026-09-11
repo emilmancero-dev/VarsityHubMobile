@@ -28,7 +28,9 @@ describe('game map create-post contract', () => {
     expect(gameMapSource).toContain('start.setHours(0, 0, 0, 0)');
     expect(gameMapSource).toContain('end.setHours(23, 59, 59, 999)');
     expect(gameMapSource).toContain('setSelectedDate(toLocalDateKey(start))');
-    expect(gameMapSource).toContain('toMapEvents(items, new Date(), { includePast: true })');
+    expect(gameMapSource).toContain(
+      'toMapEvents(discovery.data ?? [], new Date(), { includePast: Boolean(selectedDate) })'
+    );
     expect(gameMapSource).toContain('maximumDate={new Date()}');
     expect(gameMapSource).not.toContain('Date.UTC(picked.getFullYear()');
   });
