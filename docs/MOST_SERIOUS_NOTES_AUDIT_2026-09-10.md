@@ -62,3 +62,7 @@ The subsequent map fix sends the selected league and local-day range to discover
 This follow-up is a GitHub change, not evidence of another OTA or Railway deployment. The production groups linked above describe the earlier release only. Both runtime 1.0.5 and 1.0.6 need compatible OTA publication after this client follow-up, and the server needs this query change deployed first.
 
 Still unresolved: founder-only exception policy (existing review/support admin exceptions remain); interpretation of “combat p”; verified minor-league fixture coverage; destructive empty-event retention/deletion policy; and physical-device confirmation of navigation/video/live venue behavior. Live pinning currently consumes last-known location, so its existing pure tests do not establish fresh-GPS behavior at app open. These are not marked fixed. No production records were deleted or invented.
+
+## Map follow-up production release
+
+The user subsequently authorized OTA/API deployment of the map follow-up. It is now deployed to the production API and published for both runtime 1.0.5 and 1.0.6 on iOS and Android. Direct update-manifest requests confirm delivery selection for all four combinations. See [map production evidence](release/MAP_FILTER_PRODUCTION_2026-09-10.md). The earlier GitHub-only statement above records the previous stage; the unresolved policy, fixture-source, retention and device-review items remain open.
