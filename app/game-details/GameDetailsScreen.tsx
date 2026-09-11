@@ -105,6 +105,85 @@ const openMaps = (location: string) => {
   });
 };
 
+/**
+ * Single error mapper for the two story-upload paths (photo → handleAddStory,
+ * video → confirmStoryUpload). These two catch blocks used to be near-duplicates
+ * that had already drifted (video handled 429, photo didn't) — any code neither
+ * branch listed fell through to a bare "Unable to add story / Please try again",
+ * which is actively wrong advice for a rate limit, a network drop, or a venue
+ * geofence rejection (retrying does nothing).
+ *
+ * Story-permission codes (verifyStoryPostingPermission in server geofencing.ts)
+ * get a specific, actionable message here; everything else (auth, 429, network,
+ * timeout, 5xx, upstream, size) is delegated to showUploadErrorAlert, which
+ * already classifies each with its own accurate message and a safe fallback.
+ */
+const showStoryUploadError = (err: any, logTag: 'story.upload.photo' | 'story.upload.video') => {
+  const code = String(err?.data?.error || '');
+  const serverMsg = String(err?.data?.message || '');
+  const openSettingsButtons = [
+    { text: 'Cancel', style: 'cancel' as const },
+    { text: 'Open Settings', onPress: () => Linking.openSettings() },
+  ];
+
+  switch (code) {
+    case 'POSTING_WINDOW_CLOSED':
+      Alert.alert(
+        'Story Posting Closed',
+        serverMsg || 'The story posting window is not open for this event.'
+      );
+      return;
+    case 'TOO_FAR_FROM_VENUE': {
+      const dist = err?.data?.distance;
+      Alert.alert(
+        'Too Far',
+        serverMsg ||
+          `You need to be within 3 km of the venue.${
+            typeof dist === 'number' ? ` You're ${dist.toFixed(1)} km away.` : ''
+          }`
+      );
+      return;
+    }
+    case 'LOCATION_REQUIRED':
+      Alert.alert(
+        'Location Required',
+        serverMsg || 'Enable location access to post stories at this event.',
+        openSettingsButtons
+      );
+      return;
+    case 'LOCATION_SPOOF_SUSPECTED':
+      Alert.alert(
+        "Couldn't Confirm You're at the Venue",
+        serverMsg ||
+          "We couldn't match your location to the venue. Turn on precise location, make sure you're at the event, then try again.",
+        openSettingsButtons
+      );
+      return;
+    case 'NO_EVENT_LOCATION':
+      Alert.alert(
+        'Cannot Verify Location',
+        serverMsg ||
+          'This game has no event location set yet, so story uploads are disabled until the venue is configured.'
+      );
+      return;
+    case 'EVENT_NOT_FOUND':
+      Alert.alert(
+        'Event Unavailable',
+        serverMsg || 'This event is no longer available, so stories can’t be added.'
+      );
+      return;
+    default:
+      // Auth / rate limit / network / timeout / 5xx / upstream / size — each
+      // gets an accurate, actionable message from showUploadErrorAlert, whose
+      // own fallback covers anything unclassified.
+      showUploadErrorAlert(err, {
+        fallbackTitle: 'Unable to add story',
+        fallbackMessage: 'Please try again.',
+        logTag,
+      });
+  }
+};
+
 const GameDetailsScreen = () => {
   // Define isTestEnv at the top so all hooks can use it
   const isTestEnv =
@@ -1232,42 +1311,8 @@ const GameDetailsScreen = () => {
         }
       }
     } catch (err: any) {
-      const status = err?.status;
-      const code = err?.data?.error || '';
-      const serverMsg = err?.data?.message || '';
-      const message = String(err?.message || code || '');
-      if (status === 401 || /unauthorized/i.test(message)) {
-        showUploadErrorAlert(err, {
-          fallbackTitle: 'Unable to add story',
-          fallbackMessage: 'Please sign in again to upload stories.',
-          logTag: 'story.upload.photo',
-        });
-      } else if (code === 'POSTING_WINDOW_CLOSED') {
-        Alert.alert(
-          'Story Posting Closed',
-          serverMsg || 'The story posting window is not open for this event.'
-        );
-      } else if (code === 'TOO_FAR_FROM_VENUE') {
-        const dist = err?.data?.distance;
-        Alert.alert(
-          'Too Far',
-          serverMsg ||
-            `You need to be within 3 km of the venue.${dist ? ` You're ${dist.toFixed(1)} km away.` : ''}`
-        );
-      } else if (code === 'LOCATION_REQUIRED') {
-        Alert.alert('Location Required', 'Enable location access to post stories at this event.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]);
-      } else if (code === 'NO_EVENT_LOCATION') {
-        Alert.alert(
-          'Cannot Verify Location',
-          'This game has no event location set yet, so story uploads are disabled until the venue is configured.'
-        );
-      } else {
-        if (__DEV__) console.error('Story upload error:', err);
-        Alert.alert('Unable to add story', toUserMessage(err, 'Please try again.'));
-      }
+      if (__DEV__) console.error('Story upload error:', err);
+      showStoryUploadError(err, 'story.upload.photo');
     } finally {
       setStoryBusy(false);
     }
@@ -1383,46 +1428,8 @@ const GameDetailsScreen = () => {
         }
       }
     } catch (err: any) {
-      const status = err?.status;
-      const code = err?.data?.error || '';
-      const serverMsg = err?.data?.message || '';
-      const message = String(err?.message || code || '');
-      if (status === 401 || /unauthorized/i.test(message)) {
-        showUploadErrorAlert(err, {
-          fallbackTitle: 'Unable to add story',
-          fallbackMessage: 'Please sign in again to upload stories.',
-          logTag: 'story.upload.video',
-        });
-      } else if (code === 'POSTING_WINDOW_CLOSED') {
-        Alert.alert(
-          'Story Posting Closed',
-          serverMsg || 'The story posting window is not open for this event.'
-        );
-      } else if (code === 'TOO_FAR_FROM_VENUE') {
-        const dist = err?.data?.distance;
-        Alert.alert(
-          'Too Far',
-          serverMsg ||
-            `You need to be within 3 km of the venue.${dist ? ` You're ${dist.toFixed(1)} km away.` : ''}`
-        );
-      } else if (code === 'LOCATION_REQUIRED') {
-        Alert.alert('Location Required', 'Enable location access to post stories at this event.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]);
-      } else if (code === 'NO_EVENT_LOCATION') {
-        Alert.alert(
-          'Cannot Verify Location',
-          'This game has no event location set yet, so story uploads are disabled until the venue is configured.'
-        );
-      } else if (status === 429) {
-        Alert.alert(
-          'Too Many Uploads',
-          'You have hit the hourly upload limit. Wait a few minutes and try again.'
-        );
-      } else {
-        Alert.alert('Unable to add story', toUserMessage(err, 'Please try again.'));
-      }
+      if (__DEV__) console.error('Story upload error:', err);
+      showStoryUploadError(err, 'story.upload.video');
     } finally {
       setStoryBusy(false);
       setStoryPreview(null);
