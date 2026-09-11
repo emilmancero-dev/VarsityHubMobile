@@ -1,0 +1,26 @@
+{
+  "client": [
+    "app/__tests__/route-integrity.test.ts",
+    "app/__tests__/navigation-guards.test.ts",
+    "app/__tests__/feed.smoke.test.tsx",
+    "app/__tests__/highlights.smoke.test.tsx",
+    "app/__tests__/profile.smoke.test.tsx",
+    "app/__tests__/manage-teams.smoke.test.tsx",
+    "app/__tests__/team-admin.smoke.test.tsx",
+    "app/__tests__/organization.smoke.test.tsx",
+    "app/__tests__/messages.smoke.test.tsx",
+    "app/__tests__/message-thread.smoke.test.tsx",
+    "app/__tests__/program-page.smoke.test.tsx"
+  ],
+  "server": [
+    "src/__tests__/access-matrix.test.ts",
+    "src/__tests__/role-barrier-authorization.test.ts",
+    "src/__tests__/role-tier-enforcement.test.ts",
+    "src/__tests__/plan-limits-matrix.test.ts",
+    "src/__tests__/privacy-surfaces.test.ts",
+    "src/__tests__/minors-foundation.test.ts",
+    "src/__tests__/approval-self-action-guard.test.ts",
+    "src/__tests__/game-write-approval-parity.test.ts",
+    "src/__tests__/stripe-webhook-signature.test.ts"
+  ]
+}
