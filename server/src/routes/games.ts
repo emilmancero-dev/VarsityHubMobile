@@ -1827,7 +1827,17 @@ gamesRouter.post(
           longitude: eventLng,
           game_id: game.id,
           team_id: associatedTeamId,
-          status: gameData.approval_status || 'pending',
+          // EventStatus enum is draft|approved|rejected|cancelled — it has NO
+          // `pending` member. approval_status ('pending') must map to `draft`,
+          // in parity with POST /events (status: approved|draft). Passing
+          // 'pending' here threw an invalid-enum error that was swallowed into a
+          // generic 500 for every not-yet-approved game create.
+          status:
+            gameData.approval_status === 'approved'
+              ? 'approved'
+              : gameData.approval_status === 'rejected'
+                ? 'rejected'
+                : 'draft',
           approval_status: gameData.approval_status || 'pending',
           creator_id: req.user!.id,
           creator_role: isCoach ? 'coach' : 'fan',
