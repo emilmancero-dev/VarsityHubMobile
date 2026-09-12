@@ -360,7 +360,7 @@ describe('espnAdapter tennis parser', () => {
     ],
   };
 
-  it('collapses ATP tournament matches into a venue-local 12-hour window', () => {
+  it('collapses ATP tournament matches into ONE day event anchored to the earliest match, no time in the title', () => {
     const parsed = adapter.__parseScoreboard!(
       'atp',
       tennisSample,
@@ -369,9 +369,10 @@ describe('espnAdapter tennis parser', () => {
     );
     expect(parsed).toHaveLength(1);
     expect(parsed[0]).toMatchObject({
-      external_ref: 'atp:189-2026:2026-09-02:h12',
+      external_ref: 'atp:189-2026:2026-09-02',
       league: 'atp',
-      title: 'US Open ATP 2026-09-02 12 PM-12 AM',
+      title: 'US Open ATP',
+      // earliest of the day's ATP matches (16:00Z vs 18:00Z)
       starts_at: new Date('2026-09-02T16:00:00.000Z'),
       venue_name: 'USTA Billie Jean King National Tennis Center',
       venue_address: 'Flushing Meadows Corona Park, Queens, NY 11368',
@@ -381,7 +382,7 @@ describe('espnAdapter tennis parser', () => {
     });
   });
 
-  it('collapses WTA tournament matches without duplicating ATP draws', () => {
+  it('collapses WTA tournament matches without duplicating ATP draws, no time in the title', () => {
     const parsed = adapter.__parseScoreboard!(
       'wta',
       tennisSample,
@@ -389,8 +390,9 @@ describe('espnAdapter tennis parser', () => {
       new Date('2026-09-03T00:00:00.000Z')
     );
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].external_ref).toBe('wta:189-2026:2026-09-02:h12');
-    expect(parsed[0].title).toBe('US Open WTA 2026-09-02 12 PM-12 AM');
+    expect(parsed[0].external_ref).toBe('wta:189-2026:2026-09-02');
+    expect(parsed[0].title).toBe('US Open WTA');
+    expect(parsed[0].starts_at).toEqual(new Date('2026-09-02T17:00:00.000Z'));
   });
 
   it('does not create generic round events when ESPN omits tennis competitors', () => {
