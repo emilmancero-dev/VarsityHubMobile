@@ -58,45 +58,47 @@ export function useDeviceLocation(): UseDeviceLocationResult {
     []
   );
 
-  const fetchLocation = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Check cache first
-      const now = Date.now();
-      if (locationRef.current && now - lastFetchTimeRef.current < CACHE_DURATION_MS) {
-        setLoading(false);
-        return;
-      }
-
-      // Try last known position first (faster, may be stale)
-      const lastKnown = await Location.getLastKnownPositionAsync();
-      if (lastKnown?.coords && now - (lastKnown.timestamp || 0) < 30 * 60 * 1000) {
-        assignLocation(lastKnown.coords, lastKnown.timestamp);
-        setLastFetchTime(now);
-        setLoading(false);
-        return;
-      }
-
-      // Get fresh position with balanced accuracy
-      const fresh = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      if (fresh?.coords) {
-        assignLocation(fresh.coords, fresh.timestamp);
-        setLastFetchTime(now);
+  const fetchLocation = useCallback(
+    async (force = false) => {
+      try {
+        setLoading(true);
         setError(null);
+
+        const now = Date.now();
+        if (!force && locationRef.current && now - lastFetchTimeRef.current < CACHE_DURATION_MS) {
+          setLoading(false);
+          return;
+        }
+
+        // Last-known coordinates are fine for passive UI, but geofenced uploads
+        // must be able to request a fresh sample after the user reaches a venue.
+        const lastKnown = await Location.getLastKnownPositionAsync();
+        if (!force && lastKnown?.coords && now - (lastKnown.timestamp || 0) < 5 * 60 * 1000) {
+          assignLocation(lastKnown.coords, lastKnown.timestamp);
+          setLastFetchTime(now);
+          setLoading(false);
+          return;
+        }
+
+        const fresh = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        if (fresh?.coords) {
+          assignLocation(fresh.coords, fresh.timestamp);
+          setLastFetchTime(now);
+          setError(null);
+        }
+      } catch (e: any) {
+        const errMsg = e?.message || 'Failed to fetch location';
+        if (__DEV__) console.warn('[location] Fetch failed:', errMsg);
+        setError(errMsg);
+      } finally {
+        setLoading(false);
       }
-    } catch (e: any) {
-      const errMsg = e?.message || 'Failed to fetch location';
-      if (__DEV__) console.warn('[location] Fetch failed:', errMsg);
-      setError(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  }, [assignLocation, CACHE_DURATION_MS]);
+    },
+    [assignLocation, CACHE_DURATION_MS]
+  );
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
     try {
@@ -172,9 +174,9 @@ export function useDeviceLocation(): UseDeviceLocationResult {
   };
 
   const refresh = useCallback(async () => {
-    setLastFetchTime(0); // Clear cache
+    setLastFetchTime(0); // Clear cache and force a fresh GPS read.
     lastFetchTimeRef.current = 0;
-    await fetchLocation();
+    await fetchLocation(true);
   }, [fetchLocation]);
 
   const isPrecise = accuracyMeters == null ? true : accuracyMeters <= PRECISION_THRESHOLD;

@@ -113,6 +113,7 @@ function CreatePostScreen() {
     requestPermission,
     needsPreciseAccuracy,
     openSettings,
+    refresh,
   } = useDeviceLocation();
 
   const [content, setContent] = useState('');
@@ -728,6 +729,10 @@ function CreatePostScreen() {
         '| suggestedGame:',
         suggestedGame?.id
       );
+
+    if (permissionGranted) {
+      await refresh();
+    }
 
     // Proactive geofence check: if posting to a real event and location is not available, prompt first.
     // Seeded demo matchups bypass the location gate — server carve-out accepts uploads without coords.

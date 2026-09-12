@@ -239,6 +239,7 @@ const GameDetailsScreen = () => {
     requestPermission,
     needsPreciseAccuracy,
     openSettings,
+    refresh,
   } = useDeviceLocation();
   const scrollRef = useRef<any>(null);
   const sectionOffsets = useRef<{ media: number; posts: number }>({ media: 0, posts: 0 });
@@ -1136,6 +1137,10 @@ const GameDetailsScreen = () => {
         message: 'Sign in to post a story to this event.',
       });
       return;
+    }
+
+    if (permissionGranted) {
+      await refresh();
     }
 
     // Proactive distance check — warn user before they capture media.
