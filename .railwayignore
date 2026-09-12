@@ -39,8 +39,8 @@
 /.xcode
 *.tsx
 *.expo
-node_modules
-/server/node_modules
+/node_modules/
+/server/node_modules/
 .expo
 package.json
 package-lock.json
