@@ -17,7 +17,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // @ts-ignore legacy export shape
-import { Event } from '@/api/entities';
+import { Event } from '../../api/entities';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 
 export default function EventDetailScreen() {

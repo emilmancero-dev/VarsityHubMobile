@@ -1,3 +1,5 @@
+const path = require('path');
+
 module.exports = function (api) {
   api.cache(true);
 
@@ -16,7 +18,7 @@ module.exports = function (api) {
             '@/constants': './constants',
             '@/hooks': './hooks',
             '@/context': './context',
-            '@/api': './apiclient',
+            '@/api': path.resolve(__dirname, 'api'),
             '@/utils': './utils',
             '@/config': './config',
             '@/lib': './lib',

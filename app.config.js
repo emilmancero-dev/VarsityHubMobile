@@ -40,10 +40,8 @@ module.exports = ({ config }) => {
     '/posts',
     '/games',
     '/teams',
-    '/programs',
     '/users',
     '/events',
-    '/organizations',
     '/join',
     '/share',
     '/verify',
@@ -91,7 +89,7 @@ module.exports = ({ config }) => {
       },
     },
     ios: {
-      buildNumber: '59',
+      buildNumber: '57',
       supportsTablet: true,
       appleTeamId: 'B5H8F69RW5',
       bundleIdentifier: 'com.varsithub.varsityhub-ios',
@@ -132,7 +130,7 @@ module.exports = ({ config }) => {
       },
       softwareKeyboardLayoutMode: 'pan',
       edgeToEdgeEnabled: true,
-      versionCode: 59,
+      versionCode: 58,
       package: 'com.varsityhub.varsityhub',
       intentFilters: [
         {
@@ -171,7 +169,7 @@ module.exports = ({ config }) => {
     web: {
       bundler: 'metro',
       output: 'static',
-      favicon: './assets/images/favicon.png',
+      favicon: './assets/images/icon.png',
     },
     plugins: [
       'expo-router',
