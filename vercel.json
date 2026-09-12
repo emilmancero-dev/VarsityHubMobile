@@ -6,7 +6,7 @@
   "framework": null,
   "cleanUrls": true,
   "trailingSlash": false,
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ':!server/' ':!.github/' ':!ios/' ':!android/'",
+  "ignoreCommand": "if [ -d .git ]; then git diff --quiet HEAD^ HEAD -- ':!server/' ':!.github/' ':!ios/' ':!android/'; else exit 1; fi",
   "redirects": [
     {
       "source": "/((?!\\.well-known/).*)",
