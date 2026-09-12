@@ -1,5 +1,5 @@
 /**
- * verifyEventPostingPermission — exclusive-poster lock (owner one-off feature,
+ * Event posting permissions — exclusive-poster lock (owner one-off feature,
  * 2026-07-14): when an event designates a single poster via exclusive_poster_id,
  * ONLY that user may post; everyone else is blocked outright, and the
  * designated poster bypasses the window/geofence.
@@ -19,7 +19,8 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
   },
 }));
 
-const { verifyEventPostingPermission } = await import('../lib/geofencing.js');
+const { verifyEventPostingPermission, verifyStoryPostingPermission } =
+  await import('../lib/geofencing.js');
 
 const baseEvent = (over: Record<string, unknown>) => ({
   id: 'ev1',
@@ -70,5 +71,39 @@ describe('verifyEventPostingPermission — exclusive poster lock', () => {
     const res = await verifyEventPostingPermission('ev1', 'anyone', 40, -74);
     expect(res.allowed).toBe(false);
     expect(res.code).not.toBe('EXCLUSIVE_POSTER_ONLY');
+  });
+});
+
+describe('verifyStoryPostingPermission — exclusive poster lock', () => {
+  beforeEach(() => {
+    mockEventFindUnique.mockReset();
+    mockGameFindUnique.mockReset();
+    mockDesignatedFindUnique.mockReset();
+    mockDesignatedFindUnique.mockResolvedValue(null);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('allows the designated exclusive poster to add a story outside the live window', async () => {
+    mockEventFindUnique.mockResolvedValue(
+      baseEvent({
+        exclusive_poster_id: 'nico',
+        date: new Date('2020-01-01'),
+        latitude: null,
+        longitude: null,
+      })
+    );
+
+    const res = await verifyStoryPostingPermission('ev1', 'nico', null, null);
+
+    expect(res.allowed).toBe(true);
+  });
+
+  it('blocks non-designated users from adding stories to an exclusive event', async () => {
+    mockEventFindUnique.mockResolvedValue(baseEvent({ exclusive_poster_id: 'nico' }));
+
+    const res = await verifyStoryPostingPermission('ev1', 'someone-else', 40, -74);
+
+    expect(res.allowed).toBe(false);
+    expect(res.code).toBe('EXCLUSIVE_POSTER_ONLY');
   });
 });

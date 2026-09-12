@@ -521,6 +521,21 @@ export async function verifyStoryPostingPermission(
     return { allowed: true };
   }
 
+  // Exclusive poster access applies to stories as well as regular posts.
+  // Keep the same fail-closed lock used by verifyEventPostingPermission so
+  // the designated superfan can continue contributing after the event while
+  // other users cannot bypass the event's single-poster restriction.
+  if (event.exclusive_poster_id) {
+    if (event.exclusive_poster_id === userId) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      code: 'EXCLUSIVE_POSTER_ONLY',
+      reason: 'Only the designated poster can post to this event.',
+    };
+  }
+
   // Stories are live-only: the same window regular posts get, never the 7-day
   // grace (owner rule, 2026-07-16 — see isStoryPostingWindowOpen).
   if (!isStoryPostingWindowOpen(event.date, event.live_window_hours_after_start)) {
