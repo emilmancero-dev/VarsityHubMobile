@@ -302,8 +302,7 @@ export default function EventMap({
     }, 1100);
   };
 
-  const getMarkerColor = (event: EventMapData) =>
-    resolveMarkerColor(event, Colors[colorScheme].tint);
+  const getMarkerColor = (event: EventMapData) => resolveMarkerColor(event);
 
   const openEventFromMarker = (eventId: string, eventType?: 'game' | 'event' | 'post') => {
     const now = Date.now();
@@ -383,6 +382,10 @@ export default function EventMap({
                 key={lead.id}
                 coordinate={coordinate}
                 pinColor={getMarkerColor(lead)}
+                // Default pins carry no custom subview, so react-native-maps has
+                // nothing to re-rasterize — pin down tracksViewChanges (as the
+                // cluster pins already do) so many markers don't churn on load.
+                tracksViewChanges={false}
                 onPress={() => {
                   captureBreadcrumb('Map marker pressed', 'map.navigation', {
                     event_type: lead.type || 'unknown',
@@ -493,40 +496,31 @@ export default function EventMap({
         </View>
       )}
 
-      {/* Pin legend — explains the marker colors ("what are these dots?"). */}
+      {/* Pin legend — explains the marker colors ("what are these dots?"). Pins
+          are colored by league TIER (Major / Minor / NCAA / Other), with a gold
+          override for pages that have posts. Every swatch is resolved through the
+          SAME resolveMarkerColor used for the pins, so the key can never drift
+          from what's on the map. "Multiple" is the cluster pin (app tint). */}
       {eventsWithCoordinates.length > 0 && (
         <View style={[styles.legend, { backgroundColor: Colors[colorScheme].background }]}>
-          <View style={styles.legendRow}>
-            <View
-              style={[
-                styles.legendDot,
-                { backgroundColor: resolveMarkerColor({ type: 'game' }, Colors[colorScheme].tint) },
-              ]}
-            />
-            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
-              Other games
-            </Text>
-          </View>
-          <View style={styles.legendRow}>
-            <View
-              style={[
-                styles.legendDot,
-                {
-                  backgroundColor: resolveMarkerColor(
-                    { sport: 'football' },
-                    Colors[colorScheme].tint
-                  ),
-                },
-              ]}
-            />
-            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
-              Team/sport colors vary
-            </Text>
-          </View>
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: '#D4AF37' }]} />
-            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>Has posts</Text>
-          </View>
+          {(
+            [
+              { label: 'Major', event: { league_level: 'major' } },
+              { label: 'Minor', event: { league_level: 'minor' } },
+              { label: 'NCAA', event: { league_level: 'college' } },
+              { label: 'Other', event: { league_level: null } },
+              { label: 'Has posts', event: { has_posts: true } },
+            ] as { label: string; event: Parameters<typeof resolveMarkerColor>[0] }[]
+          ).map(row => (
+            <View key={row.label} style={styles.legendRow}>
+              <View
+                style={[styles.legendDot, { backgroundColor: resolveMarkerColor(row.event) }]}
+              />
+              <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
+                {row.label}
+              </Text>
+            </View>
+          ))}
           <View style={styles.legendRow}>
             <View style={[styles.legendDot, { backgroundColor: Colors[colorScheme].tint }]} />
             <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>

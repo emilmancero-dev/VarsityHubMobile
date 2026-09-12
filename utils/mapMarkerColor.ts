@@ -1,61 +1,43 @@
 import type { EventMapData } from '@/components/EventMap.types';
 
-const SPORT_MARKER_COLORS: Record<string, string> = {
-  football: '#2563EB',
-  basketball: '#EA580C',
-  beach_volleyball: '#0EA5E9',
-  bowling: '#7E22CE',
-  baseball: '#16A34A',
-  softball: '#84CC16',
-  soccer: '#059669',
-  ice_hockey: '#0891B2',
-  water_polo: '#2563EB',
-  skiing: '#0369A1',
-  fencing: '#475569',
-  field_hockey: '#0D9488',
-  lacrosse: '#7C3AED',
-  mma: '#B91C1C',
-  auto_racing: '#111827',
-  stunt: '#E11D48',
-  acrobatics_tumbling: '#BE123C',
-  volleyball: '#DB2777',
-  wrestling: '#B45309',
-  tennis: '#65A30D',
-  golf: '#15803D',
-  track_field: '#DC2626',
-  cross_country: '#9333EA',
-  swimming: '#0284C7',
-  cheerleading: '#E11D48',
-  dance: '#C026D3',
-  gymnastics: '#BE123C',
-  crew: '#0F766E',
-  esports: '#4F46E5',
-};
+/**
+ * Map-pin color system.
+ *
+ * ONE consistent rule: a pin's color tells you its league TIER — Major / Minor /
+ * NCAA / Other — matching the map's league-level filter chips (game-map.tsx) and
+ * the on-map legend. It no longer varies by sport/team/type (that was the
+ * inconsistent "colors vary" system owners flagged).
+ *
+ * The single override is `has_posts`: a page that already has viewer-visible
+ * posts is highlighted GOLD regardless of tier, so people can spot pages worth
+ * opening. Cluster ("Multiple — tap to choose") pins are colored separately by
+ * EventMap with the app tint, not here.
+ *
+ * Keep this in sync with the legend rows in components/EventMap.tsx and the
+ * tier classification in app/game-map.tsx (Other = level ∉ {major,minor,college}).
+ */
+export const HAS_POSTS_COLOR = '#D4AF37'; // gold — page has posts (override)
 
-function isHexColor(value?: string | null): value is string {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim());
-}
+export const LEAGUE_LEVEL_COLORS = {
+  major: '#1E3A8A', // navy — top tier
+  minor: '#3B82F6', // bright blue
+  college: '#9CA3AF', // silver — NCAA
+  other: '#16A34A', // green — local / high-school / league-less / uncatalogued
+} as const;
 
 export function resolveMarkerColor(
-  event: Pick<
-    EventMapData,
-    'has_posts' | 'marker_color' | 'pro_home_color' | 'pro_away_color' | 'sport' | 'type'
-  >,
-  fallback: string
+  event: Pick<EventMapData, 'has_posts' | 'league_level'>
 ): string {
-  if (event.has_posts === true) return '#D4AF37';
-  if (isHexColor(event.marker_color)) return event.marker_color;
-  if (isHexColor(event.pro_home_color)) return event.pro_home_color;
-  if (isHexColor(event.pro_away_color)) return event.pro_away_color;
-  if (event.sport && SPORT_MARKER_COLORS[event.sport]) return SPORT_MARKER_COLORS[event.sport];
-  switch (event.type) {
-    case 'game':
-      return '#FF6B6B';
-    case 'event':
-      return '#4ECDC4';
-    case 'post':
-      return '#95E1D3';
+  if (event.has_posts === true) return HAS_POSTS_COLOR;
+  switch (event.league_level) {
+    case 'major':
+      return LEAGUE_LEVEL_COLORS.major;
+    case 'minor':
+      return LEAGUE_LEVEL_COLORS.minor;
+    case 'college':
+      return LEAGUE_LEVEL_COLORS.college;
     default:
-      return fallback;
+      // Everything without a tiered league — the "Other" chip's set.
+      return LEAGUE_LEVEL_COLORS.other;
   }
 }

@@ -149,7 +149,7 @@ export default function EventMapWeb({ events, onEventPress, dataLoaded = true }:
         .map(event => ({
           id: String(event.id),
           title: event.title,
-          color: resolveMarkerColor(event, Colors[colorScheme].tint),
+          color: resolveMarkerColor(event),
           latitude: Number(event.latitude),
           longitude: Number(event.longitude),
           type: event.type,
