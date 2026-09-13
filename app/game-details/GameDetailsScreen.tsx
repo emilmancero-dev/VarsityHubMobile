@@ -129,7 +129,10 @@ const openMaps = (location: string) => {
  */
 const showStoryUploadError = (err: any, logTag: 'story.upload.photo' | 'story.upload.video') => {
   const code = String(err?.data?.error || '');
-  const serverMsg = String(err?.data?.message || '');
+  // Deliberately NOT surfacing err?.data?.message here — these codes are
+  // fully server-controlled and each gets a specific, reviewed message below.
+  // Passing raw server text through to Alert.alert is exactly the disclosure
+  // pattern scripts/check-error-disclosure.cjs exists to catch.
   const openSettingsButtons = [
     { text: 'Cancel', style: 'cancel' as const },
     { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -137,48 +140,42 @@ const showStoryUploadError = (err: any, logTag: 'story.upload.photo' | 'story.up
 
   switch (code) {
     case 'POSTING_WINDOW_CLOSED':
-      Alert.alert(
-        'Story Posting Closed',
-        serverMsg || 'The story posting window is not open for this event.'
-      );
+      Alert.alert('Story Posting Closed', 'The story posting window is not open for this event.');
       return;
     case 'TOO_FAR_FROM_VENUE': {
       const dist = err?.data?.distance;
       Alert.alert(
         'Too Far',
-        serverMsg ||
-          `You need to be within 3 km of the venue.${
-            typeof dist === 'number' ? ` You're ${dist.toFixed(1)} km away.` : ''
-          }`
+        `You need to be within 3 km of the venue.${
+          typeof dist === 'number' ? ` You're ${dist.toFixed(1)} km away.` : ''
+        }`
       );
       return;
     }
     case 'LOCATION_REQUIRED':
       Alert.alert(
         'Location Required',
-        serverMsg || 'Enable location access to post stories at this event.',
+        'Enable location access to post stories at this event.',
         openSettingsButtons
       );
       return;
     case 'LOCATION_SPOOF_SUSPECTED':
       Alert.alert(
         "Couldn't Confirm You're at the Venue",
-        serverMsg ||
-          "We couldn't match your location to the venue. Turn on precise location, make sure you're at the event, then try again.",
+        "We couldn't match your location to the venue. Turn on precise location, make sure you're at the event, then try again.",
         openSettingsButtons
       );
       return;
     case 'NO_EVENT_LOCATION':
       Alert.alert(
         'Cannot Verify Location',
-        serverMsg ||
-          'This game has no event location set yet, so story uploads are disabled until the venue is configured.'
+        'This game has no event location set yet, so story uploads are disabled until the venue is configured.'
       );
       return;
     case 'EVENT_NOT_FOUND':
       Alert.alert(
         'Event Unavailable',
-        serverMsg || 'This event is no longer available, so stories can’t be added.'
+        'This event is no longer available, so stories can’t be added.'
       );
       return;
     default:
