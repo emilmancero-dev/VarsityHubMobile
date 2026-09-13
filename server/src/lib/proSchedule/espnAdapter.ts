@@ -220,45 +220,24 @@ function timeZoneParts(date: Date, timeZone: string) {
   };
 }
 
-function timeZoneOffsetMs(date: Date, timeZone: string): number {
-  const parts = timeZoneParts(date, timeZone);
-  const asUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second
-  );
-  return asUtc - date.getTime();
-}
-
-function utcDateForTimeZone(
-  timeZone: string,
-  parts: { year: number; month: number; day: number; hour: number }
-): Date {
-  const firstPass = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour));
-  const offset = timeZoneOffsetMs(firstPass, timeZone);
-  return new Date(firstPass.getTime() - offset);
-}
-
-function tennisWindowKey(startsAt: Date, timeZone: string) {
+/**
+ * Tennis events are grouped into ONE event per league per tournament-day (owner
+ * decision 2026-09-12: no more AM/PM half-day windows, and no date/time baked
+ * into the title). `starts_at` is the actual earliest match that day; the client
+ * shows the date via its own chip, so the public title carries no date or time.
+ */
+function tennisDayKey(startsAt: Date, timeZone: string) {
   const parts = timeZoneParts(startsAt, timeZone);
-  const windowStartHour = parts.hour < 12 ? 0 : 12;
-  const windowStart = utcDateForTimeZone(timeZone, { ...parts, hour: windowStartHour });
   const dateKey = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(
     parts.day
   ).padStart(2, '0')}`;
-  const label = windowStartHour === 0 ? '12 AM-12 PM' : '12 PM-12 AM';
-  return { dateKey, label, windowStartHour, windowStart };
+  return { dateKey };
 }
 
-function tennisWindowTitle(event: EspnEvent, league: ProLeague, dateKey: string, label: string) {
+function tennisDayTitle(event: EspnEvent, league: ProLeague) {
   const tournament = varchar(event.shortName || event.name, 80);
   const leagueLabel = league.toUpperCase();
-  return tournament
-    ? `${tournament} ${leagueLabel} ${dateKey} ${label}`
-    : `${leagueLabel} Tennis ${dateKey} ${label}`;
+  return tournament ? `${tournament} ${leagueLabel}` : `${leagueLabel} Tennis`;
 }
 
 function parseTennisScoreboard(
@@ -280,26 +259,29 @@ function parseTennisScoreboard(
         const startsAt = new Date(competition.startDate || competition.date || event.date);
         if (Number.isNaN(startsAt.getTime())) continue;
         if (startsAt < from || startsAt > to) continue;
-        const title = tennisTitle(event, competition);
-        if (!title) continue;
-        const window = tennisWindowKey(startsAt, venue.timezone);
+        // A day-event only exists if the day has ≥1 real (non-TBD) matchup.
+        const matchTitle = tennisTitle(event, competition);
+        if (!matchTitle) continue;
+        const { dateKey } = tennisDayKey(startsAt, venue.timezone);
         const status = mapStatus(competition.status?.type?.name);
-        const externalRef = `${league}:${event.id}:${window.dateKey}:h${window.windowStartHour}`;
+        const externalRef = `${league}:${event.id}:${dateKey}`;
         const existing = buckets.get(externalRef);
         if (existing) {
           existing.hasScheduled = existing.hasScheduled || status === 'scheduled';
           existing.status = existing.hasScheduled ? 'scheduled' : existing.status;
+          // Anchor the event to the day's EARLIEST actual match start.
+          if (startsAt < existing.starts_at) existing.starts_at = startsAt;
           continue;
         }
         buckets.set(externalRef, {
           external_ref: externalRef,
           league,
-          starts_at: window.windowStart,
+          starts_at: startsAt,
           home_team_ref: null,
           away_team_ref: null,
           home_team: null,
           away_team: null,
-          title: tennisWindowTitle(event, league, window.dateKey, window.label),
+          title: tennisDayTitle(event, league),
           venue_name: venue.venue_name,
           venue_address: venue.venue_address,
           venue_lat: venue.venue_lat,

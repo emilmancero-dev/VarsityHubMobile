@@ -105,7 +105,7 @@ function AdminReportsScreen() {
         setError(
           isSessionExpiryError(e)
             ? 'Your admin session expired. Please sign in again.'
-            : e?.message || 'Failed to load reports'
+            : toUserMessage(e, 'Failed to load reports')
         );
       } finally {
         setLoading(false);

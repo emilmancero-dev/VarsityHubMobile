@@ -1,4 +1,5 @@
-const TOKEN_QUERY_PARAM_RE = /(^|[?&#])(access_token|token)=[^&#\s]*/gi;
+const TOKEN_QUERY_PARAM_RE =
+  /(^|[?&#])([^=&#\s]*(?:token|password|secret|api[_-]?key|code|authorization)[^=&#\s]*)=[^&#\s]*/gi;
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
@@ -20,7 +21,10 @@ export function redactSensitiveHeaders(headers: unknown): unknown {
   if (!headers || typeof headers !== 'object') return headers;
   const redacted = { ...(headers as Record<string, unknown>) };
   for (const key of Object.keys(redacted)) {
-    if (SENSITIVE_HEADER_NAMES.has(key.toLowerCase())) {
+    if (
+      SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ||
+      /token|password|secret|api[-_]?key/i.test(key)
+    ) {
       redacted[key] = '[redacted]';
     }
   }

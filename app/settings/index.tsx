@@ -771,35 +771,44 @@ export default function SettingsScreen() {
 
           {/* Notifications */}
           <SectionCard title="Notifications" initiallyOpen>
-            <View
-              style={[
-                styles.notificationStatusRow,
-                { borderBottomWidth: 1, borderBottomColor: Colors[colorScheme ?? 'light'].border },
-              ]}
-            >
-              <Ionicons name={pushStatus.icon} size={20} color={pushStatus.color} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-                  {pushStatus.title}
-                </Text>
-                <Text
-                  style={[styles.mutedSmall, { color: Colors[colorScheme ?? 'light'].mutedText }]}
-                >
-                  {pushStatus.subtitle}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => {
-                  void loadPushDiagnostics();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Refresh push delivery status"
-                hitSlop={10}
-                style={styles.iconButton}
+            {/* Push-delivery diagnostics (registered token, delivery state) are a
+                developer tool only — they must never surface to end users in
+                production. Owner note (Sep 2026): "Remove push deliver ready.
+                That shouldn't be shown on front end." Gated to __DEV__. */}
+            {__DEV__ && (
+              <View
+                style={[
+                  styles.notificationStatusRow,
+                  {
+                    borderBottomWidth: 1,
+                    borderBottomColor: Colors[colorScheme ?? 'light'].border,
+                  },
+                ]}
               >
-                <Ionicons name="refresh" size={18} color={Colors[colorScheme ?? 'light'].tint} />
-              </Pressable>
-            </View>
+                <Ionicons name={pushStatus.icon} size={20} color={pushStatus.color} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                    {pushStatus.title}
+                  </Text>
+                  <Text
+                    style={[styles.mutedSmall, { color: Colors[colorScheme ?? 'light'].mutedText }]}
+                  >
+                    {pushStatus.subtitle}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    void loadPushDiagnostics();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Refresh push delivery status"
+                  hitSlop={10}
+                  style={styles.iconButton}
+                >
+                  <Ionicons name="refresh" size={18} color={Colors[colorScheme ?? 'light'].tint} />
+                </Pressable>
+              </View>
+            )}
             <SwitchRow
               title="Game/Event Reminders"
               value={!!prefs.notifications.game_event_reminders}
@@ -1258,14 +1267,14 @@ export default function SettingsScreen() {
                           // block upgrade so users know exactly what to do.
                           if (code === 'REJECTION_COOLDOWN') {
                             const retryAt = e?.data?.retry_at;
-                            const hrs = e?.data?.retry_after_hours;
+                            const hrs = Number(e?.data?.retry_after_hours);
                             let msgText = 'You can try again once the cooldown expires.';
                             if (typeof retryAt === 'string') {
                               const when = new Date(retryAt);
                               if (!isNaN(when.getTime())) {
                                 msgText = `You can try again on ${when.toLocaleDateString()} at ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
                               }
-                            } else if (hrs) {
+                            } else if (Number.isFinite(hrs) && hrs > 0) {
                               msgText = `You can try again in about ${hrs} hour${hrs === 1 ? '' : 's'}.`;
                             }
                             Alert.alert('Please wait', msgText);

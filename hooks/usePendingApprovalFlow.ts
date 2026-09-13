@@ -304,9 +304,9 @@ export async function reapplyCoachApplication({
 }
 
 export function showReapplyCoachError(error: any) {
-  const message = error?.data?.error || error?.message || 'Failed to re-apply.';
+  const message = toUserMessage(error, 'Failed to re-apply.');
   const code = error?.data?.code;
-  const retryAfterHours = error?.data?.retry_after_hours;
+  const retryAfterHours = Number(error?.data?.retry_after_hours);
   const retryAt = error?.data?.retry_at;
 
   if (code === 'REJECTION_COOLDOWN') {
@@ -316,7 +316,7 @@ export function showReapplyCoachError(error: any) {
       if (!isNaN(when.getTime())) {
         cooldownMessage = `You can try again on ${when.toLocaleDateString()} at ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
       }
-    } else if (retryAfterHours) {
+    } else if (Number.isFinite(retryAfterHours) && retryAfterHours > 0) {
       cooldownMessage = `You can try again in about ${retryAfterHours} hour${retryAfterHours === 1 ? '' : 's'}.`;
     }
     Alert.alert('Please wait', cooldownMessage);

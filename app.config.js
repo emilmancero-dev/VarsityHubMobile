@@ -19,6 +19,13 @@ module.exports = ({ config }) => {
   const packageVersion = require('./package.json').version;
   const appVersion = process.env.APP_VERSION_OVERRIDE || packageVersion;
   const runtimeVersion = process.env.RUNTIME_VERSION_OVERRIDE || appVersion;
+  // This bundle requires the native media picker introduced in 1.0.6.
+  // Refuse an old-runtime OTA override instead of shipping it to incompatible binaries.
+  if (appVersion !== packageVersion || runtimeVersion !== packageVersion) {
+    throw new Error(
+      'App and runtime versions must match package.json; native media releases require a matching build.'
+    );
+  }
   const sentryAutoUploadEnabled = process.env.SENTRY_DISABLE_AUTO_UPLOAD !== 'true';
   const useLocalApi = isTruthy(process.env.EXPO_PUBLIC_USE_LOCAL_API || '0');
   const publicApiUrl = useLocalApi
@@ -67,8 +74,7 @@ module.exports = ({ config }) => {
     owner: 'varsity-hub',
     version: appVersion,
     // Bare workflow EAS Update requires an explicit runtime string.
-    // Default to the app version, but allow targeted OTA publishes to an
-    // older installed binary via env override when needed.
+    // Keep the runtime aligned with the versioned native build.
     runtimeVersion,
     description:
       'VarsityHub is the sports social app where fans follow their teams, athletes share highlights, and friends connect over local games.',
@@ -91,7 +97,7 @@ module.exports = ({ config }) => {
       },
     },
     ios: {
-      buildNumber: '59',
+      buildNumber: '60',
       supportsTablet: true,
       appleTeamId: 'B5H8F69RW5',
       bundleIdentifier: 'com.varsithub.varsityhub-ios',
@@ -132,7 +138,7 @@ module.exports = ({ config }) => {
       },
       softwareKeyboardLayoutMode: 'pan',
       edgeToEdgeEnabled: true,
-      versionCode: 59,
+      versionCode: 60,
       package: 'com.varsityhub.varsityhub',
       intentFilters: [
         {

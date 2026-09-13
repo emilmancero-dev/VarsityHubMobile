@@ -1,4 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
+import { uploadVideo } from './videoUpload';
+import { throwIfUploadAborted } from '@/utils/resumableUpload';
 import {
   isEmailVerificationRequiredError,
   openVerificationGate,
@@ -38,6 +41,8 @@ export interface UploadProgressCallback {
 }
 
 export interface UploadOptions {
+  signal?: AbortSignal;
+  onPhase?: (phase: 'uploading' | 'processing') => void;
   retries?: number;
   backoffMs?: number;
   timeoutMs?: number;
@@ -117,14 +122,20 @@ function detectMime(mimeType?: string, filename?: string, uri?: string): string 
   return inferredFromUri || inferredFromFilename || 'image/jpeg';
 }
 
-function buildUploadFormData(
+async function buildUploadFormData(
   uri: string,
   filename: string,
   mimeType: string,
   formFields?: Record<string, string | number | boolean | null | undefined>
-): FormData {
+): Promise<FormData> {
   const form = new FormData();
-  form.append('file', { uri, name: filename, type: mimeType } as any);
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    form.append('file', blob, filename);
+  } else {
+    form.append('file', { uri, name: filename, type: mimeType } as any);
+  }
   for (const [key, value] of Object.entries(formFields || {})) {
     if (value == null) continue;
     form.append(key, String(value));
@@ -227,17 +238,22 @@ async function prepareUploadInput(
 ): Promise<PreparedUploadInput> {
   const finalBase = computeBase(baseUrl);
   let finalUri = normalizeLocalUploadUri(uri);
-  const finalFilename = filename || finalUri.split('/').pop() || 'upload';
+  let finalFilename = filename || finalUri.split('/').pop() || 'upload';
   let finalMimeType = detectMime(mimeType, finalFilename, finalUri);
   const isMedia = finalMimeType.startsWith('image/') || finalMimeType.startsWith('video/');
 
   if (finalMimeType.startsWith('image/')) {
-    try {
-      const compressed = await compressImageForUpload(finalUri, finalMimeType);
-      finalUri = normalizeLocalUploadUri(compressed.uri);
-      finalMimeType = detectMime(compressed.mimeType || finalMimeType, finalFilename, finalUri);
-    } catch (e) {
-      if (__DEV__) console.warn('[upload] Image compression failed, uploading original:', e);
+    const compressed = await compressImageForUpload(finalUri, finalMimeType);
+    finalUri = normalizeLocalUploadUri(compressed.uri);
+    finalMimeType = compressed.mimeType || finalMimeType;
+    if (finalMimeType === 'image/jpeg')
+      finalFilename = `${finalFilename.replace(/\.[^.]+$/, '')}.jpg`;
+    const imageSize =
+      Platform.OS === 'web'
+        ? (await (await fetch(finalUri)).blob()).size
+        : await getLocalFileSize(finalUri);
+    if (!imageSize || imageSize > 10 * 1024 * 1024) {
+      throw new Error('Image is unreadable or too large. The upload limit is 10 MB.');
     }
   }
 
@@ -260,7 +276,7 @@ async function uploadViaFetchWithRetries({
   debugLabel,
   coerceFinal401ToUnauthorized = false,
 }: UploadFetchConfig): Promise<any> {
-  const form = buildUploadFormData(uri, filename, mimeType, options?.formFields);
+  const form = await buildUploadFormData(uri, filename, mimeType, options?.formFields);
   const headers = await resolveUploadHeaders();
   const retries = Math.max(0, options?.retries ?? 2);
   const backoffMs = Math.max(50, options?.backoffMs ?? 500);
@@ -271,6 +287,9 @@ async function uploadViaFetchWithRetries({
 
   while (attempt <= retries) {
     const controller = new AbortController();
+    throwIfUploadAborted(options?.signal);
+    const cancel = () => controller.abort();
+    options?.signal?.addEventListener('abort', cancel, { once: true });
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -284,6 +303,7 @@ async function uploadViaFetchWithRetries({
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+      options?.signal?.removeEventListener('abort', cancel);
       const text = await res.text();
       if (!text) throw new Error(`Empty response (HTTP ${res.status})`);
       let data: any;
@@ -301,6 +321,8 @@ async function uploadViaFetchWithRetries({
       return data;
     } catch (err: any) {
       clearTimeout(timeoutId);
+      options?.signal?.removeEventListener('abort', cancel);
+      throwIfUploadAborted(options?.signal);
       lastErr = err;
 
       if (
@@ -348,7 +370,8 @@ interface R2UploadTicket {
 async function getR2UploadTicket(
   baseUrl: string,
   contentType: string,
-  contentLength: number
+  contentLength: number,
+  options?: UploadOptions
 ): Promise<R2UploadTicket | null> {
   if (Date.now() - _r2UnavailableAt < R2_UNAVAILABLE_TTL_MS) return null;
   const token = await getAccessTokenForRequest({ allowRefresh: true });
@@ -361,6 +384,9 @@ async function getR2UploadTicket(
       content_type: contentType,
       content_length: String(Math.round(contentLength)),
     });
+    for (const [key, value] of Object.entries(options?.formFields || {})) {
+      if (value != null) params.set(key, String(value));
+    }
     const res = await fetch(`${baseUrl}/uploads/r2-presign?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
@@ -370,14 +396,17 @@ async function getR2UploadTicket(
       _r2UnavailableAt = Date.now();
       return null;
     }
-    if (!res.ok) return null;
+    if (!res.ok)
+      throw Object.assign(new Error('Upload authorization or file validation failed'), {
+        status: res.status,
+      });
     const data = (await res.json().catch(() => null)) as R2UploadTicket | null;
     // Without a public delivery URL the asset would be unreachable — treat as
     // unavailable rather than uploading into a black hole.
     if (!data?.uploadUrl || !data?.publicUrl) return null;
     return data;
-  } catch {
-    // Never let the R2 probe break uploads — any failure falls back to Cloudinary.
+  } catch (error: any) {
+    if (error?.status >= 400 && error?.status < 500) throw error;
     return null;
   } finally {
     clearTimeout(timeout);
@@ -432,6 +461,11 @@ async function uploadDirectToR2(
       : undefined
   );
 
+  throwIfUploadAborted(options?.signal);
+  const cancel = () => {
+    void task.cancelAsync().catch(() => {});
+  };
+  options?.signal?.addEventListener('abort', cancel, { once: true });
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -439,6 +473,7 @@ async function uploadDirectToR2(
   }, timeoutMs);
   try {
     const result = await task.uploadAsync();
+    throwIfUploadAborted(options?.signal);
     if (timedOut) throw new Error('R2 upload timed out');
     if (!result || result.status < 200 || result.status >= 300) {
       throw new Error(
@@ -455,6 +490,7 @@ async function uploadDirectToR2(
     };
   } finally {
     clearTimeout(timer);
+    options?.signal?.removeEventListener('abort', cancel);
   }
 }
 
@@ -471,7 +507,7 @@ async function tryUploadToR2(
 ): Promise<{ url: string; type: string; mime: string; provider: 'r2' } | null> {
   const contentLength = await getLocalFileSize(uri);
   if (!contentLength) return null;
-  const ticket = await getR2UploadTicket(baseUrl, mimeType, contentLength);
+  const ticket = await getR2UploadTicket(baseUrl, mimeType, contentLength, options);
   if (!ticket) return null;
   try {
     if (__DEV__) console.log('[upload] Using direct R2 upload:', ticket.key);
@@ -482,7 +518,7 @@ async function tryUploadToR2(
     captureException(err instanceof Error ? err : new Error(String(err)), {
       tags: { context: 'r2_upload', stage: 'direct_put_failed' },
     });
-    return null;
+    throw err;
   }
 }
 
@@ -495,6 +531,7 @@ async function tryUploadToR2(
 let _sigCache: {
   sig: { cloudName: string; apiKey: string; signature: string; timestamp: number; folder: string };
   fetchedAt: number;
+  scope: string;
 } | null = null;
 const SIG_CACHE_TTL_MS = 55_000;
 // The signature request gates EVERY media upload and runs before any bytes are
@@ -517,14 +554,16 @@ async function getCloudinarySignature(
   allowed_formats?: string;
   max_bytes?: string;
 } | null> {
-  // Return cached signature if still fresh (skip when forceRefresh is set)
-  if (!forceRefresh && _sigCache && Date.now() - _sigCache.fetchedAt < SIG_CACHE_TTL_MS) {
-    if (__DEV__) console.log('[upload] Using cached Cloudinary signature');
-    return _sigCache.sig;
-  }
-
+  throwIfUploadAborted(options?.signal);
   let token = await getAccessTokenForRequest({ allowRefresh: true });
   if (!token) return null;
+  const scope = JSON.stringify([baseUrl, token, options?.formFields || {}]);
+  if (
+    !forceRefresh &&
+    _sigCache?.scope === scope &&
+    Date.now() - _sigCache.fetchedAt < SIG_CACHE_TTL_MS
+  )
+    return _sigCache.sig;
 
   let refreshAttempted = false;
   let verificationPrompted = false;
@@ -579,7 +618,7 @@ async function getCloudinarySignature(
         throw signatureErr;
       }
       const sig = data as any;
-      _sigCache = { sig, fetchedAt: Date.now() };
+      _sigCache = { sig, fetchedAt: Date.now(), scope };
       return sig;
     } catch (error: any) {
       if (error?.name === 'AbortError') {
@@ -630,7 +669,13 @@ async function uploadDirectToCloudinary(
   const timeoutMs = options?.timeoutMs ?? (isVideo ? 300000 : 120000);
 
   const form = new FormData();
-  form.append('file', { uri, name: filename, type: mimeType } as any);
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri, { signal: options?.signal });
+    const blob = await response.blob();
+    form.append('file', blob, filename);
+  } else {
+    form.append('file', { uri, name: filename, type: mimeType } as any);
+  }
   form.append('api_key', sig.apiKey);
   form.append('timestamp', String(sig.timestamp));
   form.append('folder', sig.folder);
@@ -644,8 +689,21 @@ async function uploadDirectToCloudinary(
   if (sig.allowed_formats) form.append('allowed_formats', sig.allowed_formats);
   if (sig.max_bytes) form.append('max_bytes', sig.max_bytes);
 
-  return new Promise((resolve, reject) => {
+  throwIfUploadAborted(options?.signal);
+  return new Promise((rawResolve, rawReject) => {
     const xhr = new XMLHttpRequest();
+    const cancel = () => xhr.abort();
+    const resolve = (value: any) => {
+      options?.signal?.removeEventListener('abort', cancel);
+      rawResolve(value);
+    };
+    const reject = (error: any) => {
+      options?.signal?.removeEventListener('abort', cancel);
+      rawReject(error);
+    };
+    xhr.onabort = () =>
+      reject(Object.assign(new Error('Upload cancelled'), { name: 'AbortError' }));
+    options?.signal?.addEventListener('abort', cancel, { once: true });
 
     if (options?.onProgress) {
       xhr.upload.onprogress = event => {
@@ -705,6 +763,7 @@ async function uploadDirectToCloudinary(
         const cloudinaryErr: any = new Error('Upload failed. Please try again.');
         cloudinaryErr.debugDetail = `Cloudinary upload failed: HTTP ${xhr.status}${detail}`;
         cloudinaryErr.isUploadError = true;
+        cloudinaryErr.status = xhr.status;
         reject(cloudinaryErr);
       }
     };
@@ -713,6 +772,10 @@ async function uploadDirectToCloudinary(
     xhr.ontimeout = () => reject(new Error('Direct upload timed out'));
     xhr.timeout = timeoutMs;
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${sig.cloudName}/${resourceType}/upload`);
+    if (options?.signal?.aborted) {
+      reject(Object.assign(new Error('Upload cancelled'), { name: 'AbortError' }));
+      return;
+    }
     xhr.send(form as any);
   });
 }
@@ -746,76 +809,33 @@ export async function uploadFile(
     filename,
     mimeType
   );
-
-  const isVideo = finalMimeType.startsWith('video/');
-
-  // Non-media files (PDFs, docs) go straight to the general-file server endpoint.
-  if (!isMedia) {
-    if (__DEV__) console.log('[upload] Non-media upload via /uploads/files:', finalMimeType);
+  if (options?.signal?.aborted)
+    throw Object.assign(new Error('Upload cancelled'), { name: 'AbortError' });
+  if (!isMedia)
     return uploadRawViaServer(finalBase, finalUri, finalFilename, finalMimeType, options);
-  }
-
-  // Try direct-to-R2 first (zero-egress storage). Server-driven: while R2 is
-  // unprovisioned this resolves null instantly (cached 503) and the Cloudinary
-  // path below runs exactly as before.
+  if (finalMimeType.startsWith('video/'))
+    return uploadVideo(finalUri, finalFilename, finalMimeType, options);
   const r2Result = await tryUploadToR2(finalBase, finalUri, finalMimeType, options);
   if (r2Result) return r2Result;
-
-  // Try direct-to-Cloudinary (always attempted for media)
-  let directErr: any = null;
   try {
-    const sig = await getCloudinarySignature(finalBase, options);
-    if (sig) {
-      if (__DEV__) console.log('[upload] Using direct Cloudinary upload');
-      return await uploadDirectToCloudinary(finalUri, finalFilename, finalMimeType, sig, options);
-    }
-  } catch (err: any) {
-    directErr = err;
-    if (__DEV__) {
-      console.warn('[upload] Direct upload failed:', err?.message);
-      if (err?.status) console.warn('[upload] Error status:', err.status);
-    }
+    const signature = await getCloudinarySignature(finalBase, options);
+    if (signature)
+      return await uploadDirectToCloudinary(
+        finalUri,
+        finalFilename,
+        finalMimeType,
+        signature,
+        options
+      );
+  } catch (error: any) {
+    if (
+      options?.signal?.aborted ||
+      error?.name === 'AbortError' ||
+      (error?.status >= 400 && error?.status < 500)
+    )
+      throw error;
+    captureException(error, { tags: { context: 'image_upload', stage: 'direct_failed' } });
   }
-
-  // For videos: retry direct once with a fresh signature before giving up.
-  // The server proxy rejects video (415) — retrying direct is the only recovery path.
-  if (isVideo) {
-    try {
-      if (__DEV__) console.log('[upload] Retrying direct Cloudinary upload for video (fresh sig)');
-      const sig = await getCloudinarySignature(finalBase, options, true);
-      if (sig) {
-        return await uploadDirectToCloudinary(finalUri, finalFilename, finalMimeType, sig, options);
-      }
-    } catch (retryErr: any) {
-      directErr = retryErr;
-      if (__DEV__)
-        console.warn('[upload] Video direct upload retry also failed:', retryErr?.message);
-    }
-    const videoUploadErr: any = new Error(
-      directErr?.message || 'Video upload failed. Please check your connection and try again.'
-    );
-    videoUploadErr.code = 'VIDEO_DIRECT_UPLOAD_FAILED';
-    videoUploadErr.cause = directErr;
-    if (typeof directErr?.status === 'number') videoUploadErr.status = directErr.status;
-    // Video has no server fallback, so this is the ONLY place the failure can
-    // be observed in production. Tag with the underlying message so signature
-    // vs network vs timeout failures are distinguishable in Sentry.
-    captureException(directErr instanceof Error ? directErr : videoUploadErr, {
-      // The Cloudinary error surfaces a generic `.message` to the UI; its full
-      // "HTTP <status> — <upstream body>" detail rides on `debugDetail` so it
-      // still reaches Sentry here without being disclosed to the user.
-      debugDetail: directErr?.debugDetail,
-      tags: {
-        context: 'video_upload',
-        stage: 'direct_upload_failed',
-        code: String(directErr?.code || 'unknown'),
-      },
-    });
-    throw videoUploadErr;
-  }
-
-  // Images: fall back to server proxy
-  if (__DEV__) console.log('[upload] Falling back to server-proxy upload for image');
   return uploadViaServer(finalBase, finalUri, finalFilename, finalMimeType, options);
 }
 
@@ -846,158 +866,8 @@ async function uploadRawViaServer(
 // -----------------------------------------------
 // XHR upload with progress — tries direct Cloudinary, falls back to server proxy for images only
 // -----------------------------------------------
-export async function uploadFileWithProgress(
-  baseUrl: string | null | undefined,
-  uri: string,
-  filename?: string,
-  mimeType?: string,
-  options?: UploadOptions
-): Promise<any> {
-  const { finalBase, finalUri, finalFilename, finalMimeType } = await prepareUploadInput(
-    baseUrl,
-    uri,
-    filename,
-    mimeType
-  );
-
-  const isVideo = finalMimeType.startsWith('video/');
-
-  // Try direct-to-R2 first — createUploadTask reports progress natively.
-  const r2Result = await tryUploadToR2(finalBase, finalUri, finalMimeType, options);
-  if (r2Result) return r2Result;
-
-  // Try direct-to-Cloudinary (XHR with progress built in)
-  let directErr: any = null;
-  try {
-    const sig = await getCloudinarySignature(finalBase, options);
-    if (sig) {
-      if (__DEV__) console.log('[upload] Using direct Cloudinary upload (with progress)');
-      return await uploadDirectToCloudinary(finalUri, finalFilename, finalMimeType, sig, options);
-    }
-  } catch (err: any) {
-    directErr = err;
-    if (__DEV__) {
-      console.warn('[upload] Direct upload failed (with progress):', err?.message);
-      if (err?.status) console.warn('[upload] Error status:', err.status);
-    }
-  }
-
-  // For videos: retry direct once with a fresh signature — server proxy rejects video (415).
-  if (isVideo) {
-    try {
-      if (__DEV__) console.log('[upload] Retrying direct Cloudinary upload for video (fresh sig)');
-      const sig = await getCloudinarySignature(finalBase, options, true);
-      if (sig) {
-        return await uploadDirectToCloudinary(finalUri, finalFilename, finalMimeType, sig, options);
-      }
-    } catch (retryErr: any) {
-      directErr = retryErr;
-      if (__DEV__)
-        console.warn('[upload] Video direct upload retry also failed:', retryErr?.message);
-    }
-    const videoUploadErr: any = new Error(
-      directErr?.message || 'Video upload failed. Please check your connection and try again.'
-    );
-    videoUploadErr.code = 'VIDEO_DIRECT_UPLOAD_FAILED';
-    videoUploadErr.cause = directErr;
-    if (typeof directErr?.status === 'number') videoUploadErr.status = directErr.status;
-    // Video has no server fallback, so this is the ONLY place the failure can
-    // be observed in production. Tag with the underlying message so signature
-    // vs network vs timeout failures are distinguishable in Sentry.
-    captureException(directErr instanceof Error ? directErr : videoUploadErr, {
-      // The Cloudinary error surfaces a generic `.message` to the UI; its full
-      // "HTTP <status> — <upstream body>" detail rides on `debugDetail` so it
-      // still reaches Sentry here without being disclosed to the user.
-      debugDetail: directErr?.debugDetail,
-      tags: {
-        context: 'video_upload',
-        stage: 'direct_upload_failed',
-        code: String(directErr?.code || 'unknown'),
-      },
-    });
-    throw videoUploadErr;
-  }
-
-  // Images: fall back to server proxy via XHR (supports progress)
-  const target = buildUploadUrl(`${finalBase}/uploads`, options?.formFields);
-  const token = await getAccessTokenForRequest({ allowRefresh: true });
-  if (!token) {
-    const err: any = new Error('Unauthorized');
-    err.status = 401;
-    throw err;
-  }
-  const timeoutMs = options?.timeoutMs ?? 180000;
-  const onProgress = options?.onProgress;
-
-  const form = new FormData();
-  form.append('file', { uri: finalUri, name: finalFilename, type: finalMimeType } as any);
-  for (const [key, value] of Object.entries(options?.formFields || {})) {
-    if (value == null) continue;
-    form.append(key, String(value));
-  }
-
-  const attemptUpload = async (currentToken: string, refreshAttempted = false): Promise<any> =>
-    new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      if (onProgress) {
-        xhr.upload.onprogress = event => {
-          if (event.lengthComputable) {
-            onProgress(Math.round((event.loaded / event.total) * 100), event.loaded, event.total);
-          }
-        };
-      }
-      xhr.onload = () => {
-        void (async () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch {
-              reject(new Error('Non-JSON response'));
-            }
-            return;
-          }
-
-          if (xhr.status === 401 && !refreshAttempted) {
-            try {
-              const refreshed = await refreshAccessTokenWithCache();
-              if (refreshed.accessToken) {
-                resolve(await attemptUpload(refreshed.accessToken, true));
-                return;
-              }
-              if (refreshed.reason === 'auth' || refreshed.reason === 'missing') {
-                await auth.clearTokensOnly();
-                const sessionErr: any = new Error('Unauthorized');
-                sessionErr.status = 401;
-                sessionErr.isSessionExpired = true;
-                emitSessionExpired(
-                  refreshed.reason === 'missing' ? 'refresh_missing' : 'refresh_failed'
-                );
-                reject(sessionErr);
-                return;
-              }
-              reject(buildTransientUploadAuthError(refreshed));
-              return;
-            } catch (error) {
-              reject(error);
-              return;
-            }
-          }
-
-          const err: any = new Error(`Upload failed: HTTP ${xhr.status}`);
-          err.status = xhr.status;
-          reject(err);
-        })();
-      };
-      xhr.onerror = () => reject(new Error('Network error during upload'));
-      xhr.ontimeout = () => reject(new Error('Upload timed out'));
-      xhr.timeout = timeoutMs;
-      xhr.open('POST', target);
-      xhr.setRequestHeader('Authorization', `Bearer ${currentToken}`);
-      xhr.send(form as any);
-    });
-
-  return attemptUpload(token);
-}
+// Same transport and auth policy; progress is an option, not a second pipeline.
+export const uploadFileWithProgress = uploadFile;
 
 // -----------------------------------------------
 // Server-proxy upload (original path, kept as fallback)

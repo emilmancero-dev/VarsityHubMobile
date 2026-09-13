@@ -88,6 +88,12 @@ export function buildCapabilities(
   const activeDesignatedGrant = isDesignated && hasActiveUnlock;
   const overrideAllowed = activeDesignatedGrant || isExclusivePoster;
   const canPostWithoutFreshGeofence = overrideAllowed || hasActiveUnlock;
+  // Story access mirrors verifyStoryPostingPermission (owner rule, Sep 2026):
+  // the designated/exclusive override skips everything, AND during the post-event
+  // GRACE window a user who already posted/storied here (holds an active unlock)
+  // may add a story from anywhere. During the LIVE window a story still requires
+  // the geofence, so a plain unlock does not grant story access there.
+  const storyAllowed = overrideAllowed || (state === 'grace' && hasActiveUnlock);
   const windowLive = state === 'live';
   const closedCode = 'POSTING_WINDOW_CLOSED';
   const liveNeedsLocationCode = 'LOCATION_REQUIRED';
@@ -112,8 +118,8 @@ export function buildCapabilities(
               : closedCode,
       },
       story: {
-        allowed_now: overrideAllowed,
-        reason_code: overrideAllowed
+        allowed_now: storyAllowed,
+        reason_code: storyAllowed
           ? null
           : blockedByExclusive
             ? 'EXCLUSIVE_POSTER_ONLY'
@@ -124,7 +130,7 @@ export function buildCapabilities(
     },
     upload_access: {
       can_upload_post: canPostWithoutFreshGeofence,
-      can_upload_story: overrideAllowed,
+      can_upload_story: storyAllowed,
       needs_live_geofence_check: !canPostWithoutFreshGeofence && windowLive,
     },
   };
@@ -165,7 +171,16 @@ export function serializeGameCard(game: any, ctx: SerializeCtx) {
     location: linkedEvent?.location ?? game.location ?? game.venue_address ?? null,
     latitude: coords.latitude,
     longitude: coords.longitude,
-    sport: game.homeTeam?.sport ?? game.awayTeam?.sport ?? null,
+    sport:
+      game.homeTeam?.sport ??
+      game.awayTeam?.sport ??
+      linkedEvent?.sportsLeague?.sport_slug ??
+      proLeagueToSport(linkedEvent?.proHomeTeam?.league ?? linkedEvent?.proAwayTeam?.league) ??
+      null,
+    league_slug: linkedEvent?.sportsLeague?.slug ?? null,
+    league_name: linkedEvent?.sportsLeague?.name ?? null,
+    league_level: linkedEvent?.sportsLeague?.level ?? null,
+    league_gender: linkedEvent?.sportsLeague?.gender ?? null,
     status: null,
     banner_url: game.banner_url ?? game.cover_image_url ?? linkedEvent?.banner_url ?? null,
     pro_home_color: linkedEvent?.proHomeTeam?.primary_color ?? null,

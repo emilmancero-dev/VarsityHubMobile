@@ -15,7 +15,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
 const { useUpdates } = Updates;
 import React, { useEffect } from 'react';
-import { ActivityIndicator, AppState, LogBox, Platform, View } from 'react-native';
+import { ActivityIndicator, AppState, LogBox, Platform, Pressable, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { enableFreeze } from 'react-native-screens';
@@ -168,16 +168,96 @@ function NavReadyAuthProvider({ children }: { children: React.ReactNode }) {
   return <MemoizedAuthProvider navReady={navReady}>{children}</MemoizedAuthProvider>;
 }
 
-function RootLayout() {
+function FontLoadAttempt({
+  children,
+  onRetry,
+}: {
+  children: React.ReactNode;
+  onRetry: () => void;
+}) {
   const fallbackColorScheme = useColorScheme();
-  const _router = useRouter();
-  const [loaded] = useFonts({
+  const colors = Colors[fallbackColorScheme ?? 'light'];
+  const [loaded, fontError] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     // Explicitly load icon fonts so iOS doesn't render `?` glyphs for
     // arrow-upward / chat-bubble-outline at small sizes (PostCard StatPill).
     ...MaterialIcons.font,
     ...Ionicons.font,
   });
+  const reportedFontError = React.useRef(false);
+  useEffect(() => {
+    if (!fontError || reportedFontError.current) return;
+    reportedFontError.current = true;
+    try {
+      captureException(new Error('App font loading failed'), { tags: { context: 'font_load' } });
+    } catch {
+      // Reporting is optional; it must not break the recovery controls.
+      devLog('[fonts] Font failure reporting unavailable');
+    }
+  }, [fontError]);
+
+  if (fontError) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          backgroundColor: colors.background,
+        }}
+      >
+        <Text
+          accessibilityRole="header"
+          style={{ color: colors.text, fontSize: 20, fontWeight: '600', textAlign: 'center' }}
+        >
+          Unable to finish opening the app
+        </Text>
+        <Text
+          accessibilityLiveRegion="polite"
+          style={{ color: colors.text, textAlign: 'center', marginTop: 12, marginBottom: 24 }}
+        >
+          Something could not load. Please try again.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
+          onPress={onRetry}
+          style={{
+            minHeight: 48,
+            paddingHorizontal: 24,
+            justifyContent: 'center',
+            borderRadius: 12,
+            backgroundColor: colors.tint,
+          }}
+        >
+          <Text style={{ color: colors.background, fontSize: 16, fontWeight: '600' }}>
+            Try again
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+  if (!loaded) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.background,
+        }}
+      >
+        <ActivityIndicator color={colors.tint} />
+      </View>
+    );
+  }
+  return <>{children}</>;
+}
+
+function RootLayout() {
+  const _router = useRouter();
+  const [fontAttempt, setFontAttempt] = React.useState(0);
   const updateCheckInFlight = React.useRef(false);
   const activeAppState = React.useRef(AppState.currentState);
 
@@ -303,53 +383,40 @@ function RootLayout() {
     return () => subscription.remove();
   }, [syncOtaUpdate]);
 
-  if (!loaded) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: Colors[fallbackColorScheme ?? 'light'].background,
-        }}
-      >
-        <ActivityIndicator color={Colors[fallbackColorScheme ?? 'light'].tint} />
-      </View>
-    );
-  }
-
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <StripeProvider publishableKey={getConfig().stripePublishableKey}>
-            <PersistQueryClientProvider
-              client={queryClient}
-              persistOptions={{
-                persister: asyncStoragePersister,
-                // Drop persisted data older than 24h so a stale cold-start
-                // never shows day-old content before revalidation.
-                maxAge: 24 * 60 * 60 * 1000,
-                buster: CACHE_BUSTER,
-                dehydrateOptions: {
-                  shouldDehydrateQuery: shouldPersistQuery,
-                },
-              }}
-            >
-              <PostCacheProvider>
-                <NavigationHistoryProvider>
-                  <NavReadyAuthProvider>
-                    <ThemeProvider>
-                      <AppShell />
-                    </ThemeProvider>
-                  </NavReadyAuthProvider>
-                </NavigationHistoryProvider>
-              </PostCacheProvider>
-            </PersistQueryClientProvider>
-          </StripeProvider>
-        </GestureHandlerRootView>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <FontLoadAttempt key={fontAttempt} onRetry={() => setFontAttempt(attempt => attempt + 1)}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <StripeProvider publishableKey={getConfig().stripePublishableKey}>
+              <PersistQueryClientProvider
+                client={queryClient}
+                persistOptions={{
+                  persister: asyncStoragePersister,
+                  // Drop persisted data older than 24h so a stale cold-start
+                  // never shows day-old content before revalidation.
+                  maxAge: 24 * 60 * 60 * 1000,
+                  buster: CACHE_BUSTER,
+                  dehydrateOptions: {
+                    shouldDehydrateQuery: shouldPersistQuery,
+                  },
+                }}
+              >
+                <PostCacheProvider>
+                  <NavigationHistoryProvider>
+                    <NavReadyAuthProvider>
+                      <ThemeProvider>
+                        <AppShell />
+                      </ThemeProvider>
+                    </NavReadyAuthProvider>
+                  </NavigationHistoryProvider>
+                </PostCacheProvider>
+              </PersistQueryClientProvider>
+            </StripeProvider>
+          </GestureHandlerRootView>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </FontLoadAttempt>
   );
 }
 

@@ -6,14 +6,12 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { sanitizeTitle } from '@/lib/sanitizeTitle';
 import { safeGoBack } from '@/utils/navigation';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { useEventListener } from 'expo';
 import { Image } from 'expo-image';
 import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { VideoView } from 'expo-video';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -39,7 +37,7 @@ import { Game, Highlights, Post, Report, User } from '@/api/entities';
 import { httpGet } from '@/api/http';
 import { useAuth } from '@/context/AuthProvider';
 import { analytics, ANALYTICS_EVENTS } from '@/utils/analytics';
-import { ensurePlaybackAudioSession } from '@/utils/audioSession';
+import { usePlaybackLifecycle } from '@/hooks/usePlaybackLifecycle';
 import { getAuthSnapshot } from '@/utils/authState';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import events from '@/utils/events';
@@ -209,7 +207,6 @@ const FeedCard = memo(
     onEditPost,
     onCopyLink,
     onReportPost,
-    registerVideo,
     insets,
     size,
     colorScheme,
@@ -229,7 +226,6 @@ const FeedCard = memo(
     onEditPost?: (caption: string) => void;
     onCopyLink: () => void;
     onReportPost: () => void;
-    registerVideo: (id: string, player: any | null) => void;
     insets: { top: number; bottom: number };
     size: { width: number; height: number };
     colorScheme: 'light' | 'dark';
@@ -241,14 +237,6 @@ const FeedCard = memo(
     const [showEditModal, setShowEditModal] = useState(false);
     const [showOptionsMenu, setShowOptionsMenu] = useState(false);
     const [editCaption, setEditCaption] = useState('');
-    const [isVideoLoading, setIsVideoLoading] = useState(post.media_type === 'video');
-    const [videoError, setVideoError] = useState<string | null>(null);
-    const [videoRetryKey, setVideoRetryKey] = useState(0);
-    // Videos ALWAYS play with sound (owner decision 2026-07-16). The rail's
-    // Sound/Muted toggle was removed with it — it was the only thing that made
-    // this viewer look like a different screen on video vs photo posts.
-    // `muted = false` alone is not enough on iOS — see ensurePlaybackAudioSession.
-    ensurePlaybackAudioSession();
     const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Only feed the video player a source for actual videos. Passing the
     // media_url unconditionally handed every IMAGE post's URL to an AVPlayer
@@ -339,60 +327,12 @@ const FeedCard = memo(
       }
     };
 
-    // Create per-card player
-    const player = useVideoPlayer(videoSource, p => {
-      p.loop = true;
-      p.volume = 1.0;
-      // Sound is ALWAYS on (owner decision 2026-07-16) — there is no mute toggle.
-      p.muted = false;
-      if (isActive && post.media_type === 'video') {
-        try {
-          p.play();
-        } catch (e) {
-          // Video player may not be ready - non-critical
-          if (__DEV__) console.warn('[FeedCard] Video play failed:', e);
-        }
-      }
-    });
-
-    useEffect(() => {
-      if (post.media_type !== 'video') return;
-      setIsVideoLoading(true);
-      setVideoError(null);
-    }, [post.id, post.media_type, post.media_url, videoRetryKey]);
-
-    useEventListener(player, 'statusChange', ({ status, error }) => {
-      if (status === 'loading') {
-        setIsVideoLoading(true);
-        setVideoError(null);
-        return;
-      }
-      if (status === 'readyToPlay') {
-        setIsVideoLoading(false);
-        setVideoError(null);
-        return;
-      }
-      if (status === 'error') {
-        setIsVideoLoading(false);
-        setVideoError(toUserMessage(error, 'Video unavailable'));
-      }
-    });
-
-    useEffect(() => {
-      registerVideo(post.id, player);
-      return () => registerVideo(post.id, null);
-    }, [post.id, player, registerVideo]);
-
-    useEffect(() => {
-      if (post.media_type !== 'video') return;
-      try {
-        if (isActive) player.play();
-        else player.pause();
-      } catch (e) {
-        // Video player state change failed - non-critical
-        if (__DEV__) console.warn('[FeedCard] Video play/pause failed:', e);
-      }
-    }, [isActive, post.media_type, player]);
+    const {
+      player,
+      isLoading: isVideoLoading,
+      errorMessage: videoError,
+      retry: handleRetryVideo,
+    } = usePlaybackLifecycle(videoSource?.uri, { autoPlay: true, paused: !isActive, loop: true });
 
     const handleTap = () => {
       const now = Date.now();
@@ -401,12 +341,6 @@ const FeedCard = memo(
       }
       lastTapRef.current = now;
     };
-
-    const handleRetryVideo = useCallback(() => {
-      setVideoError(null);
-      setIsVideoLoading(true);
-      setVideoRetryKey(prev => prev + 1);
-    }, []);
 
     const authorLabel = post.author?.username ? `@${post.author.username}` : 'Anonymous';
 
@@ -835,8 +769,6 @@ function GameVerticalFeedScreen({
   const headerTitle = title || game?.title || 'Game';
 
   // Store VideoPlayer instances by post id
-  const videoRefs = useRef<Record<string, any | null>>({});
-  const isScreenFocusedRef = useRef(true);
   const flatListRef = useRef<FlatList<FeedPost>>(null);
 
   const cursorRef = useRef<string | null>(null);
@@ -912,31 +844,6 @@ function GameVerticalFeedScreen({
     hasMoreRef.current = false;
     setLoading(false);
   }, [usingInitial, initialPosts, startIndex, excludeSet, normalizeUrl, setArrayStateIfChanged]);
-
-  const registerVideo = useCallback((id: string, player: any | null) => {
-    if (!player) {
-      delete videoRefs.current[id];
-    } else {
-      videoRefs.current[id] = player;
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      isScreenFocusedRef.current = true;
-      return () => {
-        isScreenFocusedRef.current = false;
-        Object.values(videoRefs.current).forEach(player => {
-          try {
-            player?.pause?.();
-          } catch (e) {
-            // Non-critical: cleanup pause can fail silently
-            if (__DEV__) console.warn('[GameVerticalFeed] Cleanup pause failed:', e);
-          }
-        });
-      };
-    }, [])
-  );
 
   useEffect(() => {
     if (usingInitial) return;
@@ -1121,27 +1028,6 @@ function GameVerticalFeedScreen({
     },
     [posts.length, viewport.height]
   );
-
-  useEffect(() => {
-    const activeId = posts[activeIndex]?.id;
-    Object.entries(videoRefs.current).forEach(([postId, player]) => {
-      if (!player) return;
-      try {
-        if (
-          postId === activeId &&
-          posts[activeIndex]?.media_type === 'video' &&
-          isScreenFocusedRef.current
-        ) {
-          player.play?.();
-        } else {
-          player.pause?.();
-        }
-      } catch (e) {
-        // Video state sync failed - non-critical
-        if (__DEV__) console.warn('[GameVerticalFeed] Video sync failed for post:', postId, e);
-      }
-    });
-  }, [activeIndex, posts]);
 
   const updatePost = useCallback((postId: string, updater: (post: FeedPost) => FeedPost) => {
     setPosts(prev => prev.map(post => (post.id === postId ? updater(post) : post)));
@@ -1518,7 +1404,6 @@ function GameVerticalFeedScreen({
         onEditPost={(newCaption: string) => handleEditPost(item, newCaption)}
         onCopyLink={() => void handleCopyLink(item)}
         onReportPost={() => handleReportPost(item)}
-        registerVideo={registerVideo}
         insets={{ top: insets.top, bottom: insets.bottom }}
         size={viewport}
         colorScheme={colorScheme}
@@ -1542,7 +1427,6 @@ function GameVerticalFeedScreen({
       insets.bottom,
       insets.top,
       openComments,
-      registerVideo,
       colorScheme,
       meInfo,
     ]

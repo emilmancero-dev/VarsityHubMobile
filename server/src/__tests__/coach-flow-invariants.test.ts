@@ -370,10 +370,14 @@ describe('coach flow structural invariants', () => {
       expect(organizations).toMatch(
         /const org = await tx\.organization\.create\(\{[\s\S]*data:\s*buildOrganizationCreateData\(data,\s*userId,\s*\{/
       );
-      const helperRouteCalls =
-        organizations.match(/handleOrganizationCreateRequest\(req,\s*res,\s*parsed\.data,\s*\{/g) ||
-        [];
-      expect(helperRouteCalls.length).toBeGreaterThanOrEqual(2);
+      // `/` and `/create` were consolidated onto one shared route handler that
+      // aliases `parsed.data` to `data` and calls the sanitizer-backed helper
+      // once; both routes still reach it via handleOrganizationCreateRoute.
+      expect(/const data = parsed\.data;/.test(organizations)).toBe(true);
+      expect(organizations).toMatch(/handleOrganizationCreateRequest\(req,\s*res,\s*data,\s*\{/);
+      const routeEntryCalls =
+        organizations.match(/handleOrganizationCreateRoute\(req,\s*res,\s*'[^']*'\)/g) || [];
+      expect(routeEntryCalls.length).toBeGreaterThanOrEqual(2);
     });
 
     it('organization create routes do not spread parsed onboarding payloads into Prisma writes', () => {

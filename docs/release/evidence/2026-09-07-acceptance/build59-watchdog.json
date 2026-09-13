@@ -1,0 +1,438 @@
+{
+  "checkedAt": "2026-09-07T17:44:47.153Z",
+  "event": {
+    "id": "cf2d92c9e045485a859181d5dc5fd4be",
+    "date": "2026-09-07T03:37:58.704000Z",
+    "release": "com.varsithub.varsityhub-ios@1.0.5+59",
+    "tags": [
+      {
+        "key": "app_runtime",
+        "value": "1.0.5"
+      },
+      {
+        "key": "app_version",
+        "value": "1.0.5"
+      },
+      {
+        "key": "device.family",
+        "value": "iOS"
+      },
+      {
+        "key": "dist",
+        "value": "59"
+      },
+      {
+        "key": "environment",
+        "value": "production"
+      },
+      {
+        "key": "event.environment",
+        "value": "native"
+      },
+      {
+        "key": "ota_channel",
+        "value": "production"
+      },
+      {
+        "key": "ota_update_id",
+        "value": "9156dc10-027e-438f-bb3a-b83da9802df8"
+      }
+    ],
+    "contexts": {
+      "app": {
+        "in_foreground": true
+      },
+      "device": {
+        "family": "iOS",
+        "model": "iPhone15,2",
+        "model_id": "D73AP",
+        "simulator": false,
+        "memory_size": 5937102848,
+        "usable_memory": 4494311424
+      },
+      "os": {
+        "version": "26.3.1",
+        "build": "23D8133",
+        "kernel_version": "Darwin Kernel Version 25.3.0: Wed Feb  4 23:04:59 PST 2026; root:xnu-12377.82.2~13/RELEASE_ARM64_T8120"
+      },
+      "trace": {}
+    },
+    "exceptions": [
+      [
+        {
+          "type": "WatchdogTermination",
+          "value": "The OS watchdog terminated your app, possibly because it overused RAM."
+        }
+      ]
+    ],
+    "breadcrumbs": [
+      {
+        "timestamp": "2026-09-07T03:35:03.473000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:03.505000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:04.465000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:04.476000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:04.489000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:04.514000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:05.386000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:05.395000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:05.406000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:05.436000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:05.438000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:05.482000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:05.483000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.043000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.053000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.076000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.134000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.714000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.726000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.742000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.832000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.836000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.854000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.877000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.889000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.890000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.913000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.915000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:06.919000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:35:09.893000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:09.903000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:58.609000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 204
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:35:58.620000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 204
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:36:58.648000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 204
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:36:58.660000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 204
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:36:59.917000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:36:59.922000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:37:00.688000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:37:00.689000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:37:00.699000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:37:00.704000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 200
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:37:00.713000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:37:00.716000Z",
+        "category": "http",
+        "type": "default",
+        "level": "info",
+        "data": {}
+      },
+      {
+        "timestamp": "2026-09-07T03:37:58.690000Z",
+        "category": "http",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 204
+        }
+      },
+      {
+        "timestamp": "2026-09-07T03:37:58.704000Z",
+        "category": "xhr",
+        "type": "http",
+        "level": "info",
+        "data": {
+          "status_code": 204
+        }
+      }
+    ]
+  }
+}

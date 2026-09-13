@@ -415,6 +415,84 @@ describe('api/http — timeout', () => {
   });
 });
 
+describe('api/http — successful response parsing', () => {
+  it.each([false, true])(
+    'rejects malformed JSON without replay (after refresh: %s)',
+    async afterRefresh => {
+      const privateBody = '{"private":"do-not-log-this"';
+      const fetchMock = jest.fn<FetchFn>();
+      if (afterRefresh)
+        fetchMock.mockResolvedValueOnce(mkJsonResponse(401, { error: 'Unauthorized' }));
+      fetchMock.mockResolvedValue(mkJsonResponse(201, privateBody));
+      mockRefreshToken.mockResolvedValue({ accessToken: 'fresh-token', reason: 'success' });
+      const http = freshHttp(fetchMock);
+      http.setAuthToken('old-token');
+      const { captureException, captureBreadcrumb } = require('@/utils/sentry');
+
+      const error = await http
+        .httpPostWithOptions('/posts?private=query-do-not-log', {}, 1000, 3)
+        .catch(error => error);
+      expect(error).toMatchObject({
+        name: 'HttpProtocolError',
+        code: 'INVALID_JSON_RESPONSE',
+        isProtocolError: true,
+        status: 201,
+      });
+      expect(error.data).toBeUndefined();
+      expect(error.cause).toBeUndefined();
+      expect(error.message).not.toContain('do-not-log-this');
+      expect(fetchMock).toHaveBeenCalledTimes(afterRefresh ? 2 : 1);
+      expect(captureException).toHaveBeenCalledTimes(1);
+      expect(captureException.mock.calls[0][0]).toBe(error);
+      expect(JSON.stringify(captureException.mock.calls)).not.toContain('do-not-log-this');
+      expect(JSON.stringify(captureException.mock.calls)).not.toContain('query-do-not-log');
+      expect(JSON.stringify(captureBreadcrumb.mock.calls)).not.toContain('query-do-not-log');
+      expect(captureException.mock.calls[0][1]).toMatchObject({ path: '/posts', method: 'POST' });
+      http.clearAuthToken();
+    }
+  );
+
+  it('does not retry a malformed successful GET even with a retry budget', async () => {
+    const fetchMock = jest.fn<FetchFn>().mockResolvedValue(mkJsonResponse(200, '   '));
+    const http = freshHttp(fetchMock);
+    await expect(http.httpGet('/feed', {}, 1000, 3)).rejects.toMatchObject({
+      code: 'INVALID_JSON_RESPONSE',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])(
+    'preserves empty successful JSON bodies (after refresh: %s)',
+    async afterRefresh => {
+      const fetchMock = jest.fn<FetchFn>();
+      if (afterRefresh)
+        fetchMock.mockResolvedValueOnce(mkJsonResponse(401, { error: 'Unauthorized' }));
+      fetchMock.mockResolvedValue(mkJsonResponse(204, ''));
+      mockRefreshToken.mockResolvedValue({ accessToken: 'fresh-token', reason: 'success' });
+      const http = freshHttp(fetchMock);
+      http.setAuthToken('old-token');
+      await expect(http.httpPost('/posts', {})).resolves.toBeNull();
+      http.clearAuthToken();
+    }
+  );
+
+  it('preserves valid JSON null and non-JSON text responses', async () => {
+    const fetchMock = jest
+      .fn<FetchFn>()
+      .mockResolvedValueOnce(mkJsonResponse(200, 'null'))
+      .mockResolvedValueOnce(mkHtmlResponse(200, 'plain response'));
+    const http = freshHttp(fetchMock);
+    await expect(http.httpGet('/null')).resolves.toBeNull();
+    await expect(http.httpGet('/text')).resolves.toBe('plain response');
+  });
+
+  it('retains the HTTP status for malformed error JSON', async () => {
+    const fetchMock = jest.fn<FetchFn>().mockResolvedValue(mkJsonResponse(403, '{bad'));
+    const http = freshHttp(fetchMock);
+    await expect(http.httpPost('/posts', {})).rejects.toMatchObject({ status: 403, data: null });
+  });
+});
+
 describe('api/http — Sentry reporting boundaries', () => {
   it('does not capture handled 4xx responses such as the non-admin seed endpoint', async () => {
     const fetchMock = jest

@@ -22,6 +22,7 @@ export class RateLimitError extends AppError {
 
     super(429, message, {
       errorCode: options?.errorCode || 'RATE_LIMIT_EXCEEDED',
+      publicMetadata: options?.retryAfter ? { retryAfter: options.retryAfter } : undefined,
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
   }

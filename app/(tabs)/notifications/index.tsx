@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { useAuth } from '@/context/AuthProvider';
 import { inboxHeaderSharedStyles } from '@/components/InboxHeaderShared';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -93,7 +94,7 @@ function NotificationsScreen() {
   }, [data]);
 
   const loading = isPending; // no cached data yet — never gate on background fetch
-  const error = isError ? (queryError as any)?.message || 'Failed to load notifications' : null;
+  const error = isError ? toUserMessage(queryError, 'Failed to load notifications') : null;
 
   useFocusEffect(
     useCallback(() => {

@@ -1,13 +1,11 @@
 import * as ImagePicker from 'expo-image-picker';
 
 /**
- * Single source of truth for video capture/upload settings.
- *
- * Quality: 1080p (H264_1920x1080) across all capture surfaces. MediumQuality
- * (~540p) was the prior default and looked soft on highlight playback; the
- * 150MB upload cap below has ample headroom for 1080p at the 90s post cap.
+ * Camera passthrough preserves captured video. iOS library acquisition uses the
+ * app-owned PHPicker provider path in utils/pickMedia.ts, avoiding SDK 54's
+ * network-disabled PHAssetResource fast path without forcing a video export.
  */
-export const VIDEO_CAPTURE_PRESET = ImagePicker.VideoExportPreset.H264_1920x1080;
+export const VIDEO_CAPTURE_PRESET = ImagePicker.VideoExportPreset.Passthrough;
 
 /** Image upload cap — shared by create-post and BannerUpload (was two independent 10MB literals). */
 export const MAX_IMAGE_SIZE_MB = 10;
@@ -44,7 +42,7 @@ export const MAX_VIDEO_SIZE_BYTES = 150 * 1024 * 1024;
  * wrong comparison at the wrong time: iOS exports a 1080p clip at roughly
  * 14-16 Mbps, so a 90s highlight lands around 160-180MB and was rejected at the
  * picker — even though POST_MAX_DURATION_S explicitly allows 90s and
- * compression would have brought it to ~68MB (90s x 6 Mbps). It also fought the
+ * compression would have brought it to ~45MB (90s x 4 Mbps). It also fought the
  * documented duration policy above: over-limit picks are supposed to open the
  * trimmer, not get bounced.
  *
@@ -61,20 +59,24 @@ export const MAX_PICKED_VIDEO_SIZE_MB = 600;
 export const MAX_PICKED_VIDEO_SIZE_BYTES = MAX_PICKED_VIDEO_SIZE_MB * 1024 * 1024;
 
 /**
- * Target H.264 bitrate for compressed uploads, in bits per second.
- *
- * react-native-compressor's 'auto' mode ignores this and clamps to 1,669,000
- * bps (`maxBitrate` in its native makeVideoBitrate) no matter the resolution —
- * which is why the owner's fest clips were a genuine 1080x1920 and still looked
- * bad. utils/compressVideo.ts therefore runs 'manual' mode and passes this.
- *
- * 6 Mbps at 1080x1920@30fps is ~0.1 bits/pixel — enough for high-motion sports
- * footage, and ~3.6x what auto allowed. Size stays well inside the 150MB cap:
- * the 90s POST_MAX_DURATION_S worst case is ~68MB. Raising this further trades
- * directly against upload time on congested venue wifi, so it is a knob, not a
- * constant to bump casually.
+ * Upload encode target: preserve 1080p detail while bounding transfer bytes.
+ * Manual mode avoids the encoder's aggressive auto bitrate clamp. At 4 Mbps,
+ * 20 seconds is ~10 MB and 90 seconds ~45 MB before audio/container overhead.
+ * This is a target, not a guaranteed output size; always inspect final bytes.
  */
-export const VIDEO_TARGET_BITRATE_BPS = 6_000_000;
+export const VIDEO_TARGET_BITRATE_BPS = 4_000_000;
+/** Encode only when estimated payload savings exceed 20%, excluding tiny clips. */
+export const VIDEO_BITRATE_HEADROOM = 1.25;
+
+/**
+ * Resolution ceiling (long edge, px). A clip taller/wider than this is
+ * downscaled to 1080p by the compressor; a clip already at or under it is left
+ * alone. 1920 keeps full 1080p in either orientation (1080x1920 / 1920x1080).
+ * This is the "smart" half of the compression decision: we re-encode a video
+ * when it is genuinely too big (over the upload cap) OR too large on screen
+ * (4K/1440p), and skip the transcode when it is already a lean 1080p clip.
+ */
+export const VIDEO_MAX_LONG_EDGE_PX = 1920;
 
 /**
  * Client-side compression threshold.
@@ -82,7 +84,7 @@ export const VIDEO_TARGET_BITRATE_BPS = 6_000_000;
  * Videos below this size are usually already small enough after the picker's
  * export preset and do not need another compression pass before upload.
  */
-export const VIDEO_COMPRESSION_THRESHOLD_MB = 8;
+export const VIDEO_COMPRESSION_THRESHOLD_MB = 3;
 export const VIDEO_COMPRESSION_THRESHOLD_BYTES = VIDEO_COMPRESSION_THRESHOLD_MB * 1024 * 1024;
 
 export function isNativeVideoTrimSupported(platform: string): boolean {

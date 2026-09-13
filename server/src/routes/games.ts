@@ -1,3 +1,5 @@
+import { storyRequestIdentity, recoverStoryRequest } from '../lib/storyRequestRecovery.js';
+import { assertReadyMediaForOwner } from '../lib/mediaUploadOwnership.js';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { logAdminActivity } from '../lib/adminActivityLogger.js';
@@ -74,7 +76,7 @@ const isVideoUrl = (url?: string | null) => {
   return ['.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv'].some(ext => sanitized.endsWith(ext));
 };
 
-const serializeMedia = (story: any) => {
+export const serializeMedia = (story: any) => {
   const isVideo = isVideoUrl(story.media_url);
   return {
     id: story.id,
@@ -109,7 +111,7 @@ const posterGenInFlight = new Set<string>();
  * reaches every client regardless of app build, and backfills already-posted
  * videos the first time the story list is viewed). Never throws.
  */
-function ensureStoryPoster(
+export function ensureStoryPoster(
   p: StoryDeps['prisma'],
   story: { id: string; media_url?: string | null; poster_url?: string | null }
 ): void {
@@ -131,7 +133,7 @@ function ensureStoryPoster(
   })();
 }
 
-const isMissingStoryLocationColumnError = (error: any): boolean => {
+export const isMissingStoryLocationColumnError = (error: any): boolean => {
   if (!error || error.code !== 'P2022') return false;
   const modelName = String(error?.meta?.modelName ?? '');
   const column = String(error?.meta?.column ?? '');
@@ -146,7 +148,13 @@ const locationSchema = z
   })
   .optional();
 
-const storySchema = z.object({
+export const storySchema = z.object({
+  client_request_id: z
+    .string()
+    .min(16)
+    .max(128)
+    .regex(/^[a-zA-Z0-9_-]+$/)
+    .optional(),
   media_url: z
     .string()
     .url({ message: 'media_url must be a valid URL' })
@@ -338,6 +346,24 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
     const id = String(req.params.id);
     const parsed = storySchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
+    const requestIdentity = storyRequestIdentity(req.user.id, 'game:' + id, parsed.data);
+    const replayStory = async () => {
+      try {
+        const existing = await recoverStoryRequest(p, requestIdentity, req.user!.id);
+        if (!existing) return false;
+        res.status(200).json(existing);
+      } catch (error: any) {
+        if (error?.status !== 409) throw error;
+        sendError(
+          res,
+          409,
+          'This request conflicts with a previous submission. Please refresh and try again.',
+          { code: 'IDEMPOTENCY_CONFLICT' }
+        );
+      }
+      return true;
+    };
+    if (await replayStory()) return;
 
     {
       const game = await p.game.findUnique({
@@ -355,12 +381,9 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
         },
       });
 
-      const isDemoMatchup =
-        typeof game?.description === 'string' && game.description.includes('[DEMO_MATCHUP]');
-
       const isAdmin = await getIsAdmin(req as any);
 
-      if (!isDemoMatchup && !isAdmin && game?.events && game.events.length > 0) {
+      if (!isAdmin && game?.events && game.events.length > 0) {
         const event = game.events[0];
         const location = parsed.data.location;
         const hasDeviceOriginLocation =
@@ -402,11 +425,38 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
     const lat = location?.lat ?? null;
     const lng = location?.lng ?? null;
 
+    let verifiedMedia;
+    try {
+      verifiedMedia = await assertReadyMediaForOwner(
+        req.user.id,
+        parsed.data.media_url,
+        parsed.data.poster_url,
+        20.25 // Nominal 20s story + 250ms frame/audio mux tolerance, matching the client trim gate.
+      );
+    } catch (error: any) {
+      if (error?.status !== 422) throw error;
+      return sendError(
+        res,
+        422,
+        error.code === 'MEDIA_DURATION_EXCEEDED'
+          ? 'Stories are limited to 20 seconds. Trim this video and retry.'
+          : 'This media is not ready. Please upload it again.',
+        {
+          code:
+            error.code === 'MEDIA_DURATION_EXCEEDED'
+              ? 'MEDIA_DURATION_EXCEEDED'
+              : 'MEDIA_NOT_READY',
+        }
+      );
+    }
     const createData: any = {
+      ...(requestIdentity
+        ? { id: requestIdentity.id, client_request_hash: requestIdentity.hash }
+        : {}),
       game_id: id,
       user_id: req.user.id,
       media_url: parsed.data.media_url,
-      poster_url: parsed.data.poster_url ?? undefined,
+      poster_url: verifiedMedia?.poster_url ?? parsed.data.poster_url ?? undefined,
       caption: parsed.data.caption ? stripHtml(parsed.data.caption) : undefined,
     };
     if (typeof lat === 'number') createData.lat = lat;
@@ -416,6 +466,7 @@ const makeCreateStoryHandler = ({ prisma: p }: StoryDeps) =>
     try {
       story = await p.story.create({ data: createData });
     } catch (error: any) {
+      if (error?.code === 'P2002' && (await replayStory())) return;
       if (!isMissingStoryLocationColumnError(error)) {
         console.error('[stories] Failed to create story:', error);
         return res.status(500).json({ error: 'Failed to create story' });
@@ -1776,7 +1827,17 @@ gamesRouter.post(
           longitude: eventLng,
           game_id: game.id,
           team_id: associatedTeamId,
-          status: gameData.approval_status || 'pending',
+          // EventStatus enum is draft|approved|rejected|cancelled — it has NO
+          // `pending` member. approval_status ('pending') must map to `draft`,
+          // in parity with POST /events (status: approved|draft). Passing
+          // 'pending' here threw an invalid-enum error that was swallowed into a
+          // generic 500 for every not-yet-approved game create.
+          status:
+            gameData.approval_status === 'approved'
+              ? 'approved'
+              : gameData.approval_status === 'rejected'
+                ? 'rejected'
+                : 'draft',
           approval_status: gameData.approval_status || 'pending',
           creator_id: req.user!.id,
           creator_role: isCoach ? 'coach' : 'fan',
@@ -2080,10 +2141,7 @@ gamesRouter.post(
       return res.status(201).json({ ok: true, created_count: created.length, games: created });
     } catch (err: any) {
       console.error('[games/bulk] failed — rolled back:', err?.message || err);
-      return res.status(500).json({
-        error: 'Bulk game creation failed and was rolled back.',
-        detail: err?.message || 'unknown',
-      });
+      return sendError(res, 500, 'Unable to create games. Please try again.');
     }
   })
 );

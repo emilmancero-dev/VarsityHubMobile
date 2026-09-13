@@ -20,7 +20,7 @@ const debugScreen = read('app/debug.tsx');
 describe('event route helper contract', () => {
   it('builds the canonical event detail href from one shared pathname constant', () => {
     expect(routeHelper).toContain("export const EVENT_DETAIL_PATHNAME = '/event-detail' as const;");
-    expect(buildEventDetailHref(' event_123 ')).toBe('/event-detail?id=event_123');
+    expect(buildEventDetailHref(' event_123 ')).toBe('/game/event_123?eventId=event_123');
     expect(EVENT_DETAIL_PATHNAME).toBe('/event-detail');
   });
 

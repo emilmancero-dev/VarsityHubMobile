@@ -71,24 +71,50 @@ describe('event discovery contract', () => {
       'game:game-1',
       'event:event-only',
     ]);
+    // The map surface projects each card down to a lean marker (only what the
+    // client map renders). Marker fields survive...
     expect(result.items[0]).toMatchObject({
+      source_type: 'game',
       event_id: 'event-linked',
       game_id: 'game-1',
-      map_visibility: { visible: true },
-      posting_capabilities: {
-        window_state: 'live',
-        geofence_radius_km: 3,
-      },
     });
     expect(result.items[1]).toMatchObject({
       source_type: 'event',
       event_id: 'event-only',
       game_id: null,
       sport: 'basketball',
-      live_window: {
-        live_until: '2026-09-01T12:00:00.000Z',
-      },
     });
+    // ...and the heavy card-only fields are stripped, so a pin is not a ~1KB card.
+    const MARKER_KEYS = new Set([
+      'id',
+      'source_type',
+      'event_id',
+      'game_id',
+      'has_posts',
+      'title',
+      'date',
+      'location',
+      'latitude',
+      'longitude',
+      'sport',
+      'league_slug',
+      'league_name',
+      'league_level',
+      'league_gender',
+      'pro_home_color',
+      'pro_away_color',
+      'upload_access',
+    ]);
+    for (const item of result.items) {
+      for (const key of Object.keys(item)) {
+        expect(MARKER_KEYS.has(key)).toBe(true);
+      }
+      expect(item).not.toHaveProperty('map_visibility');
+      expect(item).not.toHaveProperty('posting_capabilities');
+      expect(item).not.toHaveProperty('live_window');
+      expect(item).not.toHaveProperty('banner_url');
+      expect(item).not.toHaveProperty('feed_priority');
+    }
   });
 
   it('enforces the map discovery window server-side by default', async () => {
@@ -102,11 +128,17 @@ describe('event discovery contract', () => {
 
     await listEventDiscoveryItems(db, { surface: 'map', now });
 
+    // The DB fetch floor is widened 24h back of `now` (MAP_LIVE_LOOKBACK_MS) so an
+    // already-started-but-still-live fixture (e.g. an NFL game mid-broadcast)
+    // isn't excluded before the precise per-item live-window filter runs. This is
+    // a fetch-only safety margin, not the visibility gate — see the "still shows
+    // an in-progress game" / "still hides a long-finished game" tests below for
+    // the actual gate.
     expect(db.game.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           date: {
-            gte: now,
+            gte: new Date('2026-08-30T12:00:00.000Z'),
             lte: new Date('2026-09-05T12:00:00.000Z'),
           },
         }),
@@ -117,12 +149,98 @@ describe('event discovery contract', () => {
         where: expect.objectContaining({
           game_id: null,
           date: {
-            gte: now,
+            gte: new Date('2026-08-30T12:00:00.000Z'),
             lte: new Date('2026-09-05T12:00:00.000Z'),
           },
         }),
       })
     );
+  });
+
+  it('still shows an in-progress game on the default live map (kickoff already passed, live window has not ended)', async () => {
+    const now = new Date('2026-09-13T19:30:00.000Z');
+    const kickoff = new Date('2026-09-13T17:00:00.000Z'); // started 2.5h ago
+    const db: any = {
+      game: {
+        findMany: jest.fn(async () => [
+          {
+            id: 'game-live',
+            title: 'Bills at Texans',
+            date: kickoff,
+            location: 'NRG Stadium',
+            latitude: 29.6847,
+            longitude: -95.4107,
+            banner_url: null,
+            cover_image_url: null,
+            events: [
+              {
+                id: 'event-live',
+                date: kickoff,
+                location: 'NRG Stadium',
+                banner_url: null,
+                game_id: 'game-live',
+                exclusive_poster_id: null,
+                live_window_hours_after_start: 3,
+                proHomeTeam: null,
+                proAwayTeam: null,
+              },
+            ],
+            homeTeam: { sport: 'football' },
+            awayTeam: null,
+          },
+        ]),
+      },
+      event: { findMany: jest.fn(async () => []) },
+      eventDesignatedPoster: { findMany: jest.fn(async () => []) },
+      eventPostingUnlock: { findMany: jest.fn(async () => []) },
+    };
+
+    const result = await listEventDiscoveryItems(db, { surface: 'map', now });
+
+    expect(result.items.map(item => item.id)).toContain('game-live');
+  });
+
+  it('still hides a long-finished game with no posts from the default live map', async () => {
+    const now = new Date('2026-09-13T19:30:00.000Z');
+    const kickoff = new Date('2026-09-13T09:00:00.000Z'); // started 10.5h ago, 3h window long over
+    const db: any = {
+      game: {
+        findMany: jest.fn(async () => [
+          {
+            id: 'game-finished',
+            title: 'Early Kickoff at Somewhere',
+            date: kickoff,
+            location: 'Old Stadium',
+            latitude: 29.6847,
+            longitude: -95.4107,
+            banner_url: null,
+            cover_image_url: null,
+            events: [
+              {
+                id: 'event-finished',
+                date: kickoff,
+                location: 'Old Stadium',
+                banner_url: null,
+                game_id: 'game-finished',
+                exclusive_poster_id: null,
+                live_window_hours_after_start: 3,
+                proHomeTeam: null,
+                proAwayTeam: null,
+              },
+            ],
+            homeTeam: { sport: 'football' },
+            awayTeam: null,
+          },
+        ]),
+      },
+      event: { findMany: jest.fn(async () => []) },
+      eventDesignatedPoster: { findMany: jest.fn(async () => []) },
+      eventPostingUnlock: { findMany: jest.fn(async () => []) },
+    };
+
+    const result = await listEventDiscoveryItems(db, { surface: 'map', now });
+
+    expect(result.items.map(item => item.id)).not.toContain('game-finished');
   });
 
   it('caps the map window to the five-day range even when the pick is in the past', async () => {
@@ -181,7 +299,7 @@ describe('event discovery contract', () => {
     );
   });
 
-  it('default map surface requires media before surfacing past event-only pages', async () => {
+  it('default map surface requires viewer-visible posts before surfacing past pages', async () => {
     const now = new Date('2026-08-31T12:00:00.000Z');
     const db: any = {
       game: { findMany: jest.fn(async () => []) },
@@ -200,16 +318,13 @@ describe('event discovery contract', () => {
     expect(db.event.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          OR: [
-            { date: { gte: now } },
-            { posts: { some: { media_url: { not: null }, deleted_at: null } } },
-          ],
+          OR: [{ date: { gte: now } }, { posts: { some: { id: { in: [] } } } }],
         }),
       })
     );
   });
 
-  it('explicit past-date map surface can return event-only pages before media exists', async () => {
+  it('explicit past-date map surface hides empty event pages', async () => {
     const now = new Date('2026-09-02T19:30:00.000Z');
     const eventDate = new Date('2026-08-29T17:05:00.000Z');
     const db: any = {
@@ -248,21 +363,12 @@ describe('event discovery contract', () => {
 
     expect(db.event.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.not.objectContaining({
-          OR: [
-            { date: { gte: now } },
-            { posts: { some: { media_url: { not: null }, deleted_at: null } } },
-          ],
+        where: expect.objectContaining({
+          OR: [{ date: { gte: now } }, { posts: { some: { id: { in: [] } } } }],
         }),
       })
     );
-    expect(result.items).toEqual([
-      expect.objectContaining({
-        id: 'yankees-event',
-        title: 'Red Sox at Yankees',
-        map_visibility: expect.objectContaining({ visible: true }),
-      }),
-    ]);
+    expect(result.items).toEqual([]);
   });
 
   it('keeps standalone sports-league events in sport-filtered discovery', async () => {
@@ -318,16 +424,18 @@ describe('event discovery contract', () => {
         }),
       })
     );
+    // Lean map marker: league metadata the client filter needs survives the
+    // projection; the card-only sports_league_id / map_visibility do not.
     expect(result.items).toEqual([
       expect.objectContaining({
         id: 'atp-event',
         sport: 'tennis',
-        sports_league_id: 'sports_league_atp',
         league_slug: 'atp',
         league_name: 'ATP Tour',
-        map_visibility: expect.objectContaining({ visible: true }),
       }),
     ]);
+    expect(result.items[0]).not.toHaveProperty('sports_league_id');
+    expect(result.items[0]).not.toHaveProperty('map_visibility');
   });
 
   it('does not report designated-poster upload access after the 7-day unlock expires', async () => {

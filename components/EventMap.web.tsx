@@ -1,3 +1,4 @@
+import { resolveMarkerColor } from '@/utils/mapMarkerColor';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
@@ -8,6 +9,7 @@ import type { EventMapProps } from './EventMap.types';
 type MarkerPayload = {
   id: string;
   title: string;
+  color: string;
   latitude: number;
   longitude: number;
   type?: 'game' | 'event' | 'post';
@@ -86,7 +88,7 @@ function buildMapDocument(markers: MarkerPayload[], mapId: string, isDark: boole
     markers.forEach(marker => {
       const position = [marker.latitude, marker.longitude];
       bounds.push(position);
-      const leafletMarker = L.marker(position).addTo(map);
+      const leafletMarker = L.circleMarker(position, { radius: 9, color: marker.color, fillColor: marker.color, fillOpacity: 1, weight: 2 }).addTo(map);
       const title = String(marker.title || 'Event');
       const safeTitle = title
         .replace(/&/g, '&amp;')
@@ -147,11 +149,12 @@ export default function EventMapWeb({ events, onEventPress, dataLoaded = true }:
         .map(event => ({
           id: String(event.id),
           title: event.title,
+          color: resolveMarkerColor(event),
           latitude: Number(event.latitude),
           longitude: Number(event.longitude),
           type: event.type,
         })),
-    [events]
+    [events, colorScheme]
   );
 
   useEffect(() => {
@@ -189,11 +192,11 @@ export default function EventMapWeb({ events, onEventPress, dataLoaded = true }:
         ]}
       >
         <Text style={[styles.title, { color: Colors[colorScheme].text }]}>
-          {dataLoaded ? 'No Mapped Games Yet' : 'Loading Map'}
+          {dataLoaded ? 'No matching events on the map' : 'Loading Map'}
         </Text>
         <Text style={[styles.subtitle, { color: Colors[colorScheme].mutedText }]}>
           {dataLoaded
-            ? 'Games will appear here once they have location coordinates.'
+            ? 'Try another date, sport, or league. Only events with a mapped location appear here.'
             : 'Preparing nearby games map.'}
         </Text>
       </View>
@@ -220,7 +223,7 @@ export default function EventMapWeb({ events, onEventPress, dataLoaded = true }:
       </View>
       <View style={styles.legendRow}>
         <Text style={[styles.legendText, { color: Colors[colorScheme].mutedText }]}>
-          Tap a marker to open game details.
+          Gold: has posts. Other colors: team/sport. Tap a marker for details.
         </Text>
         <Pressable
           accessibilityRole="link"

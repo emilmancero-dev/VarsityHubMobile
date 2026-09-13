@@ -21,7 +21,12 @@ describe('admin session-expiry UI guards', () => {
 
   it('league-owner approvals screen defers expired-session errors to the global auth handler', () => {
     expect(approvalsSource).toContain('Organization.reviewSummaries()');
-    expect(approvalsSource).toContain('setError(err instanceof Error ? err.message');
+    // Error-to-string mapping was centralized through toUserMessage() instead
+    // of an inline `err instanceof Error ? err.message` ternary; the
+    // session-expiry guard is what actually defers to the global handler.
+    expect(approvalsSource).toMatch(/from ['"]@\/utils\/sessionExpiryError['"]/);
+    expect(approvalsSource).toContain('if (isSessionExpiryError(err)) {');
+    expect(approvalsSource).toContain('setError(toUserMessage(err,');
     expect(approvalsSource).not.toContain("Alert.alert('Session expired'");
     expect(approvalsSource).not.toContain('Your admin session expired. Please sign in again.');
   });

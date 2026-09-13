@@ -13,6 +13,7 @@ import { debugLog } from './debugLog.js';
 import { captureException } from './sentry.js';
 import { buildRowValuesClause, enumCastTypeName } from './dbBackupSql.js';
 import { TABLES_IN_ORDER, DEFERRED_FK_COLUMNS, BACKUP_EXCLUDED_TABLES } from './dbBackupTables.js';
+import { withBackupSyncEvidence } from './backupSyncEvidence.js';
 
 /**
  * Replay the primary's enum catalog onto the backup.
@@ -65,12 +66,14 @@ async function reconcileBackupEnums(primary: PrismaClient, backup: PrismaClient)
   }
 }
 
-export async function syncDatabaseBackup(): Promise<{
+interface BackupSyncResult {
   success: boolean;
   tablesSync: number;
   totalRows: number;
   error?: string;
-}> {
+}
+
+export async function syncDatabaseBackup(): Promise<BackupSyncResult> {
   const backupUrl = process.env.DATABASE_BACKUP_URL;
   if (!backupUrl) {
     debugLog('[db-backup] DATABASE_BACKUP_URL not set, skipping sync');
@@ -82,7 +85,17 @@ export async function syncDatabaseBackup(): Promise<{
     };
   }
 
-  const primary = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+  const primaryUrl = process.env.DATABASE_URL || '';
+  return withBackupSyncEvidence(primaryUrl, backupUrl, () =>
+    copyDatabaseBackup(primaryUrl, backupUrl)
+  );
+}
+
+async function copyDatabaseBackup(
+  primaryUrl: string,
+  backupUrl: string
+): Promise<BackupSyncResult> {
+  const primary = new PrismaClient({ datasourceUrl: primaryUrl });
   const backup = new PrismaClient({ datasourceUrl: backupUrl });
 
   let tablesSync = 0;

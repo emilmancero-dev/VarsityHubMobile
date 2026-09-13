@@ -1,3 +1,15 @@
+import { toUserMessage } from '@/utils/toUserMessage';
+import { persistPreparedMedia } from '@/utils/mediaDraftFiles';
+import { cleanupConfirmedVideoDraft } from '@/utils/compressVideo';
+import { launchMediaLibraryAsync, launchMediaCameraAsync } from '@/utils/pickMedia';
+import {
+  PostRecovery,
+  recoveryForOwner,
+  reusableUpload,
+  newPostRequestId,
+  assertCreatedPost,
+  recoveryAfterPostRejection,
+} from '@/utils/postRecovery';
 import { safeGoBack } from '@/utils/navigation';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -181,6 +193,15 @@ function CreatePostScreen() {
   // modal goes away. It is an honest spinner, never a fabricated percentage.
   const [pickPreparing, setPickPreparing] = useState<string | null>(null);
   const [postSuccess, setPostSuccess] = useState(false);
+  // Snapshot of what was just posted, captured before the form resets, so the
+  // success confirmation can show the media preview + the event it attached to
+  // (owner note, Sep 2026: "confirmation page with a check mark… shows post
+  // preview and the event it's attached to").
+  const [successInfo, setSuccessInfo] = useState<{
+    mediaUri?: string;
+    mediaType?: 'image' | 'video';
+    eventLabel?: string;
+  } | null>(null);
   const [trimmedUri, setTrimmedUri] = useState<string | null>(null);
   const showPrecisionWarning =
     Platform.OS === 'android' &&
@@ -190,8 +211,28 @@ function CreatePostScreen() {
   const locationReady =
     typeof location?.latitude === 'number' && typeof location?.longitude === 'number';
   const canTrimVideo = isNativeVideoTrimSupported(Platform.OS);
+
+  // Dismiss the success confirmation: clear the just-posted snapshot, reset the
+  // composer, and return to the feed. Shared by the confirmation's Done button
+  // and the auto-dismiss fallback.
+  const finishSuccess = useCallback(() => {
+    setPostSuccess(false);
+    setSuccessInfo(null);
+    setContent('');
+    setPicked(null);
+    setError(null);
+    safeGoBack(router, '/(tabs)/feed');
+  }, [router]);
+
   const [draftReady, setDraftReady] = useState(false);
   const [contentConsent, setContentConsent] = useState(false);
+  const recoveryRef = useRef<PostRecovery | null>(null);
+  const submittingRef = useRef(false);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const [savingPost, setSavingPost] = useState(false);
+  useEffect(() => () => uploadAbortRef.current?.abort(), []);
+  const currentOwnerRef = useRef(user?.id);
+  currentOwnerRef.current = user?.id;
   const draftLoadedRef = useRef(false);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -235,11 +276,11 @@ function CreatePostScreen() {
   useEffect(() => {
     let active = true;
     void (async () => {
-      if (draftLoadedRef.current) return;
+      if (!user?.id || draftLoadedRef.current) return;
       const draft = await settings.getJson<any>(settings.SETTINGS_KEYS.POST_DRAFT, null);
       if (!active) return;
       draftLoadedRef.current = true;
-      if (!draft || (!draft.content && !draft?.picked?.uri)) {
+      if (!draft || draft.ownerId !== user.id || (!draft.content && !draft?.picked?.uri)) {
         setDraftReady(true);
         return;
       }
@@ -260,6 +301,8 @@ function CreatePostScreen() {
           text: 'Restore',
           onPress: () => {
             setContent(String(draft.content || ''));
+            recoveryRef.current = recoveryForOwner(draft.recovery, user.id);
+            setTrimmedUri(draft.trimmedUri || null);
             if (draft.picked?.uri) {
               setPicked({
                 uri: String(draft.picked.uri),
@@ -267,6 +310,7 @@ function CreatePostScreen() {
                 mime: draft.picked.mime,
                 width: draft.picked.width,
                 height: draft.picked.height,
+                durationS: draft.picked.durationS,
               });
             }
             if (draft.selectedGameId) {
@@ -285,7 +329,7 @@ function CreatePostScreen() {
     return () => {
       active = false;
     };
-  }, [postType]);
+  }, [postType, user?.id]);
 
   // Get media dimensions when picked (for aspect ratio in preview)
   useEffect(() => {
@@ -324,7 +368,7 @@ function CreatePostScreen() {
   }, []);
 
   useEffect(() => {
-    if (!draftReady) return;
+    if (!draftReady || postSuccess) return;
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     draftSaveTimerRef.current = setTimeout(async () => {
       if (submitting) return;
@@ -334,6 +378,9 @@ function CreatePostScreen() {
         return;
       }
       const draft = {
+        ownerId: user?.id,
+        recovery: recoveryForOwner(recoveryRef.current, user?.id),
+        trimmedUri,
         content: content,
         picked,
         selectedGameId: selectedGameId || null,
@@ -346,7 +393,18 @@ function CreatePostScreen() {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [content, picked, selectedGameId, selectedEventId, postType, submitting, draftReady]);
+  }, [
+    content,
+    picked,
+    selectedGameId,
+    selectedEventId,
+    postType,
+    submitting,
+    draftReady,
+    postSuccess,
+    trimmedUri,
+    user?.id,
+  ]);
 
   // Request location permission before event uploads. Event-page posts require
   // device-origin GPS server-side; asking only after media selection can waste
@@ -503,16 +561,31 @@ function CreatePostScreen() {
 
   const pickFromLibraryRaw = async (media: 'image' | 'video') => {
     try {
+      // Request photo-library access before launching. The camera path and
+      // edit-profile already do this; this picker did not, so a device with
+      // denied/limited Photos access failed with the generic "Failed to select
+      // media" error instead of a clear prompt. ('limited' reports granted.)
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert(
+          'Photos permission needed',
+          'Allow VarsityHub access to your photos in Settings to add media to your post.'
+        );
+        return;
+      }
       if (media === 'video') setPickPreparing('Preparing video…');
-      const r = await ImagePicker.launchImageLibraryAsync({
+      const r = await launchMediaLibraryAsync({
         ...pickerMediaTypeFor(media),
         allowsEditing: false, // Don't crop - preserve original photo
-        quality: media === 'image' ? 0.85 : undefined,
+        quality: media === 'image' ? 1 : undefined,
         exif: false,
         videoExportPreset: VIDEO_CAPTURE_PRESET,
       } as any);
       if (!r.canceled && r.assets && r.assets[0]) {
-        const a = { ...r.assets[0], uri: await materializeICloudAssetIfNeeded(r.assets[0].uri) };
+        const a = {
+          ...r.assets[0],
+          uri: await persistPreparedMedia(await materializeICloudAssetIfNeeded(r.assets[0].uri)),
+        };
 
         // Validate file type
         const mimeType = a.mimeType || (media === 'image' ? 'image/jpeg' : 'video/mp4');
@@ -559,6 +632,14 @@ function CreatePostScreen() {
       // v1.0.2 audit fix: use shared iCloud detection (matches BannerUpload patterns)
       if (isICloudError(error)) {
         Alert.alert(ICLOUD_ERROR_TITLE, ICLOUD_ERROR_MESSAGE);
+      } else if (error?.code === 'MEDIA_PICKER_UPDATE_REQUIRED') {
+        // Video selection needs the VarsityMediaPicker native module, which only
+        // ships in a new binary (not OTA). An older installed build hits this —
+        // tell the user to update rather than showing a generic failure.
+        Alert.alert(
+          'Update required',
+          'Video selection requires the latest app build. Please update VarsityHub and try again.'
+        );
       } else {
         Alert.alert('Error', 'Failed to select media. Please try again.');
       }
@@ -585,10 +666,10 @@ function CreatePostScreen() {
       // until the promise resolves — after the export has already run. Keep the
       // label media-neutral rather than guessing.
       setPickPreparing('Preparing media…');
-      const r = await ImagePicker.launchCameraAsync({
+      const r = await launchMediaCameraAsync({
         ...pickerAllMediaTypesProp(),
         allowsEditing: false,
-        quality: 0.85,
+        quality: 1,
         exif: false,
         videoExportPreset: VIDEO_CAPTURE_PRESET,
         // Stops video recording at the cap; ignored for photos.
@@ -596,7 +677,10 @@ function CreatePostScreen() {
         legacy: false,
       } as any);
       if (!r.canceled && r.assets && r.assets[0]) {
-        const a = { ...r.assets[0], uri: await materializeICloudAssetIfNeeded(r.assets[0].uri) };
+        const a = {
+          ...r.assets[0],
+          uri: await persistPreparedMedia(await materializeICloudAssetIfNeeded(r.assets[0].uri)),
+        };
 
         // Auto-detect media type from asset
         const mimeType = a.mimeType || (a.type === 'video' ? 'video/mp4' : 'image/jpeg');
@@ -763,6 +847,10 @@ function CreatePostScreen() {
       return;
     }
 
+    if (recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload) {
+      void doConfirmPost();
+      return;
+    }
     if (__DEV__) console.warn('[CreatePost] confirmPost called');
     if (__DEV__)
       console.warn(
@@ -828,10 +916,15 @@ function CreatePostScreen() {
   };
 
   const doConfirmPost = async () => {
+    if (submittingRef.current) return;
+    const hadPendingPayload = Boolean(
+      recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload
+    );
     // 90s highlight cap: an over-limit pick must go through the trimmer (which
     // clamps its window to the cap) before it can post. Trimmed output is
     // capped by construction, so only the untrimmed original needs checking.
     if (
+      !recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload &&
       picked?.type === 'video' &&
       !trimmedUri &&
       typeof picked.durationS === 'number' &&
@@ -843,6 +936,10 @@ function CreatePostScreen() {
       );
       return;
     }
+    submittingRef.current = true;
+    const uploadController = new AbortController();
+    uploadAbortRef.current = uploadController;
+    setSavingPost(false);
     setSubmitting(true);
     setMediaPhase(picked?.type === 'video' ? 'compressing' : 'uploading');
     setPhaseProgress(0);
@@ -857,7 +954,46 @@ function CreatePostScreen() {
         media_bytes?: number;
         media_duration_s?: number;
       } = {};
-      if (picked?.uri) {
+      const ownerId = user!.id;
+      const source = picked?.type === 'video' && trimmedUri ? trimmedUri : picked?.uri;
+      const savedUpload = source ? reusableUpload(recoveryRef.current, ownerId, source) : null;
+      const persistRecovery = async (recovery: PostRecovery) => {
+        if (currentOwnerRef.current !== ownerId)
+          throw new Error('Your account changed. Please reopen the composer.');
+        await settings.setJson(settings.SETTINGS_KEYS.POST_DRAFT, {
+          ownerId,
+          content,
+          picked,
+          trimmedUri,
+          selectedGameId,
+          selectedEventId,
+          postType,
+          recovery,
+        });
+        const persisted = await settings.getJson<any>(settings.SETTINGS_KEYS.POST_DRAFT, null);
+        if (currentOwnerRef.current !== ownerId)
+          throw new Error('Your account changed. Please reopen the composer.');
+        if (
+          persisted?.ownerId !== ownerId ||
+          JSON.stringify(persisted?.recovery) !== JSON.stringify(recovery)
+        ) {
+          throw new Error(
+            'Could not save upload recovery. Free some device storage and try again.'
+          );
+        }
+        recoveryRef.current = recovery;
+      };
+      await persistRecovery(recoveryForOwner(recoveryRef.current, ownerId) || { ownerId });
+      if (savedUpload) {
+        finalMediaUrl = savedUpload.url;
+        finalPosterUrl = savedUpload.posterUrl || '';
+        Object.assign(mediaMeta, savedUpload.meta);
+      }
+      if (
+        picked?.uri &&
+        !savedUpload &&
+        !recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload
+      ) {
         if (__DEV__) console.warn('[CreatePost] Uploading media...');
         const { getApiBaseUrl } = await import('@/api/http');
         const base = getApiBaseUrl();
@@ -880,6 +1016,10 @@ function CreatePostScreen() {
         // so we upload a single canonical video asset instead of a second
         // thumbnail file and extra signature/upload call.
         const mainUpload = uploadFile(base, uploadUri, name, mime, {
+          signal: uploadController.signal,
+          onPhase: phase => {
+            if (phase === 'processing') setMediaPhase('finalizing');
+          },
           onProgress: pct => setPhaseProgress(pct),
           ...(prepared ? { timeoutMs: uploadTimeoutMsForSize(prepared.finalSizeBytes) } : {}),
         }).catch((uploadErr: any) => {
@@ -899,6 +1039,7 @@ function CreatePostScreen() {
         });
         const res = await mainUpload;
         finalMediaUrl = res?.url || '';
+        finalPosterUrl = (res as any)?.poster_url || '';
         if (!finalMediaUrl) {
           throw new Error('Media upload succeeded but returned no URL. Please try again.');
         }
@@ -909,6 +1050,11 @@ function CreatePostScreen() {
         if (typeof res?.height === 'number') mediaMeta.media_height = res.height;
         if (typeof res?.bytes === 'number') mediaMeta.media_bytes = res.bytes;
         if (typeof res?.duration === 'number') mediaMeta.media_duration_s = res.duration;
+        await persistRecovery({
+          ownerId,
+          sourceUri: source,
+          upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
+        });
         // The bytes are in. The poster upload + the create call are what's left,
         // and neither is worth its own bar segment.
         setMediaPhase('finalizing');
@@ -936,7 +1082,9 @@ function CreatePostScreen() {
               if (thumb?.uri) {
                 if (typeof thumb.width === 'number') mediaMeta.media_width = thumb.width;
                 if (typeof thumb.height === 'number') mediaMeta.media_height = thumb.height;
-                const posterRes = await uploadFile(base, thumb.uri, 'poster.jpg', 'image/jpeg');
+                const posterRes = await uploadFile(base, thumb.uri, 'poster.jpg', 'image/jpeg', {
+                  signal: uploadController.signal,
+                });
                 finalPosterUrl = posterRes?.url || '';
                 if (__DEV__) console.warn('[CreatePost] Poster uploaded:', finalPosterUrl);
               }
@@ -945,17 +1093,11 @@ function CreatePostScreen() {
             if (__DEV__) console.warn('[CreatePost] Poster generation failed:', posterErr?.message);
           }
         }
-        // Clean up temp trimmed files after successful upload
-        try {
-          const filesToClean = [trimmedUri].filter(
-            (f): f is string => !!f && f.startsWith(LegacyFileSystem.cacheDirectory || '')
-          );
-          for (const f of filesToClean) {
-            LegacyFileSystem.deleteAsync(f, { idempotent: true }).catch(() => {});
-          }
-        } catch {
-          /* non-critical cleanup */
-        }
+        await persistRecovery({
+          ownerId,
+          sourceUri: source,
+          upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
+        });
       }
       const trimmedContent = sanitizeText(content);
 
@@ -983,12 +1125,51 @@ function CreatePostScreen() {
         console.warn('[CreatePost] Final payload keys:', Object.keys(payload).join(', '));
 
       // Require event link for highlight posts to ensure they surface on the event page
-      if (postType === 'highlight' && !payload.game_id && !payload.event_id) {
+      if (
+        !recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload &&
+        postType === 'highlight' &&
+        !payload.game_id &&
+        !payload.event_id
+      ) {
         throw new Error('Please attach an event to share a highlight.');
       }
 
       if (__DEV__) console.warn('[CreatePost] Calling Post.create...');
-      await Post.create(payload);
+      if (uploadController.signal.aborted)
+        throw new Error('Upload paused. Your draft is saved; retry when ready.');
+      setSavingPost(true);
+      const pendingPayload = recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload || {
+        ...payload,
+        client_request_id: newPostRequestId(),
+      };
+      await persistRecovery({
+        ...recoveryForOwner(recoveryRef.current, ownerId),
+        ownerId,
+        pendingPayload,
+      });
+      if (currentOwnerRef.current !== ownerId)
+        throw new Error('Your account changed. Please reopen the composer.');
+      try {
+        assertCreatedPost(await Post.create(pendingPayload));
+      } catch (error) {
+        const editableRecovery =
+          currentOwnerRef.current === ownerId
+            ? recoveryAfterPostRejection(
+                recoveryForOwner(recoveryRef.current, ownerId),
+                error,
+                !hadPendingPayload
+              )
+            : null;
+        if (editableRecovery) await persistRecovery(editableRecovery);
+        throw error;
+      }
+      for (const source of [picked?.uri, trimmedUri]) {
+        if (source)
+          void cleanupConfirmedVideoDraft(source).catch(error => {
+            if (__DEV__) console.warn('[CreatePost] Confirmed media cleanup failed:', error);
+          });
+      }
+      recoveryRef.current = null;
       clearPostCache();
       if (__DEV__) console.warn('[CreatePost] Post created successfully!');
       if (selectedEventIds.length > 0) {
@@ -1005,21 +1186,30 @@ function CreatePostScreen() {
       }
 
       setPreviewVisible(false);
+
+      // Capture what was just posted BEFORE the form resets, so the success
+      // confirmation can show the media preview and the attached event.
+      const postedEventLabel = suggestedGame
+        ? suggestedGame.title ||
+          [suggestedGame.home_team, suggestedGame.away_team].filter(Boolean).join(' vs ')
+        : undefined;
+      setSuccessInfo({
+        mediaUri: trimmedUri ?? picked?.uri,
+        mediaType: picked?.type,
+        eventLabel: postedEventLabel || undefined,
+      });
       setPostSuccess(true);
 
-      const finish = () => {
-        setPostSuccess(false);
-        setContent('');
-        setPicked(null);
-        setError(null);
-        safeGoBack(router, '/(tabs)/feed');
-      };
+      // Safety net so the confirmation is never a dead end — the user can also
+      // dismiss it immediately with Done.
+      setTimeout(finishSuccess, 3500);
 
       // Owner rule (2026-07-16): remind attendees to keep event posts on-topic,
       // but only on their FIRST post to a given event page. The server already
       // proved they were there — it accepted the post — so this is a reminder,
       // not a gate. Seen-state is per (user, event); a fan posting thirteen
-      // times reads it once.
+      // times reads it once. Shown over the confirmation; dismissing it leaves
+      // the confirmation visible.
       const showNotice =
         selectedEventIds.length > 0 &&
         (await shouldShowEventPostingNotice(user?.id, selectedEventIds));
@@ -1029,15 +1219,14 @@ function CreatePostScreen() {
         Alert.alert(
           '🏟️ Keep it to the game',
           'Please only post photos and videos from the game. Anything unrelated may result in your post being taken down.',
-          [{ text: 'Got it', onPress: finish }],
-          { onDismiss: finish }
+          [{ text: 'Got it' }]
         );
+      }
+    } catch (e: any) {
+      if (uploadController.signal.aborted && !recoveryRef.current?.pendingPayload) {
+        setError('Upload paused. Your draft is saved; retry when ready.');
         return;
       }
-
-      // Keep checkmark state briefly, then navigate — no full-screen popup
-      setTimeout(finish, 800);
-    } catch (e: any) {
       if (__DEV__)
         console.error('[CreatePost] Error creating post:', {
           message: e?.message,
@@ -1055,7 +1244,7 @@ function CreatePostScreen() {
         setTimeout(() => safeGoBack(router, '/(tabs)/feed'), 800);
         return;
       } else if (issues.length) {
-        setError(issues.map(i => i.message).join('\n'));
+        setError('Please check your post and try again.');
       } else {
         // Provide more helpful error messages
         if (e?.status === 404 && hasSelectedEvent) {
@@ -1078,12 +1267,12 @@ function CreatePostScreen() {
             // rule stays server-side, so just show it. Title is deliberately
             // neutral — the old 'Not Yet' read as "come back later" on a
             // finished event, where there is no later.
-            const msg = e?.data?.message || 'Posting is not open for this event.';
+            const msg = toUserMessage(e, 'Posting is not open for this event.');
             Alert.alert('Posting Closed', msg);
             setError(msg);
           } else if (code === 'TOO_FAR_FROM_VENUE') {
             const dist = e?.data?.distance;
-            const msg = e?.data?.message || 'You must be within 3 km of the venue to post.';
+            const msg = toUserMessage(e, 'You must be within 3 km of the venue to post.');
             analytics.track(ANALYTICS_EVENTS.GEOFENCE_BLOCKED, { distance: dist });
             Alert.alert(
               'Not at the Venue',
@@ -1113,12 +1302,7 @@ function CreatePostScreen() {
             // `message` over `error`: on this envelope `error` is the CODE, so
             // the old order showed users raw strings like
             // "EXCLUSIVE_POSTER_ONLY" whenever a code had no branch above.
-            const msg =
-              e?.data?.message ||
-              (typeof e?.data?.error === 'string' && !/^[A-Z][A-Z0-9_]{2,}$/.test(e.data.error)
-                ? e.data.error
-                : null) ||
-              'You do not have permission to post to this event.';
+            const msg = toUserMessage(e, 'You do not have permission to post to this event.');
             Alert.alert('Cannot Post', msg);
             setError(msg);
           }
@@ -1126,11 +1310,14 @@ function CreatePostScreen() {
           setError(
             e?.status === 429
               ? 'You have hit the hourly upload limit. Wait a few minutes and try again.'
-              : e?.message || 'Failed to create post. Please try again.'
+              : toUserMessage(e, 'Failed to create post. Please try again.')
           );
         }
       }
     } finally {
+      submittingRef.current = false;
+      uploadAbortRef.current = null;
+      setSavingPost(false);
       setSubmitting(false);
       setPhaseProgress(0);
       if (!postSuccess) setPreviewVisible(false);
@@ -1168,10 +1355,63 @@ function CreatePostScreen() {
     );
   }
 
+  // Disable the left-edge swipe-back while a trimmable video is loaded: the
+  // trimmer's left handle sits inside the 40px edge zone, so an edge-swipe would
+  // hijack the trim drag and navigate back instead (owner note, Sep 2026).
+  const trimmerActive = picked?.type === 'video' && canTrimVideo;
+
   return (
-    <SwipeBackContainer>
+    <SwipeBackContainer enabled={!trimmerActive}>
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme].background }]}>
         <Stack.Screen options={{ headerShown: false }} />
+
+        {/* Success confirmation — check mark, a preview of what was posted, and
+            the event it attached to (owner note, Sep 2026). */}
+        {postSuccess && successInfo && (
+          <View
+            style={[styles.successOverlay, { backgroundColor: Colors[colorScheme].background }]}
+          >
+            <View style={styles.successCheckCircle}>
+              <Ionicons name="checkmark" size={44} color="#FFFFFF" />
+            </View>
+            <Text style={[styles.successTitle, { color: Colors[colorScheme].text }]}>
+              {postType === 'highlight' ? 'Highlight shared!' : 'Posted!'}
+            </Text>
+            {successInfo.mediaUri ? (
+              successInfo.mediaType === 'video' ? (
+                <View style={[styles.successPreview, styles.successVideoPreview]}>
+                  <Ionicons name="videocam" size={32} color="#FFFFFF" />
+                </View>
+              ) : (
+                <RNImage
+                  source={{ uri: successInfo.mediaUri }}
+                  style={styles.successPreview}
+                  resizeMode="cover"
+                />
+              )
+            ) : null}
+            {successInfo.eventLabel ? (
+              <View style={styles.successEventRow}>
+                <Ionicons name="calendar-outline" size={16} color={Colors[colorScheme].mutedText} />
+                <Text
+                  style={[styles.successEventText, { color: Colors[colorScheme].mutedText }]}
+                  numberOfLines={1}
+                >
+                  {successInfo.eventLabel}
+                </Text>
+              </View>
+            ) : null}
+            <Pressable
+              testID="create-post-success-done"
+              onPress={finishSuccess}
+              style={[styles.successDoneButton, { backgroundColor: Colors[colorScheme].tint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+            >
+              <Text style={styles.successDoneText}>Done</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Header */}
         <View
@@ -1250,30 +1490,30 @@ function CreatePostScreen() {
             <View style={styles.tilesRow}>
               <Pressable
                 testID="create-post-photo-picker"
-                style={[styles.tile, styles.primaryTile]}
+                style={[styles.tile, styles.photoTile]}
                 onPress={() => pickFromLibrary('image')}
                 accessibilityLabel="Photo Gallery"
               >
                 <Ionicons name="image-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.tileLabel, styles.primaryTileLabel]}>Photo</Text>
+                <Text style={[styles.tileLabel, styles.lightTileLabel]}>Photo</Text>
               </Pressable>
               <Pressable
                 testID="create-post-camera-picker"
-                style={[styles.tile, styles.primaryTile]}
+                style={[styles.tile, styles.cameraTile]}
                 onPress={() => captureWithCamera()}
                 accessibilityLabel="Camera"
               >
-                <Ionicons name="camera-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.tileLabel, styles.primaryTileLabel]}>Camera</Text>
+                <Ionicons name="camera-outline" size={24} color="#1B2430" />
+                <Text style={[styles.tileLabel, styles.darkTileLabel]}>Camera</Text>
               </Pressable>
               <Pressable
                 testID="create-post-video-picker"
-                style={[styles.tile, styles.primaryTile]}
+                style={[styles.tile, styles.videoTile]}
                 onPress={() => pickFromLibrary('video')}
                 accessibilityLabel="Video Gallery"
               >
-                <Ionicons name="videocam-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.tileLabel, styles.primaryTileLabel]}>Video</Text>
+                <Ionicons name="videocam-outline" size={24} color="#1B2430" />
+                <Text style={[styles.tileLabel, styles.darkTileLabel]}>Video</Text>
               </Pressable>
             </View>
           </View>
@@ -1304,7 +1544,16 @@ function CreatePostScreen() {
                       <VideoTrimmer
                         uri={picked.uri}
                         maxDurationS={POST_MAX_DURATION_S}
-                        onTrimComplete={u => setTrimmedUri(u)}
+                        onTrimComplete={u => {
+                          void persistPreparedMedia(u)
+                            .then(setTrimmedUri)
+                            .catch(error => {
+                              Alert.alert(
+                                'Could not save trim',
+                                toUserMessage(error, 'Please trim the video again.')
+                              );
+                            });
+                        }}
                         onTrimReset={() => setTrimmedUri(null)}
                       />
                     ) : null}
@@ -1986,6 +2235,21 @@ function CreatePostScreen() {
                 </View>
               )}
 
+              {submitting && !savingPost && (
+                <Pressable
+                  onPress={() => uploadAbortRef.current?.abort()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel upload"
+                  style={{ padding: 12, alignItems: 'center' }}
+                >
+                  <Text style={{ color: Colors[colorScheme].text }}>Cancel upload</Text>
+                </Pressable>
+              )}
+              {submitting && savingPost && (
+                <Text style={{ color: Colors[colorScheme].mutedText, textAlign: 'center' }}>
+                  Saving your post. If the connection drops, retry to recover it.
+                </Text>
+              )}
               {/* Action Buttons */}
               <View style={styles.previewActions}>
                 <Pressable
@@ -1995,6 +2259,7 @@ function CreatePostScreen() {
                     { backgroundColor: Colors[colorScheme].surface },
                   ]}
                   onPress={() => setPreviewVisible(false)}
+                  disabled={submitting}
                   accessibilityRole="button"
                   accessibilityLabel="Edit post"
                 >
@@ -2287,9 +2552,21 @@ const styles = StyleSheet.create({
         }),
     elevation: 3,
   },
-  primaryTile: {
-    backgroundColor: '#1B3A6B',
-    borderColor: '#1B3A6B',
+  // Owner note (Sep 2026): the three Add Media tiles are color-coded by medium —
+  // Photo = bronze, Camera = silver, Video = gold. Each carries a foreground
+  // color that stays legible on its background (white on bronze; dark ink on the
+  // lighter silver/gold).
+  photoTile: {
+    backgroundColor: '#A0662E',
+    borderColor: '#A0662E',
+  },
+  cameraTile: {
+    backgroundColor: '#AEB2B8',
+    borderColor: '#AEB2B8',
+  },
+  videoTile: {
+    backgroundColor: '#C9A227',
+    borderColor: '#C9A227',
   },
   tileLabel: {
     fontSize: 12,
@@ -2297,8 +2574,63 @@ const styles = StyleSheet.create({
     // color: Uses dynamic color in JSX
     marginTop: 6,
   },
-  primaryTileLabel: {
+  successOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 16,
+  },
+  successCheckCircle: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: '#16A34A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  successPreview: {
+    width: 140,
+    height: 140,
+    borderRadius: 14,
+    backgroundColor: '#000',
+  },
+  successVideoPreview: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successEventRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+  },
+  successEventText: {
+    fontSize: 14,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  successDoneButton: {
+    marginTop: 8,
+    paddingHorizontal: 40,
+    paddingVertical: 13,
+    borderRadius: 12,
+  },
+  successDoneText: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  lightTileLabel: {
+    color: '#FFFFFF',
+  },
+  darkTileLabel: {
+    color: '#1B2430',
   },
   storyButtonContainer: {
     marginTop: 20,

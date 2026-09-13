@@ -40,7 +40,10 @@ describe('profile grid thumbnails', () => {
     const optimized = profileSource.match(
       /optimizeImageUrl\(media\.previewUrl \|\| media\.displayImageUrl!, 500\)/g
     );
-    expect(optimized?.length).toBe(3); // posts, replies, upvotes grids
+    // 8ad2939e consolidated all three tabs onto one shared tile renderer.
+    expect(optimized?.length).toBe(1);
+    expect(profileSource).toContain('const renderPostGridTile = useCallback');
+    expect(profileSource.match(/renderPostGridList\(\{/g)?.length).toBe(3);
     expect(profileSource).not.toContain('source={{ uri: media.displayImageUrl! }}');
   });
 });

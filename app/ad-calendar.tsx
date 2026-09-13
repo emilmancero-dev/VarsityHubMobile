@@ -591,8 +591,7 @@ function AdCalendarScreen() {
       );
     } catch (err: any) {
       if (__DEV__) console.error('Submit for approval failed:', err);
-      const msg =
-        err?.data?.error || err?.message || 'Failed to submit for approval. Please try again.';
+      const msg = toUserMessage(err, 'Failed to submit for approval. Please try again.');
       Alert.alert('Error', msg);
     } finally {
       setSubmitting(false);
@@ -678,7 +677,7 @@ function AdCalendarScreen() {
           },
           'error'
         );
-        const raw = err?.data?.error || err?.message || 'Failed to start checkout.';
+        const raw = toUserMessage(err, 'Failed to start checkout.');
         Alert.alert('Error', raw);
         setDirty(selected.size > 0);
         setSubmitting(false);
@@ -740,7 +739,14 @@ function AdCalendarScreen() {
           result.ok ? 'info' : 'warning'
         );
         if (!result.ok) {
-          if (result.error) Alert.alert('Payment Error', result.error);
+          if (result.error)
+            Alert.alert(
+              'Payment Error',
+              toUserMessage(
+                { message: result.error },
+                'Unable to complete payment. Please try again.'
+              )
+            );
           return;
         }
         const paidAmount = `$${(totalCents / 100).toFixed(2)}`;
@@ -846,7 +852,7 @@ function AdCalendarScreen() {
           );
           Alert.alert(
             'Payment Error',
-            initError.message || 'Unable to initialize payment. Please try again.'
+            toUserMessage(initError, 'Unable to initialize payment. Please try again.')
           );
           setSubmitting(false);
           return;
@@ -953,7 +959,7 @@ function AdCalendarScreen() {
       } else if (/prod_|price_/i.test(raw)) {
         msg = 'An error occurred starting checkout. Please try again or contact support.';
       } else if (raw) {
-        msg = raw;
+        msg = toUserMessage(err, 'Unable to complete payment. Please try again.');
       } else {
         msg = 'An error occurred starting checkout. Please try again.';
       }

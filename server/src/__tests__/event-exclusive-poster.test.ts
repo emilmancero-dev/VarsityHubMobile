@@ -26,7 +26,9 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
   },
 }));
 
-const { verifyEventPostingPermission } = await import('../lib/geofencing.js');
+const { verifyEventPostingPermission, verifyStoryPostingPermission } = await import(
+  '../lib/geofencing.js'
+);
 
 const baseEvent = (over: Record<string, unknown>) => ({
   id: 'ev1',
@@ -83,6 +85,53 @@ describe('verifyEventPostingPermission — exclusive poster lock', () => {
       baseEvent({ exclusive_poster_id: null, date: new Date('2020-01-01') })
     );
     const res = await verifyEventPostingPermission('ev1', 'anyone', 40, -74);
+    expect(res.allowed).toBe(false);
+    expect(res.code).not.toBe('EXCLUSIVE_POSTER_ONLY');
+  });
+});
+
+describe('verifyStoryPostingPermission — exclusive poster lock', () => {
+  beforeEach(() => {
+    mockEventFindUnique.mockReset();
+    mockGameFindUnique.mockReset();
+    mockDesignatedFindUnique.mockReset();
+    mockDesignatedFindUnique.mockResolvedValue(null);
+    mockUnlockFindUnique.mockReset();
+    mockUnlockFindUnique.mockResolvedValue(null);
+    mockUnlockCreateMany.mockReset();
+    mockUnlockCreateMany.mockResolvedValue({ count: 0 });
+    mockPostFindFirst.mockReset();
+    mockPostFindFirst.mockResolvedValue(null);
+    mockStoryFindFirst.mockReset();
+    mockStoryFindFirst.mockResolvedValue(null);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('allows the exclusive poster to add a story, bypassing window + geofence (no coords, past date)', async () => {
+    mockEventFindUnique.mockResolvedValue(
+      baseEvent({
+        exclusive_poster_id: 'nico',
+        date: new Date('2020-01-01'),
+        latitude: null,
+        longitude: null,
+      })
+    );
+    const res = await verifyStoryPostingPermission('ev1', 'nico', null, null);
+    expect(res.allowed).toBe(true);
+  });
+
+  it('blocks a NON-designated user from adding a story with EXCLUSIVE_POSTER_ONLY, even standing at the venue', async () => {
+    mockEventFindUnique.mockResolvedValue(baseEvent({ exclusive_poster_id: 'nico' }));
+    const res = await verifyStoryPostingPermission('ev1', 'someone-else', 40, -74);
+    expect(res.allowed).toBe(false);
+    expect(res.code).toBe('EXCLUSIVE_POSTER_ONLY');
+  });
+
+  it('falls through to normal story logic when no exclusive poster is set', async () => {
+    mockEventFindUnique.mockResolvedValue(
+      baseEvent({ exclusive_poster_id: null, date: new Date('2020-01-01') })
+    );
+    const res = await verifyStoryPostingPermission('ev1', 'anyone', 40, -74);
     expect(res.allowed).toBe(false);
     expect(res.code).not.toBe('EXCLUSIVE_POSTER_ONLY');
   });

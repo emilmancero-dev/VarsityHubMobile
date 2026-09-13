@@ -20,6 +20,39 @@ describe('Unified search', () => {
   let textOnlyPostId: string;
   let demoTeamId: string;
 
+  it('ranks name matches by distance from now before limiting either source', async () => {
+    const title = `Temporal fixture ${ts}`;
+    const anchor = Date.now();
+    const gameIds: string[] = [];
+    const eventIds: string[] = [];
+    try {
+      for (const hours of [-1, 2, 24 * 365]) {
+        const data = {
+          title,
+          date: new Date(anchor + hours * 3600000),
+          location: 'Test',
+          approval_status: 'approved',
+        };
+        const game = await prisma.game.create({ data });
+        const event = await prisma.event.create({
+          data: { ...data, status: 'approved', creator_id: userId },
+        });
+        gameIds.push(game.id);
+        eventIds.push(event.id);
+      }
+      const result = await request(app)
+        .get('/search')
+        .query({ q: title, limit: 2 })
+        .set('Authorization', `Bearer ${token}`);
+      expect(result.status).toBe(200);
+      expect(result.body.games.map((item: any) => item.id)).toEqual(gameIds.slice(0, 2));
+      expect(result.body.events.map((item: any) => item.id)).toEqual(eventIds.slice(0, 2));
+    } finally {
+      await prisma.event.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.game.deleteMany({ where: { id: { in: gameIds } } });
+    }
+  });
+
   beforeAll(async () => {
     ({ prisma } = await import('../lib/prisma.js'));
     ({ signJwt } = await import('../lib/jwt.js'));

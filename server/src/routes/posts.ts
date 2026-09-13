@@ -1,3 +1,4 @@
+import { assertReadyMediaForOwner } from '../lib/mediaUploadOwnership.js';
 import crypto from 'crypto';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -698,6 +699,12 @@ const MAX_VIDEO_SIZE_BYTES = 150 * 1024 * 1024;
 
 const createPostSchema = z
   .object({
+    client_request_id: z
+      .string()
+      .min(16)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_-]+$/)
+      .optional(),
     title: z.string().min(1).max(200).optional(),
     content: z.string().max(4000).optional(),
     type: z.string().max(50).optional(),
@@ -714,7 +721,12 @@ const createPostSchema = z
       .optional(),
     media_width: z.number().int().positive().max(100000).optional(),
     media_height: z.number().int().positive().max(100000).optional(),
-    media_duration_s: z.number().nonnegative().max(POST_MAX_DURATION_S).optional(),
+    // Match native trim guards and verified provider duration (mux/frame rounding).
+    media_duration_s: z
+      .number()
+      .nonnegative()
+      .max(POST_MAX_DURATION_S + 0.25)
+      .optional(),
     media_bytes: z.number().int().nonnegative().max(MAX_VIDEO_SIZE_BYTES).optional(),
     game_id: z.string().optional(),
     team_id: z.string().optional(), // Associate post with team page (coach-only)
@@ -769,9 +781,53 @@ postsRouter.post(
       });
     }
     const data = parsed.data;
+    const requestPostId = data.client_request_id
+      ? `post_${crypto
+          .createHash('sha256')
+          .update(JSON.stringify([req.user!.id, data.client_request_id]))
+          .digest('hex')}`
+      : undefined;
+    const requestHash = requestPostId
+      ? crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex')
+      : undefined;
+    const replayPost = async () => {
+      if (!requestPostId) return false;
+      const existing = await prisma.post.findUnique({ where: { id: requestPostId } });
+      if (!existing) return false;
+      if (existing.author_id !== req.user!.id || existing.client_request_hash !== requestHash) {
+        sendError(res, 409, 'This post request has already been used with different content.', {
+          code: 'IDEMPOTENCY_CONFLICT',
+        });
+      } else {
+        res.status(200).json({
+          ...existing,
+          title: stripSampleGameTitle(existing.title),
+          preview_url: resolvePreviewUrl(existing),
+        });
+      }
+      return true;
+    };
+    if (await replayPost()) return;
+    let verifiedMedia;
+    try {
+      verifiedMedia = await assertReadyMediaForOwner(req.user!.id, data.media_url, data.poster_url);
+    } catch (error: any) {
+      if (error?.status !== 422) throw error;
+      return sendError(res, 422, 'This media is not ready. Please upload it again.', {
+        code: 'MEDIA_NOT_READY',
+      });
+    }
+    if (verifiedMedia) {
+      data.media_width = verifiedMedia.width;
+      data.media_height = verifiedMedia.height;
+      data.media_bytes = verifiedMedia.bytes;
+      data.media_duration_s = verifiedMedia.duration;
+      data.poster_url = verifiedMedia.poster_url;
+    }
 
     // Dedup guard: reject if identical post submitted within 30s window
     if (
+      !requestPostId &&
       isDuplicatePost(
         req.user!.id,
         data.content || '',
@@ -888,8 +944,6 @@ postsRouter.post(
       let awayTeamId: string | null = null;
 
       // Look up game to get event + team IDs for membership check.
-      // `description` is selected so we can detect [DEMO_MATCHUP]-tagged games.
-      let isDemoMatchup = false;
       if (gameId) {
         const game = await prisma.game.findUnique({
           where: { id: gameId },
@@ -917,11 +971,6 @@ postsRouter.post(
               debugLog(`✅ Found associated event ${targetEventId} for game ${gameId}`);
             }
           }
-          // [DEMO_MATCHUP] carve-out — one-off for Duke v UNC + Cavs v Warriors
-          // promo content. See server/scripts/seed-demo-matchups.ts. This branch
-          // becomes dead code once the demo rows are wiped from the DB.
-          isDemoMatchup =
-            typeof game.description === 'string' && game.description.includes('[DEMO_MATCHUP]');
         }
       }
 
@@ -929,9 +978,7 @@ postsRouter.post(
       // team staff, must satisfy the event posting window and venue geofence.
       const isAdmin = await getIsAdmin(req as any);
 
-      if (isDemoMatchup) {
-        debugLog(`✅ [DEMO_MATCHUP] game ${gameId} — skipping geofencing`);
-      } else if (isAdmin) {
+      if (isAdmin) {
         debugLog(`✅ Geofencing bypassed (isAdmin=${isAdmin})`);
       } else if (targetEventId) {
         // Only device-origin GPS may satisfy the venue geofence (anti-spoof:
@@ -1025,27 +1072,34 @@ postsRouter.post(
     const safeType =
       RESERVED_POST_TYPES.has(requestedType) && !isBroadcastAdmin ? 'post' : requestedType;
 
-    const post = await prisma.post.create({
-      data: {
-        title: finalTitle ? stripHtml(finalTitle) : null,
-        content: data.content ? stripHtml(data.content.trim()) : null,
-        type: safeType,
-        media_url: data.media_url,
-        poster_url: data.poster_url,
-        media_width: data.media_width,
-        media_height: data.media_height,
-        media_duration_s: data.media_duration_s,
-        media_bytes: data.media_bytes,
-        game_id: finalGameId,
-        event_id: finalEventId || undefined,
-        team_id: finalTeamId || undefined,
-        author_id: req.user.id,
-        country_code: country_code || undefined,
-        admin1: admin1 || undefined,
-        lat: typeof lat === 'number' ? lat : undefined,
-        lng: typeof lng === 'number' ? lng : undefined,
-      },
-    });
+    let post;
+    try {
+      post = await prisma.post.create({
+        data: {
+          ...(requestPostId ? { id: requestPostId, client_request_hash: requestHash } : {}),
+          title: finalTitle ? stripHtml(finalTitle) : null,
+          content: data.content ? stripHtml(data.content.trim()) : null,
+          type: safeType,
+          media_url: data.media_url,
+          poster_url: data.poster_url,
+          media_width: data.media_width,
+          media_height: data.media_height,
+          media_duration_s: data.media_duration_s,
+          media_bytes: data.media_bytes,
+          game_id: finalGameId,
+          event_id: finalEventId || undefined,
+          team_id: finalTeamId || undefined,
+          author_id: req.user.id,
+          country_code: country_code || undefined,
+          admin1: admin1 || undefined,
+          lat: typeof lat === 'number' ? lat : undefined,
+          lng: typeof lng === 'number' ? lng : undefined,
+        },
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002' && (await replayPost())) return;
+      throw error;
+    }
 
     // Mention notifications (parse @username from content)
     const contentForMentions = data.content?.trim() ?? '';

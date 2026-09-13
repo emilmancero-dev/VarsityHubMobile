@@ -1,3 +1,5 @@
+import { AppError } from '../lib/errors/AppError.js';
+import { sendError } from '../lib/http/sendError.js';
 import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import expressPkg, { Router, type Response } from 'express';
@@ -1254,9 +1256,7 @@ const membershipPriceIds: Record<MembershipPlan, string | undefined> = {
 };
 
 function membershipError(status: number, message: string) {
-  const error = new Error(message);
-  (error as any).statusCode = status;
-  return error;
+  return new AppError(status, message);
 }
 
 async function createMembershipCheckoutSession(
@@ -1266,7 +1266,8 @@ async function createMembershipCheckoutSession(
   teamCount?: number,
   organizationId?: string
 ) {
-  if (!process.env.STRIPE_SECRET_KEY) throw membershipError(500, 'Stripe not configured');
+  if (!process.env.STRIPE_SECRET_KEY)
+    throw membershipError(500, 'Payments are temporarily unavailable. Please try again later.');
   if (typeof planValue !== 'string' || !planValue.trim())
     throw membershipError(400, 'plan is required');
   const raw = planValue.trim().toLowerCase();
@@ -1393,7 +1394,7 @@ async function createMembershipCheckoutSession(
   if (!hasExplicitPriceId && process.env.NODE_ENV === 'production') {
     throw membershipError(
       500,
-      `Stripe price ID not configured for ${chosen} plan. Set STRIPE_PRICE_${chosen.toUpperCase()} env var.`
+      'This subscription is temporarily unavailable. Please try again later.'
     );
   }
 
@@ -1570,7 +1571,7 @@ paymentsRouter.post(
     if (!(await enforceVerifiedForAdPaymentFlow(req, res, ad_id))) return;
     if (typeof plan === 'string' && plan.trim()) {
       if (!process.env.STRIPE_SECRET_KEY)
-        return res.status(500).json({ error: 'Stripe not configured' });
+        return sendError(res, 500, 'Payments are temporarily unavailable. Please try again later.');
       try {
         const { url, sessionId } = await createMembershipCheckoutSession(
           req,
@@ -1581,19 +1582,20 @@ paymentsRouter.post(
         );
         return res.json({ url, session_id: sessionId });
       } catch (err: any) {
-        const isOperational = typeof err?.statusCode === 'number';
+        const isOperational =
+          err instanceof AppError && err.statusCode >= 400 && err.statusCode < 500;
         const status = isOperational ? err.statusCode : 500;
         captureException(err, { context: 'stripe_checkout_error', plan });
         return res.status(status).json({
           // error-envelope-exempt: pre-existing raw {error:string} response (whole file uses this shape); sanitized to a generic message for non-operational errors.
-          error: isOperational ? err.message : 'Unable to start subscription checkout',
+          error: isOperational ? err.publicMessage : 'Unable to start subscription checkout',
         });
       }
     }
     if (!ad_id || !Array.isArray(dates) || dates.length === 0)
       return res.status(400).json({ error: 'ad_id and dates[] are required' });
     if (!process.env.STRIPE_SECRET_KEY)
-      return res.status(500).json({ error: 'Stripe not configured' });
+      return sendError(res, 500, 'Payments are temporarily unavailable. Please try again later.');
     const isoDates: string[] = Array.from(new Set(dates.map((d: any) => String(d))));
     const quote = await buildAdQuote({
       adId: String(ad_id),
@@ -1911,7 +1913,7 @@ paymentsRouter.post(
     // ── SUBSCRIPTION FLOW ──
     if (typeof plan === 'string' && plan.trim()) {
       if (!process.env.STRIPE_SECRET_KEY)
-        return res.status(500).json({ error: 'Stripe not configured' });
+        return sendError(res, 500, 'Payments are temporarily unavailable. Please try again later.');
       const prefs =
         user?.preferences && typeof user.preferences === 'object' ? (user.preferences as any) : {};
       const customerId = await getOrCreateStripeCustomer(userId, user?.email);
@@ -1999,9 +2001,11 @@ paymentsRouter.post(
         );
 
       if (!hasExplicitPriceId && process.env.NODE_ENV === 'production') {
-        return res.status(500).json({
-          error: `Stripe price ID not configured for ${chosen} plan. Set STRIPE_PRICE_${chosen.toUpperCase()} env var.`,
-        });
+        return sendError(
+          res,
+          500,
+          'This subscription is temporarily unavailable. Please try again later.'
+        );
       }
 
       const items = hasExplicitPriceId
@@ -2090,11 +2094,11 @@ paymentsRouter.post(
         });
       } catch (err: any) {
         captureException(err, { context: 'create_payment_sheet_subscription', plan: chosen });
-        const raw = err?.message || '';
-        const safeMsg = /prod_|price_/i.test(raw)
-          ? 'Unable to start subscription. Please try again or contact support.'
-          : raw || 'Unable to start subscription';
-        return res.status(500).json({ error: safeMsg });
+        return sendError(
+          res,
+          500,
+          'Unable to start subscription. Please try again or contact support.'
+        );
       }
     }
 
@@ -2104,7 +2108,7 @@ paymentsRouter.post(
         .status(400)
         .json({ error: 'ad_id and dates[] are required (or plan for subscription)' });
     if (!process.env.STRIPE_SECRET_KEY)
-      return res.status(500).json({ error: 'Stripe not configured' });
+      return sendError(res, 500, 'Payments are temporarily unavailable. Please try again later.');
     const customerId = await getOrCreateStripeCustomer(userId, user?.email);
     const ephemeralKey = await stripe.ephemeralKeys.create(
       { customer: customerId },
@@ -2261,11 +2265,12 @@ paymentsRouter.post(
       });
     } catch (err: any) {
       captureException(err, { context: 'create_payment_sheet_ad', ad_id });
-      const isOperational = typeof err?.statusCode === 'number';
+      const isOperational =
+        err instanceof AppError && err.statusCode >= 400 && err.statusCode < 500;
       // error-envelope-exempt: pre-existing raw {error:string} response; sanitized to a generic message for non-operational errors.
       return res
         .status(500)
-        .json({ error: isOperational ? err.message : 'Unable to create payment' });
+        .json({ error: isOperational ? err.publicMessage : 'Unable to create payment' });
     }
   })
 );
@@ -2462,12 +2467,13 @@ paymentsRouter.post(
       const { url, sessionId } = await createMembershipCheckoutSession(req, plan, promo_code);
       return res.json({ url, session_id: sessionId });
     } catch (err: any) {
-      const isOperational = typeof err?.statusCode === 'number';
+      const isOperational =
+        err instanceof AppError && err.statusCode >= 400 && err.statusCode < 500;
       const status = isOperational ? err.statusCode : 500;
       if (!isOperational) captureException(err, { context: 'subscribe_checkout_error' });
       return res.status(status).json({
         // error-envelope-exempt: pre-existing raw {error:string} response; sanitized to a generic message for non-operational errors.
-        error: isOperational ? err.message : 'Unable to start subscription checkout',
+        error: isOperational ? err.publicMessage : 'Unable to start subscription checkout',
       });
     }
   })
@@ -2502,9 +2508,7 @@ paymentsRouter.post(
       try {
         subscription = await stripe.subscriptions.retrieve(subscriptionId);
       } catch (err: any) {
-        return res
-          .status(404)
-          .json({ error: 'Subscription not found in Stripe', detail: err?.message });
+        return sendError(res, 404, 'Subscription not found');
       }
       const subCustomerId =
         typeof subscription.customer === 'string'
@@ -2574,9 +2578,7 @@ paymentsRouter.post(
       try {
         sub = await stripe.subscriptions.retrieve(subscriptionId);
       } catch (err: any) {
-        return res
-          .status(404)
-          .json({ error: 'Subscription not found in Stripe', detail: err?.message });
+        return sendError(res, 404, 'Subscription not found');
       }
       const resumeSubCustomerId =
         typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
@@ -2635,7 +2637,7 @@ paymentsRouter.post(
   asyncHandler(async (req: AuthedRequest, res) => {
     try {
       if (!process.env.STRIPE_SECRET_KEY)
-        return res.status(500).json({ error: 'Stripe not configured' });
+        return sendError(res, 500, 'Payments are temporarily unavailable. Please try again later.');
 
       const userId = req.user!.id;
       const updateQuantitySchema = z.object({
@@ -3156,7 +3158,7 @@ paymentsRouter.post(
           .json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
       const { session_id } = parsed.data;
       if (!process.env.STRIPE_SECRET_KEY)
-        return res.status(500).json({ error: 'Stripe not configured' });
+        return sendError(res, 500, 'Payments are temporarily unavailable. Please try again later.');
       const session = await stripe.checkout.sessions.retrieve(session_id);
 
       if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -3237,7 +3239,7 @@ paymentsRouter.post(
         return res.status(400).json({ error: 'Invalid subscription reference' });
       }
       if (!process.env.STRIPE_SECRET_KEY)
-        return res.status(500).json({ error: 'Stripe not configured' });
+        return sendError(res, 500, 'Payments are temporarily unavailable. Please try again later.');
 
       const user = await prisma.user.findUnique({
         where: { id: req.user!.id },
@@ -3254,9 +3256,7 @@ paymentsRouter.post(
       try {
         subscription = await stripe.subscriptions.retrieve(subscription_id);
       } catch (err: any) {
-        return res
-          .status(404)
-          .json({ error: 'Subscription not found in Stripe', detail: err?.message });
+        return sendError(res, 404, 'Subscription not found');
       }
 
       const subCustomerId =
@@ -3701,8 +3701,8 @@ paymentsRouter.post(
 
       return res.json(result);
     } catch (err: any) {
-      if (err?.statusCode && err?.body) {
-        return res.status(err.statusCode).json(err.body);
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json(err.toJSON());
       }
       console.error('[apple-iap] verify-receipt error:', err);
       captureException(err, { context: 'apple-iap-verify', provider: 'apple_iap' });
@@ -3912,8 +3912,8 @@ paymentsRouter.post(
         debugLog('apple-iap-ad', `User ${userId} paid for ad ${ad_id} via Apple IAP`);
         return res.json(finalizeResult);
       } catch (error: any) {
-        if (error?.statusCode && error?.body) {
-          return res.status(error.statusCode).json(error.body);
+        if (error instanceof AppError) {
+          return res.status(error.statusCode).json(error.toJSON());
         }
         if (isUniqueConstraintError(error, 'apple_transaction_id')) {
           return res.status(409).json({

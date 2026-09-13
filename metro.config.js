@@ -80,14 +80,11 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (platform === 'web' && moduleName === '@react-native-community/datetimepicker') {
     return { type: 'sourceFile', filePath: path.resolve(__dirname, 'shims/datetimepicker.js') };
   }
-  if (
-    platform === 'web' &&
-    (moduleName === '@expo/vector-icons' ||
-      moduleName === '@expo/vector-icons/MaterialIcons' ||
-      moduleName === '@expo/vector-icons/Ionicons')
-  ) {
-    return { type: 'sourceFile', filePath: path.resolve(__dirname, 'shims/expo-vector-icons.js') };
-  }
+  // NOTE: a web shim that replaced @expo/vector-icons with an empty <Text> was
+  // removed here (Sep 2026) — it rendered EVERY icon blank on the web app
+  // (owner note "icons on web app still don't work"). Real vector icons now
+  // render on web; their fonts are relocated out of the node_modules asset path
+  // at build time (scripts/relocate-web-vendor-assets.mjs) so Vercel serves them.
   if (originalResolveRequest) {
     try {
       return originalResolveRequest(context, moduleName, platform);

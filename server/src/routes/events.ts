@@ -1,3 +1,7 @@
+import { AppError } from '../lib/errors/AppError.js';
+import { storyRequestIdentity, recoverStoryRequest } from '../lib/storyRequestRecovery.js';
+import type { Prisma } from '@prisma/client';
+import { assertReadyMediaForOwner } from '../lib/mediaUploadOwnership.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -19,7 +23,21 @@ import { geoBoundingBox, getZipCoordinates, haversineDistance } from '../lib/geo
 import { proLeagueToSport } from '../lib/proSchedule/leagueSport.js';
 import { PRO_SCHEDULE_LEAGUES } from '../lib/proSchedule/types.js';
 import { geocodeLocation } from '../lib/geocoding.js';
-import { serializeLiveWindow, viewerHasPostedOnEntity } from '../lib/geofencing.js';
+import {
+  hasActiveEventPostingUnlock,
+  serializeLiveWindow,
+  verifyStoryPostingPermission,
+  viewerHasPostedOnEntity,
+} from '../lib/geofencing.js';
+// Reuse the story helpers from the games router so event-page stories serialize,
+// validate, and lazy-generate posters IDENTICALLY to game stories — one code
+// path, no duplication. See server/src/routes/games.ts.
+import {
+  ensureStoryPoster,
+  isMissingStoryLocationColumnError,
+  serializeMedia,
+  storySchema,
+} from './games.js';
 import {
   cancelGameReminders,
   rescheduleGameRemindersForEvent,
@@ -29,7 +47,10 @@ import {
 import { prisma } from '../lib/prisma.js';
 import {
   buildPrivateTeamEventVisibilityWhere,
+  getBlockedUserIds,
+  getExcludedPrivateAuthorIds,
   getExcludedPrivateTeamIds,
+  getRequestBlockedCache,
   mergeAndWhere,
 } from '../lib/privacyUtils.js';
 import { consumeReviewToken, verifyReviewToken } from '../lib/reviewTokens.js';
@@ -45,7 +66,12 @@ import { buildBinaryVoteSummary } from '../lib/voteSummary.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import type { AuthedRequest } from '../middleware/auth.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { eventCreationLimiter, rsvpLimiter, voteLimiter } from '../middleware/rateLimiters.js';
+import {
+  eventCreationLimiter,
+  rsvpLimiter,
+  storyCreationLimiter,
+  voteLimiter,
+} from '../middleware/rateLimiters.js';
 import { getIsAdmin, isEmailAdmin } from '../middleware/requireAdmin.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireOnboarded } from '../middleware/requireOnboarded.js';
@@ -54,6 +80,49 @@ import { registerIdValidation } from '../middleware/validateParams.js';
 
 export const eventsRouter = Router();
 registerIdValidation(eventsRouter);
+
+// Story surfaces use the same approval, contributor and private-team rules as events.
+const EVENT_VISIBILITY_SELECT = {
+  id: true,
+  creator_id: true,
+  approval_status: true,
+  game_id: true,
+} as const;
+async function canViewEventRecord(
+  event: {
+    id: string;
+    creator_id: string | null;
+    approval_status: string | null;
+    game_id: string | null;
+  },
+  req: AuthedRequest
+): Promise<boolean> {
+  const viewerId = req.user?.id ?? null;
+  if (viewerId && (await getIsAdmin(req as any))) return true;
+  if (event.approval_status !== 'approved' && (!viewerId || event.creator_id !== viewerId)) {
+    if (
+      !viewerId ||
+      !(await viewerHasPostedOnEntity({
+        userId: viewerId,
+        eventId: event.id,
+        gameId: event.game_id,
+      }))
+    )
+      return false;
+  }
+  const where = mergeAndWhere<Prisma.EventWhereInput>(
+    { id: event.id },
+    buildPrivateTeamEventVisibilityWhere(await getExcludedPrivateTeamIds(viewerId))
+  );
+  mergeAndWhere(where, {
+    OR: [
+      { game_id: null },
+      { game: { is: { opponent_approval_status: { notIn: ['pending', 'declined'] } } } },
+      { game: { is: { date: { lt: new Date() } } } },
+    ],
+  });
+  return Boolean(await prisma.event.findFirst({ where, select: { id: true } }));
+}
 
 type SportsLeagueScheduleStatus = 'provider_backed' | 'event_seeded' | 'catalog_only';
 
@@ -1211,6 +1280,20 @@ eventsRouter.get(
         canManage = await canManageAnyTeam(req.user.id, teamIds);
       }
       (payload as any).can_edit = canManage;
+
+      // Per-viewer story override, same rule the story create-gate enforces: a
+      // user who already posted/storied here (holds an active 7-day unlock) — or
+      // the exclusive poster — may add a story to this event page from anywhere,
+      // even after the live window has closed (owner rule, Sep 2026). The client
+      // uses this to enable "Add Story" and skip the geofence for such users.
+      // Everyone else follows the normal live window.
+      const activeUnlock = await hasActiveEventPostingUnlock(req.user.id, {
+        id: event.id,
+        game_id: event.game_id ?? null,
+      });
+      const isExclusivePoster =
+        !!event.exclusive_poster_id && event.exclusive_poster_id === req.user.id;
+      (payload as any).can_upload_story = activeUnlock || isExclusivePoster;
     }
     return res.json(payload);
   })
@@ -1434,6 +1517,248 @@ eventsRouter.post(
     const count = await prisma.eventRsvp.count({ where: { event_id: id } });
     const capacity = event.capacity ?? event.max_attendees;
     return res.json({ going: desired, attending: desired, count, capacity: capacity ?? null });
+  })
+);
+
+// ── Event-page stories ──────────────────────────────────────────────────────
+// Game-less event pages (pro fixtures, etc.) host stories keyed on event_id,
+// the same way they already host posts. These mirror GET/POST
+// /games/:id/stories exactly, reusing the shared serializeMedia / storySchema /
+// ensureStoryPoster / verifyStoryPostingPermission helpers so there is ONE story
+// code path — no duplicate page, no duplicate logic. A story with a game keeps
+// using the games router; this path is only for the event's own id.
+eventsRouter.get(
+  '/:id/stories',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const id = String(req.params.id);
+    const storyNow = new Date();
+    try {
+      const event = await prisma.event.findUnique({
+        where: { id },
+        select: EVENT_VISIBILITY_SELECT,
+      });
+      if (!event) return sendError(res, 404, 'Not found');
+      if (!(await canViewEventRecord(event, req))) {
+        return sendError(res, 404, 'Not found');
+      }
+
+      const viewerId = req.user?.id ?? null;
+      const [privateIds, blockedIds] = await Promise.all([
+        getExcludedPrivateAuthorIds(viewerId),
+        getBlockedUserIds(viewerId, getRequestBlockedCache(req)),
+      ]);
+      const excludedAuthorIds = [...new Set([...privateIds, ...blockedIds])];
+
+      // Lazy expiry sweep for this event's stories (mirrors the game path).
+      void (async () => {
+        try {
+          const expired = await prisma.story.findMany({
+            where: { event_id: id, expires_at: { lt: new Date() } },
+            select: { id: true, media_url: true },
+            take: 200,
+          });
+          if (expired.length === 0) return;
+          await prisma.story.deleteMany({ where: { id: { in: expired.map(s => s.id) } } });
+          const { extractCloudinaryPublicId, destroyCloudinaryAsset } =
+            await import('../lib/cloudinary.js');
+          for (const story of expired) {
+            if (!story.media_url) continue;
+            const parsed = extractCloudinaryPublicId(story.media_url);
+            if (!parsed) continue;
+            destroyCloudinaryAsset(parsed.publicId, parsed.resourceType).catch(err =>
+              console.warn(
+                '[eventStories] Cloudinary destroy failed for expired story',
+                story.id,
+                err?.message || err
+              )
+            );
+          }
+        } catch (err: any) {
+          console.warn('[eventStories] lazy expired-cleanup failed:', err?.message || err);
+        }
+      })();
+
+      // Newest 50, replayed oldest-first — identical windowing to game stories.
+      const items = await prisma.story.findMany({
+        where: {
+          event_id: id,
+          AND: [
+            { OR: [{ expires_at: null }, { expires_at: { gt: storyNow } }] },
+            { OR: [{ user_id: null }, { user_id: { notIn: excludedAuthorIds } }] },
+          ],
+        },
+        orderBy: { created_at: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          media_url: true,
+          poster_url: true,
+          created_at: true,
+          caption: true,
+          user_id: true,
+          expires_at: true,
+        },
+      });
+      for (const s of items) ensureStoryPoster(prisma, s);
+      return res.json(items.reverse().map(serializeMedia));
+    } catch (error: any) {
+      console.error('[eventStories] Failed to list event media:', error);
+      return sendError(res, 500, 'Failed to load event media');
+    }
+  })
+);
+
+eventsRouter.post(
+  '/:id/stories',
+  requireAuth as any,
+  storyCreationLimiter,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const id = String(req.params.id);
+    const parsed = storySchema.safeParse(req.body || {});
+    if (!parsed.success) return sendError(res, 400, 'Invalid payload');
+    const requestIdentity = storyRequestIdentity(req.user.id, 'event:' + id, parsed.data);
+    const replayStory = async () => {
+      try {
+        const existing = await recoverStoryRequest(prisma, requestIdentity, req.user!.id);
+        if (!existing) return false;
+        res.status(200).json(existing);
+      } catch (error: any) {
+        if (error?.status !== 409) throw error;
+        sendError(
+          res,
+          409,
+          'This request conflicts with a previous submission. Please refresh and try again.',
+          { code: 'IDEMPOTENCY_CONFLICT' }
+        );
+      }
+      return true;
+    };
+    if (await replayStory()) return;
+
+    const event = await prisma.event.findUnique({
+      where: { id },
+      select: { ...EVENT_VISIBILITY_SELECT, description: true, title: true },
+    });
+    if (!event) return sendError(res, 404, 'Not found');
+    if (!(await canViewEventRecord(event, req))) {
+      return sendError(res, 404, 'Not found');
+    }
+
+    // Only verified admin identity can bypass; descriptions never grant privileges.
+    const isAdmin = await getIsAdmin(req as any);
+
+    if (!isAdmin) {
+      const loc = parsed.data.location;
+      // Only device-origin GPS may satisfy the venue geofence (anti-spoof). A
+      // designated poster with an active unlock passes without coords — that is
+      // exactly what verifyStoryPostingPermission enforces server-side.
+      const hasDeviceOriginLocation =
+        loc?.source === 'device' && typeof loc?.lat === 'number' && typeof loc?.lng === 'number';
+      const lat = hasDeviceOriginLocation ? (loc?.lat ?? null) : null;
+      const lng = hasDeviceOriginLocation ? (loc?.lng ?? null) : null;
+      const ipAddr =
+        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+        req.socket.remoteAddress ||
+        null;
+      const verification = await verifyStoryPostingPermission(id, req.user.id, lat, lng, ipAddr);
+      if (!verification.allowed) {
+        return res.status(403).json({
+          error: verification.code || 'LOCATION_VERIFICATION_FAILED',
+          message: verification.reason,
+          distance: verification.distance,
+        });
+      }
+    }
+
+    const loc = parsed.data.location;
+    let verifiedMedia;
+    try {
+      verifiedMedia = await assertReadyMediaForOwner(
+        req.user.id,
+        parsed.data.media_url,
+        parsed.data.poster_url,
+        20.25 // Nominal 20s story + 250ms frame/audio mux tolerance, matching the client trim gate.
+      );
+    } catch (error: any) {
+      if (error?.status !== 422) throw error;
+      return sendError(
+        res,
+        422,
+        error.code === 'MEDIA_DURATION_EXCEEDED'
+          ? 'Stories are limited to 20 seconds. Trim this video and retry.'
+          : 'This media is not ready. Please upload it again.',
+        {
+          code:
+            error.code === 'MEDIA_DURATION_EXCEEDED'
+              ? 'MEDIA_DURATION_EXCEEDED'
+              : 'MEDIA_NOT_READY',
+        }
+      );
+    }
+    const createData: any = {
+      ...(requestIdentity
+        ? { id: requestIdentity.id, client_request_hash: requestIdentity.hash }
+        : {}),
+      event_id: id,
+      user_id: req.user.id,
+      media_url: parsed.data.media_url,
+      poster_url: verifiedMedia?.poster_url ?? parsed.data.poster_url ?? undefined,
+      caption: parsed.data.caption ? stripHtml(parsed.data.caption) : undefined,
+    };
+    if (typeof loc?.lat === 'number') createData.lat = loc.lat;
+    if (typeof loc?.lng === 'number') createData.lng = loc.lng;
+
+    let story;
+    try {
+      story = await prisma.story.create({ data: createData });
+    } catch (error: any) {
+      if (error?.code === 'P2002' && (await replayStory())) return;
+      if (!isMissingStoryLocationColumnError(error)) {
+        console.error('[eventStories] Failed to create story:', error);
+        return sendError(res, 500, 'Failed to create story');
+      }
+      const { lat: _lat, lng: _lng, ...withoutCoords } = createData;
+      try {
+        story = await prisma.story.create({ data: withoutCoords });
+      } catch (fallbackError) {
+        console.error('[eventStories] Failed to create story in fallback mode:', fallbackError);
+        return sendError(res, 500, 'Failed to create story');
+      }
+    }
+
+    ensureStoryPoster(prisma, story);
+
+    // Notify the event creator (parity with the game story notification).
+    try {
+      if (event.creator_id && event.creator_id !== req.user.id) {
+        const poster = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: { display_name: true },
+        });
+        const posterName = poster?.display_name || 'Someone';
+        await prisma.notification.create({
+          data: {
+            user_id: event.creator_id,
+            actor_id: req.user.id,
+            type: 'GAME_STORY_ADDED',
+            meta: { event_id: id, game_title: (event as any).title, poster_name: posterName },
+          },
+        });
+        void sendPushNotification(
+          event.creator_id,
+          `New story on ${(event as any).title}`,
+          `${posterName} added a story to your event`,
+          { type: 'game_story_added', event_id: id, screen: 'game-detail' }
+        ).catch(pushErr =>
+          console.warn('[eventStories] Failed to send event story push:', pushErr)
+        );
+      }
+    } catch (notifErr) {
+      console.error('[eventStories] Failed to send event story notification:', notifErr);
+    }
+
+    return res.status(201).json(story);
   })
 );
 
@@ -1679,16 +2004,9 @@ eventsRouter.post(
             },
           });
           if (pendingCount >= 3) {
-            throw Object.assign(new Error('EVENT_LIMIT_EXCEEDED'), {
-              status: 403,
-              body: {
-                error: 'Event limit reached',
-                message:
-                  "You've reached your limit of 3 pending events. Wait for one to be approved or rejected before submitting another.",
-                code: 'EVENT_LIMIT_EXCEEDED',
-                limit: 3,
-                current: pendingCount,
-              },
+            throw new AppError(403, 'Event limit reached', {
+              errorCode: 'EVENT_LIMIT_EXCEEDED',
+              publicMetadata: { limit: 3, current: pendingCount },
             });
           }
         }
@@ -1796,8 +2114,8 @@ eventsRouter.post(
         limit: !autoApprove ? 3 : null,
       });
     } catch (err: any) {
-      if (err?.status && err?.body) {
-        return res.status(err.status).json(err.body);
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json(err.toJSON());
       }
       console.error('[events] create error:', err);
       return res.status(500).json({ error: 'Internal server error' });

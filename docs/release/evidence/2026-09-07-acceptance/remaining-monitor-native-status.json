@@ -1,0 +1,131 @@
+{
+  "checkedAt": "2026-09-07T17:43:41.418Z",
+  "monitors": [
+    {
+      "slug": "varsityhub-ad-purchase-reconciliation",
+      "status": "active",
+      "environments": [
+        {
+          "name": "production",
+          "status": "ok",
+          "lastCheckIn": "2026-09-07T17:40:00Z"
+        }
+      ]
+    },
+    {
+      "slug": "varsityhub-game-reminders-1hr",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-cleanup-old-notifications",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-data-export-cleanup",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-game-reminders-12hr",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-pro-schedule-rolling",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-apple-iap-reconciliation",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-verify-push-receipts",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-stripe-webhook-reconciliation",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-db-backup-freshness-check",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-coach-approval-reminder",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-end-of-day-transaction-report",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-veteran-quantity-reconciliation",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-db-backup-sync",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-coach-approval-auto-expire",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-coach-approval-drift-probe",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-ad-refund-reconcile",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-stale-event-auto-reject",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-coach-state-drift-probe",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-google-play-reconciliation",
+      "status": "disabled",
+      "environments": []
+    },
+    {
+      "slug": "varsityhub-scheduler-acceptance",
+      "status": "disabled",
+      "environments": [
+        {
+          "name": "production",
+          "status": "error",
+          "lastCheckIn": "2026-09-07T17:21:27Z"
+        }
+      ]
+    }
+  ],
+  "build59Issues": [
+    {
+      "id": "7716320500",
+      "shortId": "VARSITYHUB-4G",
+      "title": "WatchdogTermination: The OS watchdog terminated your app, possibly because it overused RAM.",
+      "lastSeen": "2026-09-07T03:37:58.704000Z",
+      "count": "1"
+    }
+  ]
+}

@@ -33,53 +33,23 @@ export async function materializeICloudAssetIfNeeded(uri: string): Promise<strin
   // Only ph:// URIs reference Apple Photos cloud assets
   if (!uri.startsWith('ph://')) return uri;
 
-  // Require permission to read from the photo library so the asset-info call
-  // can actually reach iCloud. Without this, getAssetInfoAsync returns a
-  // non-localUri result and we'd throw even when the asset exists.
-  // Cast through `any` — some TS configs don't expose getPermissionsAsync
-  // from the expo-media-library namespace import, same reason getAssetInfoAsync
-  // is cast below.
-  const MediaLibAny = MediaLibrary as any;
-  const getPerm = MediaLibAny.getPermissionsAsync;
-  if (typeof getPerm === 'function') {
-    const perm = await getPerm();
-    if (perm && perm.status !== 'granted') {
-      const reqPerm = await MediaLibAny.requestPermissionsAsync?.();
-      if (reqPerm && reqPerm.status !== 'granted') {
-        throw new ICloudMaterializationError(
-          'Photo library permission is required to access iCloud photos. ' +
-            'Grant access in Settings → Privacy → Photos, then try again.'
-        );
-      }
-    }
-  }
-
   try {
-    const assetId = uri.replace('ph://', '').split('/')[0];
+    const assetId = uri.slice('ph://'.length);
     if (!assetId) {
-      throw new ICloudMaterializationError('iCloud asset identifier is missing.');
+      throw new ICloudMaterializationError('Photos asset identifier is missing.');
     }
-
-    // getAssetInfoAsync with shouldDownloadFromNetwork forces iOS to fetch the
-    // full-resolution image from iCloud before returning. The resulting localUri
-    // is a file:// path to the downloaded content.
-    // expo-media-library ~18.2 exports getAssetInfoAsync but some TS configs
-    // don't resolve it from the namespace import. Cast to any for the call.
-    const getInfo = (MediaLibrary as any).getAssetInfoAsync;
-    if (typeof getInfo !== 'function') {
-      // Platform can't materialize — return the ph:// URI and let the caller
-      // throw a more specific error on the first failed read.
-      return uri;
-    }
-    const info = await (getInfo as (id: string, opts?: any) => Promise<{ localUri?: string }>)(
-      assetId,
-      {
-        shouldDownloadFromNetwork: true,
+    // Keep the complete Photos local identifier, including its /L0/001 suffix.
+    const permission = await MediaLibrary.getPermissionsAsync();
+    if (!permission.granted) {
+      const requested = await MediaLibrary.requestPermissionsAsync();
+      if (!requested.granted) {
+        throw new Error('Photo library permission is required to read the selected media.');
       }
-    );
-
-    if (info?.localUri) {
-      if (__DEV__) console.log('[media] iCloud asset materialized to:', info.localUri);
+    }
+    const info = await MediaLibrary.getAssetInfoAsync(assetId, {
+      shouldDownloadFromNetwork: true,
+    });
+    if (info?.localUri?.startsWith('file://')) {
       return info.localUri;
     }
 

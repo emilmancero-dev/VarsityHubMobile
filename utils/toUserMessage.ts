@@ -16,28 +16,57 @@
 const GENERIC_FALLBACK = 'Something went wrong. Please try again.';
 const NETWORK_MESSAGE = "Couldn't reach the server. Check your connection and try again.";
 
-// Anything matching these is infra/internal detail, never fit for the screen.
-const LEAK_PATTERNS = [
-  /https?:\/\//i, // any URL (origin, provider, presigned)
-  /railway\.app/i, // Railway origin host
-  /cloudinary|res\.cloudinary|r2\.cloudflarestorage/i, // provider hosts
-  /\bat\s.+:\d+:\d+/, // stack frame ("at fn (file:line:col)")
-  /\/[\w.-]+\/[\w.-]+\.(t|j)sx?/, // source file paths
-];
+// Exact, reviewed public copy only. Never use a denylist: an unfamiliar native,
+// provider, database, or proxy error must fail closed. Call-site fallbacks must
+// be developer-authored copy, never values extracted from an error or response.
+const PUBLIC_MESSAGES = new Set([
+  'Invalid credentials',
+  'Invalid email or password',
+  'Please enter a valid email.',
+  'Email verification required',
+  'Authentication required',
+  'Unauthorized',
+  'Forbidden',
+  'Resource not found',
+  'Resource already exists',
+  'Invalid input',
+  'Too many requests',
+  'Too many requests.',
+  'You already have this subscription plan',
+  'Payment already processed recently',
+  'Your league must be approved before you can subscribe.',
+  'Posting is not open yet.',
+  'Posting is not open for this event.',
+  'That user is already on this team.',
+]);
 
-const MAX_LEN = 200;
+// Codes preserve actionable business feedback without trusting response prose.
+const PUBLIC_CODE_MESSAGES: Readonly<Record<string, string>> = {
+  SOLE_OWNER: 'Transfer ownership to another member before removing the only owner.',
+  USER_LIMIT_REACHED:
+    'Your plan has reached its staff limit. Remove a pending invite or upgrade your plan.',
+  ROSTER_LIMIT_REACHED: 'This team has reached its roster limit.',
+  TEAM_PLAN_LOCKED:
+    "This team is outside the owner's plan allowance. Contact the owner to update the plan.",
+  EVENT_LIMIT_EXCEEDED:
+    'You have reached the limit of 3 pending events. Wait for a review before submitting another.',
+  APPLE_TRANSACTION_ALREADY_CLAIMED:
+    'This purchase receipt has already been used for another purchase.',
+  APPLE_RECEIPT_ALREADY_USED: 'This purchase receipt has already been used by another account.',
+  APPLE_TRANSACTION_IDS_REQUIRED:
+    'We could not verify this purchase. Please try restoring your purchases.',
+  MEDIA_DURATION_EXCEEDED: 'Stories are limited to 20 seconds. Trim this video and try again.',
+  MEDIA_PICKER_UPDATE_REQUIRED: 'Please update VarsityHub to select videos from your library.',
+  ERR_MEDIA_ACQUISITION:
+    'Unable to open this media. Open it in Photos first, then try again or choose another file.',
+  MEDIA_NOT_READY: 'This media is not ready. Please upload it again.',
+};
 
-/**
- * Pure string sanitizer. Returns `fallback` when the input is empty, too long,
- * or contains anything that looks like infra/internal detail.
- */
+/** Only exact reviewed copy may cross the error-to-display boundary. */
 export function sanitizeMessage(raw: unknown, fallback: string = GENERIC_FALLBACK): string {
   if (typeof raw !== 'string') return fallback;
   const trimmed = raw.trim();
-  if (!trimmed) return fallback;
-  if (trimmed.length > MAX_LEN) return fallback;
-  if (LEAK_PATTERNS.some(re => re.test(trimmed))) return fallback;
-  return trimmed;
+  return PUBLIC_MESSAGES.has(trimmed) ? trimmed : fallback;
 }
 
 function isTransportError(err: any): boolean {
@@ -45,9 +74,10 @@ function isTransportError(err: any): boolean {
 }
 
 function extractRaw(err: any): string {
+  const data = err?.data ?? err?.response?.data;
   return (
-    (typeof err?.data?.message === 'string' && err.data.message) ||
-    (typeof err?.data?.error === 'string' && err.data.error) ||
+    (typeof data?.message === 'string' && data.message) ||
+    (typeof data?.error === 'string' && data.error) ||
     (typeof err?.message === 'string' && err.message) ||
     ''
   );
@@ -56,11 +86,24 @@ function extractRaw(err: any): string {
 /**
  * Convert any caught error into a user-safe message.
  * - Transport/network failures never reveal the host → fixed generic string.
- * - Server envelope messages pass through only if they contain no infra detail.
- * - Anything suspicious falls back to `fallback` (default generic).
+ * - Only exact reviewed public messages pass through.
+ * - Anything unrecognized falls back to `fallback` (default generic).
  */
 export function toUserMessage(err: unknown, fallback: string = GENERIC_FALLBACK): string {
   if (isTransportError(err)) return NETWORK_MESSAGE;
+  const error = err as {
+    data?: Record<string, unknown>;
+    response?: { data?: Record<string, unknown> };
+    code?: unknown;
+  } | null;
+  const data = error?.data ?? error?.response?.data;
+  const code = data?.code ?? data?.errorCode ?? data?.error ?? error?.code;
+  if (
+    typeof code === 'string' &&
+    Object.prototype.hasOwnProperty.call(PUBLIC_CODE_MESSAGES, code)
+  ) {
+    return PUBLIC_CODE_MESSAGES[code];
+  }
   return sanitizeMessage(extractRaw(err), fallback);
 }
 
@@ -100,5 +143,5 @@ export function toAuthErrorMessage(err: unknown, fallback: string = GENERIC_FALL
   if (isTransportError(err)) {
     return `Couldn't reach the server (ref ${apiHostFingerprint()}). Check your connection and try again.`;
   }
-  return sanitizeMessage(extractRaw(err), fallback);
+  return toUserMessage(err, fallback);
 }

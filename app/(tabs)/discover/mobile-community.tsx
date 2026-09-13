@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -1044,7 +1045,7 @@ function CommunityDiscoverScreen() {
               tags: { context: 'quick_game_save' },
             }
           );
-          const errorMessage = error?.data?.error || error?.message || 'Failed to add event.';
+          const errorMessage = toUserMessage(error, 'Failed to add event.');
           Alert.alert('Error', errorMessage);
         }
       } finally {

@@ -11,9 +11,10 @@ import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 export default function SwipeBackContainer({
   children,
   style,
+  enabled = true,
   ...rest
-}: ViewProps & { children: React.ReactNode }) {
-  const { edgeSwipeGesture } = useEdgeSwipeBack();
+}: ViewProps & { children: React.ReactNode; enabled?: boolean }) {
+  const { edgeSwipeGesture } = useEdgeSwipeBack({ enabled });
 
   return (
     <GestureDetector gesture={edgeSwipeGesture}>

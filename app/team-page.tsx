@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Game, Post, Program, Team } from '@/api/entities';
 import { useAuth } from '@/context/AuthProvider';
 import { Colors } from '@/constants/Colors';
@@ -463,7 +464,7 @@ function TeamScreen() {
     : !hasIdentifier
       ? 'No team ID or name provided'
       : teamQuery.isError
-        ? (teamQuery.error as any)?.message || 'Failed to load team data'
+        ? toUserMessage(teamQuery.error, 'Failed to load team data')
         : null;
   // Spinner only while there's no data to show; the brief `data && !team` window
   // covers the one frame before the sync effect mirrors the cache into state.
@@ -861,13 +862,11 @@ function TeamScreen() {
                       void programQuery.refetch();
                     } catch (err: any) {
                       setProgramIsFollowing(!next); // rollback
-                      const serverMsg =
-                        err?.data?.error || err?.data?.message || err?.message || 'Unknown error';
                       if (__DEV__)
-                        console.error('[Follow] Program follow/unfollow failed:', serverMsg);
+                        console.error('[Follow] Program follow/unfollow failed:', err?.message);
                       Alert.alert(
                         'Follow Failed',
-                        `${serverMsg} (status: ${err?.status || 'unknown'})`
+                        toUserMessage(err, 'Unable to follow this team. Please try again.')
                       );
                     } finally {
                       setFollowLoading(false);
@@ -908,20 +907,18 @@ function TeamScreen() {
                       );
                     }
                   } catch (err: any) {
-                    const serverMsg =
-                      err?.data?.error || err?.data?.message || err?.message || 'Unknown error';
                     if (__DEV__)
                       console.error(
                         '[Follow] Team follow/unfollow failed — status:',
                         err?.status,
                         '| server:',
-                        serverMsg,
+                        err?.message,
                         '| data:',
                         JSON.stringify(err?.data)
                       );
                     Alert.alert(
                       'Follow Failed',
-                      `${serverMsg} (status: ${err?.status || 'unknown'})`
+                      toUserMessage(err, 'Unable to follow this team. Please try again.')
                     );
                   } finally {
                     setFollowLoading(false);

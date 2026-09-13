@@ -82,6 +82,9 @@ const baseProps = (overrides: Partial<EventMapProps> = {}): EventMapProps => ({
 });
 
 describe('EventMap', () => {
+  it('uses gold for pages with posts, overriding the league tier', () => {
+    expect(resolveMarkerColor({ has_posts: true, league_level: 'major' })).toBe('#D4AF37');
+  });
   afterEach(async () => {
     cleanup();
     jest.clearAllTimers();
@@ -94,14 +97,10 @@ describe('EventMap', () => {
     expect(markers.length).toBe(1);
   });
 
-  it('resolves an MMA marker color for UFC events', () => {
-    expect(resolveMarkerColor({ sport: 'mma' }, '#000000')).toBe('#B91C1C');
-  });
-
-  it('resolves marker colors for expanded league sports', () => {
-    expect(resolveMarkerColor({ sport: 'water_polo' }, '#000000')).toBe('#2563EB');
-    expect(resolveMarkerColor({ sport: 'auto_racing' }, '#000000')).toBe('#111827');
-    expect(resolveMarkerColor({ sport: 'beach_volleyball' }, '#000000')).toBe('#0EA5E9');
+  it('colors pins by league tier (Major / Minor / NCAA)', () => {
+    expect(resolveMarkerColor({ league_level: 'major' })).toBe('#1E3A8A');
+    expect(resolveMarkerColor({ league_level: 'minor' })).toBe('#DC2626');
+    expect(resolveMarkerColor({ league_level: 'college' })).toBe('#9CA3AF');
   });
 
   it('does not render native markers for invalid coordinates', async () => {
@@ -192,7 +191,7 @@ describe('EventMap', () => {
 
   it('renders empty state when no events', async () => {
     const { findByText } = render(<EventMap {...baseProps({ events: [] })} />);
-    const empty = await findByText(/no games or events with locations yet/i);
+    const empty = await findByText(/no matching events on the map/i);
     expect(empty).toBeTruthy();
   });
 
@@ -234,11 +233,12 @@ describe('EventMap', () => {
     expect(await findAllByTestId('Marker')).toHaveLength(1);
   });
 
-  it('prefers marker/team colors, then sport colors, then type colors', () => {
-    expect(resolveMarkerColor({ marker_color: '#111111' }, '#000000')).toBe('#111111');
-    expect(resolveMarkerColor({ pro_home_color: '#222222' }, '#000000')).toBe('#222222');
-    expect(resolveMarkerColor({ pro_away_color: '#333333' }, '#000000')).toBe('#333333');
-    expect(resolveMarkerColor({ sport: 'football' }, '#000000')).toBe('#2563EB');
-    expect(resolveMarkerColor({ type: 'event' }, '#000000')).toBe('#4ECDC4');
+  it('uses the Other tier color for untiered pages', () => {
+    // Everything without a Major/Minor/college league falls into "Other" (green).
+    // The resolver's parameter type only accepts has_posts + league_level now, so
+    // sport/team/type can no longer influence the pin color (enforced at compile time).
+    expect(resolveMarkerColor({ league_level: null })).toBe('#16A34A');
+    expect(resolveMarkerColor({ league_level: 'high_school' })).toBe('#16A34A');
+    expect(resolveMarkerColor({})).toBe('#16A34A');
   });
 });

@@ -1,0 +1,40 @@
+{
+  "checkedAt": "2026-09-07T17:47:16.915Z",
+  "id": "17439009",
+  "name": "Production scheduler job failures",
+  "environment": "production",
+  "actionMatch": "any",
+  "filterMatch": "all",
+  "frequency": 60,
+  "conditions": [
+    {
+      "id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition",
+      "name": "A new issue is created"
+    },
+    {
+      "id": "sentry.rules.conditions.event_frequency.EventFrequencyCondition",
+      "comparisonType": "count",
+      "interval": "1h",
+      "value": 0,
+      "name": "The issue is seen more than 0 times in 1h"
+    }
+  ],
+  "filters": [
+    {
+      "id": "sentry.rules.filters.tagged_event.TaggedEventFilter",
+      "match": "in",
+      "value": "scheduler_job_failed,scheduler_worker_failed,scheduler_fallback_job_failed",
+      "key": "vh_context",
+      "name": "The event's tags match vh_context is in (comma separated) scheduler_job_failed,scheduler_worker_failed,scheduler_fallback_job_failed"
+    },
+    {
+      "id": "sentry.rules.filters.level.LevelFilter",
+      "match": "eq",
+      "level": "40",
+      "name": "The event's level is equal to error"
+    }
+  ],
+  "recipient": "same member as existing New production error rule",
+  "cronSeatsAdded": 0,
+  "deliveryTested": false
+}

@@ -382,6 +382,13 @@ export const uploadLimiter = createLimiter({
   max: rateLimitingDisabled ? 100000 : 60, // was 30 — each failed video burns 2 signature calls
 });
 
+// Polling readiness must not consume the hourly new-upload allowance.
+export const uploadStatusLimiter = createLimiter({
+  name: 'upload-status',
+  windowMs: 60 * 1000,
+  max: rateLimitingDisabled ? 100000 : 30,
+});
+
 // ============================================
 // RSVP Rate Limiters
 // ============================================

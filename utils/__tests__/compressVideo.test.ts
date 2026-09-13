@@ -1,3 +1,8 @@
+jest.mock('../mediaDraftFiles', () => ({
+  persistPreparedMedia: jest.fn(async (uri: string) => uri),
+  deleteConfirmedMediaDraft: jest.fn(async () => {}),
+}));
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 jest.mock('expo-file-system/legacy', () => ({
@@ -10,6 +15,7 @@ jest.mock('react-native-compressor', () => ({
   Video: {
     compress: jest.fn(),
   },
+  getVideoMetaData: jest.fn(),
 }));
 
 jest.mock('@/utils/sentry', () => ({
@@ -17,7 +23,7 @@ jest.mock('@/utils/sentry', () => ({
 }));
 
 import * as FileSystem from 'expo-file-system/legacy';
-import { Video } from 'react-native-compressor';
+import { Video, getVideoMetaData } from 'react-native-compressor';
 
 import { VIDEO_TARGET_BITRATE_BPS } from '@/constants/video';
 import { captureException } from '@/utils/sentry';
@@ -33,12 +39,22 @@ const getInfoAsyncMock = FileSystem.getInfoAsync as jest.MockedFunction<
   typeof FileSystem.getInfoAsync
 >;
 const compressMock = Video.compress as jest.MockedFunction<typeof Video.compress>;
+const metaMock = getVideoMetaData as jest.MockedFunction<typeof getVideoMetaData>;
 const captureExceptionSpy = captureException as jest.MockedFunction<typeof captureException>;
+
+// Default: a lean 1080p portrait clip. Individual tests override for 4K etc.
+// An unset (reset) metaMock returns undefined → resolution reads as 0 → the
+// decision falls back to size alone, matching an old binary with no metadata.
+function mockResolution(width: number, height: number) {
+  metaMock.mockResolvedValue({ width, height, size: 0, duration: 90 } as any);
+}
 
 describe('prepareVideoForUpload', () => {
   beforeEach(() => {
     getInfoAsyncMock.mockReset();
     compressMock.mockReset();
+    metaMock.mockReset();
+    mockResolution(1080, 1920); // in-spec by default; size drives these cases
   });
 
   it('skips compression for already-small clips', async () => {
@@ -51,12 +67,26 @@ describe('prepareVideoForUpload', () => {
     expect(compressMock).not.toHaveBeenCalled();
   });
 
-  it('compresses larger clips once at the upload boundary', async () => {
+  it('skips a mid-size clip that already fits the upload cap (no wasteful re-encode)', async () => {
+    // Owner decision 2026-09-09: a 24MB clip is well under the 150MB cap, so it
+    // uploads as-is at capture quality instead of paying for a full 1080p
+    // transcode. This is the fix for slow uploads — the on-device re-encode was
+    // the slowest step and it was running on clips that never needed shrinking.
+    getInfoAsyncMock.mockResolvedValue({ exists: true, size: 24 * 1024 * 1024 } as any);
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(result.wasCompressed).toBe(false);
+    expect(result.uri).toBe('file:///clip.mp4');
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
+  it('compresses only when the clip exceeds the upload cap', async () => {
     getInfoAsyncMock.mockImplementation(async (uri: string) => {
       if (uri === 'file:///compressed.mp4') {
-        return { exists: true, size: 5 * 1024 * 1024 } as any;
+        return { exists: true, size: 50 * 1024 * 1024 } as any;
       }
-      return { exists: true, size: 24 * 1024 * 1024 } as any;
+      return { exists: true, size: 170 * 1024 * 1024 } as any; // over the 150MB cap
     });
     compressMock.mockResolvedValue('file:///compressed.mp4' as any);
 
@@ -81,13 +111,43 @@ describe('prepareVideoForUpload', () => {
     expect(result).toMatchObject({
       uri: 'file:///compressed.mp4',
       wasCompressed: true,
-      originalSizeBytes: 24 * 1024 * 1024,
-      finalSizeBytes: 5 * 1024 * 1024,
+      originalSizeBytes: 170 * 1024 * 1024,
+      finalSizeBytes: 50 * 1024 * 1024,
     });
   });
 
+  it('downscales a 4K clip even when it fits the upload cap (resolution-aware)', async () => {
+    // 40MB is well under the 150MB cap, so a size-only rule would upload it
+    // as 4K — needless bandwidth for a phone-viewed highlight. The 3840x2160
+    // resolution triggers a re-encode down to 1080p.
+    getInfoAsyncMock.mockImplementation(async (uri: string) =>
+      uri === 'file:///compressed.mp4'
+        ? ({ exists: true, size: 20 * 1024 * 1024 } as any)
+        : ({ exists: true, size: 40 * 1024 * 1024 } as any)
+    );
+    mockResolution(3840, 2160);
+    compressMock.mockResolvedValue('file:///compressed.mp4' as any);
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(compressMock).toHaveBeenCalledTimes(1);
+    expect(result.wasCompressed).toBe(true);
+    expect(result.uri).toBe('file:///compressed.mp4');
+  });
+
+  it('skips a lean 1080p clip that fits the cap (no transcode)', async () => {
+    getInfoAsyncMock.mockResolvedValue({ exists: true, size: 40 * 1024 * 1024 } as any);
+    mockResolution(1920, 1080);
+
+    const result = await prepareVideoForUpload('file:///clip.mp4');
+
+    expect(result.wasCompressed).toBe(false);
+    expect(result.uri).toBe('file:///clip.mp4');
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
   it('exports the documented threshold constant', () => {
-    expect(VIDEO_COMPRESSION_THRESHOLD_MB).toBe(8);
+    expect(VIDEO_COMPRESSION_THRESHOLD_MB).toBe(3);
   });
 });
 
@@ -101,7 +161,7 @@ describe('compression progress', () => {
     getInfoAsyncMock.mockImplementation(async (uri: string) =>
       uri === 'file:///compressed.mp4'
         ? ({ exists: true, size: 5 * 1024 * 1024 } as any)
-        : ({ exists: true, size: 24 * 1024 * 1024 } as any)
+        : ({ exists: true, size: 170 * 1024 * 1024 } as any)
     );
     compressMock.mockImplementation(async (_uri: any, _opts: any, onProgress: any) => {
       onProgress?.(0.25);
@@ -122,7 +182,7 @@ describe('compression progress', () => {
     getInfoAsyncMock.mockImplementation(async (uri: string) =>
       uri === 'file:///compressed.mp4'
         ? ({ exists: true, size: 5 * 1024 * 1024 } as any)
-        : ({ exists: true, size: 24 * 1024 * 1024 } as any)
+        : ({ exists: true, size: 170 * 1024 * 1024 } as any)
     );
     compressMock.mockImplementation(async (_uri: any, _opts: any, onProgress: any) => {
       // Four readings that all round to 30%, then a real move to 31%.
@@ -244,5 +304,167 @@ describe('uploadTimeoutMsForSize', () => {
   });
   it('falls back to the floor when size is unknown (0)', () => {
     expect(uploadTimeoutMsForSize(0)).toBe(300_000);
+  });
+});
+
+describe('prepared video retry identity and bandwidth', () => {
+  let stored: string | null;
+  beforeEach(() => {
+    stored = null;
+    const storage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+    storage.getItem.mockImplementation(async () => stored);
+    storage.setItem.mockImplementation(async (_key: string, value: string) => {
+      stored = value;
+    });
+    getInfoAsyncMock.mockReset();
+    compressMock.mockReset();
+    metaMock.mockReset();
+    metaMock.mockResolvedValue({ width: 1920, height: 1080, duration: 10, size: 0 } as any);
+    compressMock.mockResolvedValue('file:///prepared.mp4');
+    getInfoAsyncMock.mockImplementation(
+      async (uri: string) =>
+        ({
+          exists: true,
+          isDirectory: false,
+          modificationTime: 1,
+          size: (uri === 'file:///prepared.mp4' ? 5 : 40) * 1024 * 1024,
+        }) as any
+    );
+  });
+
+  it('compresses high-bitrate 1080p under the upload cap', async () => {
+    expect((await prepareVideoForUpload('file:///source.mp4')).wasCompressed).toBe(true);
+    expect(compressMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shrinks a 20-second story at the previous 6Mbps target', async () => {
+    metaMock.mockResolvedValue({ width: 1920, height: 1080, duration: 20, size: 0 } as any);
+    getInfoAsyncMock.mockImplementation(
+      async (uri: string) =>
+        ({
+          exists: true,
+          modificationTime: 1,
+          size: uri === 'file:///prepared.mp4' ? 10_000_000 : 15_000_000,
+        }) as any
+    );
+    expect((await prepareVideoForUpload('file:///story.mp4')).wasCompressed).toBe(true);
+    expect(compressMock.mock.calls[0][1]).toMatchObject({ bitrate: 4_000_000, maxSize: 1920 });
+  });
+
+  it('rejects over-duration source before encoding or sending it', async () => {
+    metaMock.mockResolvedValue({ width: 1920, height: 1080, duration: 91, size: 0 } as any);
+    await expect(prepareVideoForUpload('file:///long.mp4')).rejects.toThrow('too long');
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+  it('accepts normal mux rounding at the 90-second trim boundary', async () => {
+    metaMock.mockResolvedValue({ width: 1920, height: 1080, duration: 90.1, size: 0 } as any);
+    await expect(prepareVideoForUpload('file:///trimmed.mp4')).resolves.toBeDefined();
+  });
+
+  it('does not silently send the oversized original when required compression fails', async () => {
+    compressMock.mockRejectedValue(new Error('encoder failed'));
+    await expect(prepareVideoForUpload('file:///source.mp4')).rejects.toThrow('prepare');
+  });
+  it('rejects an encoder output that does not meet the duration-based transfer budget', async () => {
+    getInfoAsyncMock.mockResolvedValue({
+      exists: true,
+      size: 40 * 1024 * 1024,
+      modificationTime: 1,
+    } as any);
+    await expect(prepareVideoForUpload('file:///source.mp4')).rejects.toThrow('still too large');
+  });
+
+  it('accepts its own prepared output without running a second encode', async () => {
+    const first = await prepareVideoForUpload('file:///source.mp4');
+    await prepareVideoForUpload(first.uri);
+    expect(compressMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks large uploads when duration is unknown rather than bypassing the byte budget', async () => {
+    metaMock.mockResolvedValue({ width: 1920, height: 1080, duration: 0, size: 0 } as any);
+    await expect(prepareVideoForUpload('file:///source.mp4')).rejects.toThrow('read video details');
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
+  it('does not spend an encode on a tiny high-bitrate clip', async () => {
+    getInfoAsyncMock.mockResolvedValue({
+      exists: true,
+      modificationTime: 1,
+      size: 2 * 1024 * 1024,
+    } as any);
+    metaMock.mockResolvedValue({ width: 1920, height: 1080, duration: 1, size: 0 } as any);
+    expect((await prepareVideoForUpload('file:///source.mp4')).wasCompressed).toBe(false);
+    expect(compressMock).not.toHaveBeenCalled();
+  });
+
+  it('reuses the exact prepared URI on retry without another encoder pass', async () => {
+    const first = await prepareVideoForUpload('file:///source.mp4');
+    const retry = await prepareVideoForUpload('file:///source.mp4');
+    expect(retry).toEqual(first);
+    expect(compressMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(stored!)).toHaveLength(1);
+  });
+
+  it('invalidates changed source bytes/mtime', async () => {
+    await prepareVideoForUpload('file:///source.mp4');
+    getInfoAsyncMock.mockImplementation(
+      async (uri: string) =>
+        ({
+          exists: true,
+          modificationTime: uri === 'file:///source.mp4' ? 2 : 1,
+          size: (uri === 'file:///prepared.mp4' ? 5 : 41) * 1024 * 1024,
+        }) as any
+    );
+    await prepareVideoForUpload('file:///source.mp4');
+    expect(compressMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rebuilds a missing cached output', async () => {
+    await prepareVideoForUpload('file:///source.mp4');
+    let outputChecks = 0;
+    getInfoAsyncMock.mockImplementation(async (uri: string) => {
+      if (uri === 'file:///prepared.mp4' && outputChecks++ === 0) return { exists: false } as any;
+      return {
+        exists: true,
+        modificationTime: 1,
+        size: (uri === 'file:///prepared.mp4' ? 5 : 40) * 1024 * 1024,
+      } as any;
+    });
+    await prepareVideoForUpload('file:///source.mp4');
+    expect(compressMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('serializes concurrent preparation and shares its result', async () => {
+    let active = 0;
+    let maxActive = 0;
+    compressMock.mockImplementation(async () => {
+      active += 1;
+      maxActive = Math.max(active, maxActive);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      active -= 1;
+      return 'file:///prepared.mp4';
+    });
+    await Promise.all([
+      prepareVideoForUpload('file:///source.mp4'),
+      prepareVideoForUpload('file:///source.mp4'),
+    ]);
+    expect(maxActive).toBe(1);
+    expect(compressMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps the persistent source index at five entries', async () => {
+    for (let i = 0; i < 7; i++) await prepareVideoForUpload(`file:///source${i}.mp4`);
+    expect(JSON.parse(stored!)).toHaveLength(5);
+  });
+
+  it('rejects unreadable source and output sizes', async () => {
+    getInfoAsyncMock.mockResolvedValue({ exists: false } as any);
+    await expect(prepareVideoForUpload('file:///source.mp4')).rejects.toThrow('selected video');
+    getInfoAsyncMock.mockImplementation(async (uri: string) =>
+      uri === 'file:///prepared.mp4'
+        ? ({ exists: false } as any)
+        : ({ exists: true, size: 40 * 1024 * 1024, modificationTime: 1 } as any)
+    );
+    await expect(prepareVideoForUpload('file:///source.mp4')).rejects.toThrow('prepared video');
   });
 });

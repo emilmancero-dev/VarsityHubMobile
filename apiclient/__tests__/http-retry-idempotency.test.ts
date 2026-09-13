@@ -43,6 +43,42 @@ describe('http retry idempotency', () => {
     jest.restoreAllMocks();
   });
 
+  it('propagates explicit cancellation without retry or timeout conversion', async () => {
+    const controller = new AbortController();
+    fetchMock.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+          );
+          controller.abort();
+        })
+    );
+    const { httpPostWithOptions } = await import('../http');
+    await expect(
+      httpPostWithOptions('/uploads/video-sessions', {}, 100, 1, undefined, controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it('keeps cancellation attached while reading the response body', async () => {
+    const controller = new AbortController();
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      text: () =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+          );
+          controller.abort();
+        }),
+    }));
+    const { httpPostWithOptions } = await import('../http');
+    await expect(
+      httpPostWithOptions('/uploads/video-sessions', {}, 100, 0, undefined, controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
   it('does NOT retry a POST that times out', async () => {
     const abortErr: any = new Error('Aborted');
     abortErr.name = 'AbortError';

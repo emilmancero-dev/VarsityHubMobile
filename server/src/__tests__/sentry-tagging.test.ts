@@ -104,7 +104,10 @@ describe('Sentry beforeSend environment filter', () => {
   it('keeps ordinary error events in production', () => {
     const beforeSend = initAndGetBeforeSend('production');
     const event = { exception: { values: [{ type: 'Error', value: 'real failure' }] } };
-    expect(beforeSend(event)).toBe(event);
+    const result = beforeSend(event);
+    expect(result.exception.values[0].type).toBe('Error');
+    expect(JSON.stringify(result)).not.toContain('real failure');
+    expect(event.exception.values[0].value).toBe('real failure');
   });
 
   it('still drops health-check noise in production', () => {

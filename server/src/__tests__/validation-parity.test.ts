@@ -63,12 +63,16 @@ describe('validation parity (frontend ↔ backend)', () => {
   });
 
   describe('password', () => {
-    const serverAuth = read('server/src/routes/auth.ts');
+    // Password validation was extracted out of the route file into a shared
+    // passwordRequirement (server/src/validators/authSchemas.ts), reused by
+    // register/reset/change — the canonical constraint now lives there, not
+    // inline in auth.ts.
+    const serverPasswordSchema = read('server/src/validators/authSchemas.ts');
 
     it('server Zod enforces min length + letter & number', () => {
-      expect(serverAuth).toContain(`.min(${CANONICAL.passwordMin})`);
-      expect(serverAuth).toContain('/[a-zA-Z]/.test(val)');
-      expect(serverAuth).toContain('/[0-9]/.test(val)');
+      expect(serverPasswordSchema).toContain(`.min(${CANONICAL.passwordMin})`);
+      expect(serverPasswordSchema).toContain('/[a-zA-Z]/.test(val)');
+      expect(serverPasswordSchema).toContain('/[0-9]/.test(val)');
     });
 
     it('client enforces the same min length', () => {

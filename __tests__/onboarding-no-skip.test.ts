@@ -352,6 +352,18 @@ describe('onboarding flow — no screens can be skipped', () => {
       expect(authProvider).toMatch(/recentRedirectsRef/);
       expect(authProvider).toMatch(/getRouteFamily/);
     });
+
+    it('loop breaker exempts BOTH terminal redirects (session_expired AND sign_out)', () => {
+      // Regression for VARSITYHUB-3A: sign-out redirects to the unauthenticated
+      // entry route were being swallowed by the loop guard when the `tabs` bucket
+      // was already hot, leaving the user stuck. Both terminal reasons must be
+      // exempt so the redirect (and the unmount that makes the http.ts hang safe)
+      // always fires.
+      const exemption = authProvider.match(/const isTerminalSessionRedirect =[\s\S]*?;/);
+      expect(exemption).not.toBeNull();
+      expect(exemption![0]).toMatch(/session_expired/);
+      expect(exemption![0]).toMatch(/sign_out/);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────

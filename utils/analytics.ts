@@ -1,3 +1,4 @@
+import { scrubAnalyticsEvent, sanitizeTelemetryData } from '@/shared/runtime/sentrySanitization.js';
 /**
  * PostHog Analytics — centralized event tracking
  *
@@ -46,7 +47,7 @@ function normalizeAnalyticsValue(value: unknown, depth = 0): string | number | b
       }
       if (depth >= MAX_ANALYTICS_DEPTH) {
         try {
-          return JSON.stringify(item);
+          return '[omitted]';
         } catch {
           return '[unserializable]';
         }
@@ -59,7 +60,7 @@ function normalizeAnalyticsValue(value: unknown, depth = 0): string | number | b
     });
   }
   try {
-    return JSON.stringify(sanitizeAnalyticsObject(value, depth + 1));
+    return JSON.stringify(sanitizeTelemetryData(value));
   } catch {
     return '[unserializable]';
   }
@@ -74,7 +75,7 @@ function sanitizeAnalyticsObject(value: unknown, depth = 0): unknown {
       : value;
   }
   if (depth >= MAX_ANALYTICS_DEPTH) {
-    return normalizeAnalyticsValue(value, depth);
+    return '[omitted]';
   }
   if (Array.isArray(value)) {
     return value
@@ -123,6 +124,7 @@ export function initAnalytics() {
   posthog = new PostHog(POSTHOG_API_KEY, {
     host: POSTHOG_HOST,
     enableSessionReplay: false,
+    before_send: scrubAnalyticsEvent,
     errorTracking: {
       autocapture: {
         uncaughtExceptions: true,

@@ -1,0 +1,68 @@
+name: Backup restore drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 7 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-drill
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_INITDB_ARGS: -c varsity.restore_isolated=on
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: f3a5f98e0911ac1c177f8a7979bd44e52e5f17c6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install server dependencies
+        run: npm ci --prefix server
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+      - name: Restore actual backup and verify migration startup
+        working-directory: server
+        env:
+          RESTORE_SOURCE_URL: ${{ secrets.RESTORE_SOURCE_URL }}
+          RESTORE_PRIMARY_URL: ${{ secrets.RESTORE_PRIMARY_URL }}
+          RESTORE_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          RESTORE_REPORT_PATH: restore-report.json
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: npx --no-install tsx scripts/verify-backup-restore.ts
+      - name: Retain aggregate drill evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-restore-report
+          path: server/restore-report.json
+          retention-days: 30
+          if-no-files-found: warn

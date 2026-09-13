@@ -12,11 +12,11 @@
  * logic the `db-backup-freshness-check` scheduler job uses to alert Sentry when
  * the sync silently stops between drills. This script is a thin CLI over it.
  *
- * A replica backup is "restorable" iff you can connect to it and it holds
- * complete, current data. Because the sync runs every 6h, the backup is EXPECTED
- * to trail the primary by a handful of recent rows between runs — that is not a
- * failure. A failure is a missing table, an unreachable backup, or an aggregate
- * row deficit past the drift budget (default 10%, override BACKUP_MAX_DRIFT_PCT).
+ * This checks recent helper-reported sync evidence plus row counts. It does not
+ * prove content equality or restorability. Redis evidence must be readable for
+ * these exact source/target URLs; run with the same REDIS_URL as the sync worker.
+ * A successful copy must have started within BACKUP_MAX_SUCCESS_AGE_HOURS
+ * (default 12). Per-table shortfalls cannot be offset by surpluses elsewhere.
  *
  * Run (local, against prod public proxies):
  *   cd server
@@ -27,8 +27,8 @@
  * Or inside Railway (internal hostnames resolve there):
  *   railway run --service api npm run verify:backup-freshness
  *
- * Exit 0 = backup is current and complete. Exit 1 = not configured, unreachable,
- * a table is missing, or the backup is stale/broken beyond the drift budget.
+ * Exit 0 = sync evidence and row-count checks pass. Exit 1 = configuration,
+ * evidence, connectivity, age, or count checks fail. A restore drill is separate.
  */
 
 import 'dotenv/config';
@@ -93,7 +93,7 @@ async function main() {
 
   console.log(`✅ ${result.reason}`);
   console.log(
-    `   ${TABLES_IN_ORDER.length} tables verified. Backup is reachable, complete, and restorable.`
+    `   ${TABLES_IN_ORDER.length} table counts checked. Restore integrity has not been verified.`
   );
   process.exit(0);
 }

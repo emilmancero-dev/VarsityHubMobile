@@ -159,9 +159,16 @@ describe('ad lifecycle structural invariants', () => {
     const holdCalls = paymentSources.match(/paymentStatus:\s*'hold'/g) || [];
     expect(holdCalls.length).toBeGreaterThanOrEqual(2);
 
+    // activateApprovedAdPaymentIntent used to be dead code (defined, never
+    // called) while the webhook ran a separately-duplicated inline copy of the
+    // same logic — that's how this used to count 3. The webhook now calls the
+    // shared helper instead of duplicating it, so the literal only needs to
+    // appear once per file: the helper's own write, plus paymentInternals.ts.
     const paidActiveWrites =
       paymentSources.match(/payment_status:\s*'paid',\s*status:\s*'active'/g) || [];
-    expect(paidActiveWrites.length).toBeGreaterThanOrEqual(3);
+    expect(paidActiveWrites.length).toBeGreaterThanOrEqual(2);
+    expect(payments).toMatch(/async function activateApprovedAdPaymentIntent/);
+    expect(payments).toMatch(/await activateApprovedAdPaymentIntent\(/);
 
     expectAllowedTuple('approved', 'hold');
     expectAllowedTuple('active', 'hold');

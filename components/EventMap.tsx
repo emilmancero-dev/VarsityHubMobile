@@ -10,7 +10,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { captureBreadcrumb } from '@/utils/sentry';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,66 +30,10 @@ import { EventMapData, EventMapProps } from './EventMap.types';
 
 export type { EventMapData, EventMapProps } from './EventMap.types';
 
-const SPORT_MARKER_COLORS: Record<string, string> = {
-  football: '#2563EB',
-  basketball: '#EA580C',
-  beach_volleyball: '#0EA5E9',
-  bowling: '#7E22CE',
-  baseball: '#16A34A',
-  softball: '#84CC16',
-  soccer: '#059669',
-  ice_hockey: '#0891B2',
-  water_polo: '#2563EB',
-  skiing: '#0369A1',
-  fencing: '#475569',
-  field_hockey: '#0D9488',
-  lacrosse: '#7C3AED',
-  mma: '#B91C1C',
-  auto_racing: '#111827',
-  stunt: '#E11D48',
-  acrobatics_tumbling: '#BE123C',
-  volleyball: '#DB2777',
-  wrestling: '#B45309',
-  tennis: '#65A30D',
-  golf: '#15803D',
-  track_field: '#DC2626',
-  cross_country: '#9333EA',
-  swimming: '#0284C7',
-  cheerleading: '#E11D48',
-  dance: '#C026D3',
-  gymnastics: '#BE123C',
-  crew: '#0F766E',
-  esports: '#4F46E5',
-};
+import { resolveMarkerColor } from '@/utils/mapMarkerColor';
+export { resolveMarkerColor } from '@/utils/mapMarkerColor';
 
 const SINGLE_EVENT_REGION_DELTA = 0.35;
-
-function isHexColor(value?: string | null): value is string {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim());
-}
-
-export function resolveMarkerColor(
-  event: Pick<
-    EventMapData,
-    'marker_color' | 'pro_home_color' | 'pro_away_color' | 'sport' | 'type'
-  >,
-  fallback: string
-): string {
-  if (isHexColor(event.marker_color)) return event.marker_color;
-  if (isHexColor(event.pro_home_color)) return event.pro_home_color;
-  if (isHexColor(event.pro_away_color)) return event.pro_away_color;
-  if (event.sport && SPORT_MARKER_COLORS[event.sport]) return SPORT_MARKER_COLORS[event.sport];
-  switch (event.type) {
-    case 'game':
-      return '#FF6B6B';
-    case 'event':
-      return '#4ECDC4';
-    case 'post':
-      return '#95E1D3';
-    default:
-      return fallback;
-  }
-}
 
 function formatPreviewDate(date?: string | null): string | null {
   if (!date) return null;
@@ -229,21 +173,26 @@ export default function EventMap({
   const searchFilteredEvents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return events;
-    return events.filter(event =>
-      [
-        event.title,
-        event.location,
-        event.sport,
-        event.league_slug,
-        event.league_name,
-        event.league_level,
-        event.league_gender,
-      ].some(value =>
-        String(value ?? '')
-          .toLowerCase()
-          .includes(query)
+    const anchor = Date.now();
+    return events
+      .filter(event =>
+        [
+          event.title,
+          event.location,
+          event.sport,
+          event.league_slug,
+          event.league_name,
+          event.league_level,
+          event.league_gender,
+        ].some(value =>
+          String(value ?? '')
+            .toLowerCase()
+            .includes(query)
+        )
       )
-    );
+      .sort(
+        (a, b) => Math.abs(Date.parse(a.date) - anchor) - Math.abs(Date.parse(b.date) - anchor)
+      );
   }, [events, searchQuery]);
 
   // Filter events that have coordinates (use != null so lat/lng of 0 are accepted).
@@ -265,6 +214,18 @@ export default function EventMap({
   const clusters: EventMapData[][] = useMemo(
     () => clusterByCoordinate(eventsWithCoordinates),
     [eventsWithCoordinates]
+  );
+
+  // A stable signature of the current marker composition. When it changes we
+  // remount the WHOLE marker layer at once (the keyed <Fragment> below) instead
+  // of letting the New-Architecture legacy-interop diff insert/remove individual
+  // <Marker> subviews. That incremental, interleaved reconciliation is what feeds
+  // a nil into `-[AIRMap insertReactSubview:atIndex:]` and hard-crashes the map on
+  // iOS (fatal Sentry VARSITYHUB-3T). An atomic unmount-all → mount-all avoids the
+  // interleaving. Pure JS → OTA-safe; the durable fix is a react-native-maps upgrade.
+  const markerLayerKey = useMemo(
+    () => clusters.map(group => `${group[0].id}:${group.length}`).join('|'),
+    [clusters]
   );
 
   // Center map on all events
@@ -341,8 +302,7 @@ export default function EventMap({
     }, 1100);
   };
 
-  const getMarkerColor = (event: EventMapData) =>
-    resolveMarkerColor(event, Colors[colorScheme].tint);
+  const getMarkerColor = (event: EventMapData) => resolveMarkerColor(event);
 
   const openEventFromMarker = (eventId: string, eventType?: 'game' | 'event' | 'post') => {
     const now = Date.now();
@@ -384,53 +344,65 @@ export default function EventMap({
           // Don't update state to avoid re-render loop
         }}
       >
-        {clusters.map(group => {
-          const lead = group[0];
-          const coordinate = { latitude: lead.latitude!, longitude: lead.longitude! };
+        {/* Keyed so the entire marker layer remounts atomically when the pin set
+            changes — see markerLayerKey above (VARSITYHUB-3T crash mitigation). */}
+        <Fragment key={markerLayerKey}>
+          {clusters.map(group => {
+            const lead = group[0];
+            const coordinate = { latitude: lead.latitude!, longitude: lead.longitude! };
 
-          // Multiple events at the same point → one numbered cluster pin. Tapping
-          // it opens a picker so every co-located event is reachable (zooming
-          // can't separate markers that share an exact coordinate).
-          if (group.length > 1) {
+            // Multiple events at the same point → one numbered cluster pin. Tapping
+            // it opens a picker so every co-located event is reachable (zooming
+            // can't separate markers that share an exact coordinate).
+            if (group.length > 1) {
+              return (
+                <Marker
+                  key={`cluster-${coordinate.latitude},${coordinate.longitude}`}
+                  coordinate={coordinate}
+                  // Cluster pins render a static custom <View>; stop react-native-maps
+                  // from continuously re-snapshotting them as native subviews — that
+                  // churn is the AIRMap subview path that crashes on New Arch.
+                  tracksViewChanges={false}
+                  onPress={() => {
+                    captureBreadcrumb('Map cluster pressed', 'map.navigation', {
+                      cluster_size: group.length,
+                    });
+                    setSelectedCluster(group);
+                  }}
+                >
+                  <View style={[styles.clusterPin, { backgroundColor: Colors[colorScheme].tint }]}>
+                    <Text style={styles.clusterPinText}>{group.length}</Text>
+                  </View>
+                </Marker>
+              );
+            }
+
             return (
               <Marker
-                key={`cluster-${coordinate.latitude},${coordinate.longitude}`}
+                key={lead.id}
                 coordinate={coordinate}
+                pinColor={getMarkerColor(lead)}
+                // Default pins carry no custom subview, so react-native-maps has
+                // nothing to re-rasterize — pin down tracksViewChanges (as the
+                // cluster pins already do) so many markers don't churn on load.
+                tracksViewChanges={false}
                 onPress={() => {
-                  captureBreadcrumb('Map cluster pressed', 'map.navigation', {
-                    cluster_size: group.length,
+                  captureBreadcrumb('Map marker pressed', 'map.navigation', {
+                    event_type: lead.type || 'unknown',
                   });
-                  setSelectedCluster(group);
+                  setSelectedCluster(null);
+                  setSelectedMarker(lead);
                 }}
-              >
-                <View style={[styles.clusterPin, { backgroundColor: Colors[colorScheme].tint }]}>
-                  <Text style={styles.clusterPinText}>{group.length}</Text>
-                </View>
-              </Marker>
+                onCalloutPress={() => {
+                  captureBreadcrumb('Map marker callout pressed', 'map.navigation', {
+                    event_type: lead.type || 'unknown',
+                  });
+                  openEventFromMarker(lead.id, lead.type);
+                }}
+              />
             );
-          }
-
-          return (
-            <Marker
-              key={lead.id}
-              coordinate={coordinate}
-              pinColor={getMarkerColor(lead)}
-              onPress={() => {
-                captureBreadcrumb('Map marker pressed', 'map.navigation', {
-                  event_type: lead.type || 'unknown',
-                });
-                setSelectedCluster(null);
-                setSelectedMarker(lead);
-              }}
-              onCalloutPress={() => {
-                captureBreadcrumb('Map marker callout pressed', 'map.navigation', {
-                  event_type: lead.type || 'unknown',
-                });
-                openEventFromMarker(lead.id, lead.type);
-              }}
-            />
-          );
-        })}
+          })}
+        </Fragment>
       </MapView>
 
       {/* Control Buttons */}
@@ -524,34 +496,31 @@ export default function EventMap({
         </View>
       )}
 
-      {/* Pin legend — explains the marker colors ("what are these dots?"). */}
+      {/* Pin legend — explains the marker colors ("what are these dots?"). Pins
+          are colored by league TIER (Major / Minor / NCAA / Other), with a gold
+          override for pages that have posts. Every swatch is resolved through the
+          SAME resolveMarkerColor used for the pins, so the key can never drift
+          from what's on the map. "Multiple" is the cluster pin (app tint). */}
       {eventsWithCoordinates.length > 0 && (
         <View style={[styles.legend, { backgroundColor: Colors[colorScheme].background }]}>
-          <View style={styles.legendRow}>
-            <View
-              style={[
-                styles.legendDot,
-                { backgroundColor: resolveMarkerColor({ type: 'game' }, Colors[colorScheme].tint) },
-              ]}
-            />
-            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>Game</Text>
-          </View>
-          <View style={styles.legendRow}>
-            <View
-              style={[
-                styles.legendDot,
-                {
-                  backgroundColor: resolveMarkerColor(
-                    { sport: 'football' },
-                    Colors[colorScheme].tint
-                  ),
-                },
-              ]}
-            />
-            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
-              Sport/team
-            </Text>
-          </View>
+          {(
+            [
+              { label: 'Major', event: { league_level: 'major' } },
+              { label: 'Minor', event: { league_level: 'minor' } },
+              { label: 'NCAA', event: { league_level: 'college' } },
+              { label: 'Other', event: { league_level: null } },
+              { label: 'Has posts', event: { has_posts: true } },
+            ] as { label: string; event: Parameters<typeof resolveMarkerColor>[0] }[]
+          ).map(row => (
+            <View key={row.label} style={styles.legendRow}>
+              <View
+                style={[styles.legendDot, { backgroundColor: resolveMarkerColor(row.event) }]}
+              />
+              <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
+                {row.label}
+              </Text>
+            </View>
+          ))}
           <View style={styles.legendRow}>
             <View style={[styles.legendDot, { backgroundColor: Colors[colorScheme].tint }]} />
             <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
@@ -571,16 +540,16 @@ export default function EventMap({
           >
             <Ionicons name="map-outline" size={48} color={Colors[colorScheme].tint} />
             <Text style={[styles.noEventsTitle, { color: Colors[colorScheme].text }]}>
-              No Games or Events with Locations Yet
+              No matching events on the map
             </Text>
             <Text style={[styles.noEventsDescription, { color: Colors[colorScheme].mutedText }]}>
-              Games and events appear on the map once location data has been added.
+              Try another date, sport, or league. Only events with a mapped location appear here.
             </Text>
             <View style={styles.emptyStateHints}>
               <View style={styles.hint}>
                 <Ionicons name="information-circle" size={16} color={Colors[colorScheme].tint} />
                 <Text style={[styles.hintText, { color: Colors[colorScheme].mutedText }]}>
-                  Add locations to see games and events on the map
+                  Past dates show pages with posts
                 </Text>
               </View>
             </View>

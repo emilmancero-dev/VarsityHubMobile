@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Message as MsgApi } from '@/api/entities';
 import {
   AdminGuardState,
@@ -29,7 +30,9 @@ function AdminMessagesScreen() {
       setItems(Array.isArray(list) ? list : []);
     } catch (e: any) {
       setError(
-        e?.status === 403 ? 'Access denied (admin only).' : e?.message || 'Failed to load messages'
+        e?.status === 403
+          ? 'Access denied (admin only).'
+          : toUserMessage(e, 'Failed to load messages')
       );
     } finally {
       setLoading(false);

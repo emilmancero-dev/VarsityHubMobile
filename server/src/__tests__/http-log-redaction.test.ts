@@ -54,3 +54,11 @@ describe('HTTP log redaction', () => {
     });
   });
 });
+
+it('redacts additional credential names in request URLs and headers', () => {
+  const result = redactSerializedRequest({
+    url: '/callback?api_key=private-value&csrf_token=private-value&password=private-value',
+    headers: { 'X-Api-Key': 'private-value', 'X-Client-Secret': 'private-value' },
+  });
+  expect(JSON.stringify(result)).not.toContain('private-value');
+});

@@ -15,6 +15,7 @@ export class AppError extends Error {
   public readonly publicMessage: string;
   public readonly privateMessage?: string;
   public readonly metadata?: ErrorMetadata;
+  public readonly publicMetadata?: ErrorMetadata;
   public readonly isOperational: boolean;
 
   constructor(
@@ -24,6 +25,8 @@ export class AppError extends Error {
       errorCode?: string;
       privateMessage?: string;
       metadata?: ErrorMetadata;
+      /** Explicitly approved response fields; diagnostic metadata stays private. */
+      publicMetadata?: ErrorMetadata;
       isOperational?: boolean;
     }
   ) {
@@ -34,6 +37,7 @@ export class AppError extends Error {
     this.errorCode = options?.errorCode;
     this.privateMessage = options?.privateMessage;
     this.metadata = options?.metadata;
+    this.publicMetadata = options?.publicMetadata;
     this.isOperational = options?.isOperational ?? true;
 
     // Maintains proper stack trace for where error was thrown (V8 only)
@@ -58,10 +62,10 @@ export class AppError extends Error {
     return {
       error: this.publicMessage,
       ...(this.errorCode && { code: this.errorCode, errorCode: this.errorCode }),
-      ...(this.metadata &&
-        Object.keys(this.metadata).length > 0 && {
-          details: this.metadata,
-          metadata: this.metadata,
+      ...(this.publicMetadata &&
+        Object.keys(this.publicMetadata).length > 0 && {
+          details: this.publicMetadata,
+          metadata: this.publicMetadata,
         }),
     };
   }

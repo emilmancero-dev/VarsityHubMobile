@@ -160,3 +160,6 @@ tmp-*.jpg
 # Personal email signature/template scratch at repo root (may contain PII — never commit)
 /email-signature*.html
 /personal-email-template.html
+
+# Generated matrix inventory and verification logs
+/artifacts/matrix-audit/

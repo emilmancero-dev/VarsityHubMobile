@@ -1,3 +1,5 @@
+import { toUserMessage } from './toUserMessage';
+
 /**
  * API error normalization.
  *
@@ -52,7 +54,7 @@ export interface ApiError {
  * Precedence for each field:
  *   status   — err.status ?? err.response?.status ?? null
  *   code     — data.code ?? data.error (if that's a string code) ?? null
- *   message  — data.message ?? data.error ?? err.message ?? fallback
+ *   message  — reviewed public copy or the caller-authored fallback
  */
 export function extractApiError(
   err: unknown,
@@ -76,18 +78,7 @@ export function extractApiError(
       : null;
   const code = dataCode ?? inferredCode;
 
-  const dataMessage =
-    data && typeof data === 'object'
-      ? ((typeof (data as any).message === 'string' ? (data as any).message : null) ??
-        // If `error` isn't a short code, it might be the message itself.
-        (typeof dataErrorField === 'string' && !inferredCode ? dataErrorField : null))
-      : typeof data === 'string'
-        ? data
-        : null;
-
-  const message = String(
-    dataMessage || (typeof e.message === 'string' ? e.message : '') || fallbackMessage
-  );
+  const message = toUserMessage(err, fallbackMessage);
 
   return {
     status: typeof rawStatus === 'number' ? rawStatus : null,

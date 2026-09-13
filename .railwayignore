@@ -90,3 +90,11 @@ expo-env.d.ts
 !react-native.config.js
 !tsconfig.json
 !types/
+
+# Local tooling and credentials are not deployment inputs.
+/.agents/
+/.codex/
+.env
+.env.*
+server/.env
+server/.env.*

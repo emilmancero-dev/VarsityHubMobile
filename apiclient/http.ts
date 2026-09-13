@@ -1,3 +1,4 @@
+import { throwIfUploadAborted, waitForUploadRetry } from '@/utils/resumableUpload';
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 // TODO(transport-hardening): Remove this grandfather when api/http gets typed
 // request/response generics and a typed transport error contract. The current
@@ -184,6 +185,25 @@ function shouldCaptureTerminalHttpError(error: unknown): boolean {
   return status >= 500;
 }
 
+function parseResponseBody(text: string, contentType: string, status: number): any {
+  if (!contentType.includes('application/json')) return text;
+  if (text === '') return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Error responses still surface their HTTP status when their body is malformed.
+    if (status < 200 || status >= 300) return null;
+    // Never include the body or parser exception: either can contain private data.
+    // Preserve the actual status; a protocol failure is not a retryable HTTP 502.
+    throw Object.assign(new Error('The server returned an invalid response. Please try again.'), {
+      name: 'HttpProtocolError',
+      code: 'INVALID_JSON_RESPONSE',
+      isProtocolError: true,
+      status,
+    });
+  }
+}
+
 /**
  * If an identical GET (same path + auth token) is already in flight,
  * return its pending promise so callers share the response. Otherwise
@@ -284,7 +304,10 @@ async function request(
   retries: number = 1,
   behavior: HttpBehaviorOptions = {}
 ): Promise<any> {
+  const externalSignal = options.signal ?? undefined;
+  throwIfUploadAborted(externalSignal);
   const base = getBaseUrl();
+  const telemetryPath = path.split(/[?#]/, 1)[0];
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as any),
@@ -307,15 +330,18 @@ async function request(
   // Add timeout to prevent hanging requests. Register the controller with
   // the inflight set so abortAllInflight() on sign-out can cancel this
   // request before user A's response leaks into user B's session.
+  throwIfUploadAborted(externalSignal);
   const controller = new AbortController();
+  const abortExternal = () => controller.abort();
+  externalSignal?.addEventListener('abort', abortExternal, { once: true });
   inflightControllers.add(controller);
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     // HTTP request initiated
-    captureBreadcrumb(`HTTP ${options.method || 'GET'} ${path}`, 'http', {
+    captureBreadcrumb(`HTTP ${options.method || 'GET'} ${telemetryPath}`, 'http', {
       base,
-      path,
+      path: telemetryPath,
       hasAuth: !!token,
     });
     const res = await fetch(base + path, {
@@ -323,10 +349,12 @@ async function request(
       headers,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
-    inflightControllers.delete(controller);
+    throwIfUploadAborted(externalSignal);
     // HTTP response received
-    captureBreadcrumb(`HTTP ${res.status} ${path}`, 'http', { status: res.status, path });
+    captureBreadcrumb(`HTTP ${res.status} ${telemetryPath}`, 'http', {
+      status: res.status,
+      path: telemetryPath,
+    });
 
     // Handle 304 Not Modified: return a special object or null.
     // The caller can then decide whether to use cached data or ignore.
@@ -335,17 +363,9 @@ async function request(
     }
 
     const text = await res.text();
+    throwIfUploadAborted(externalSignal);
     const ct = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
-    let data: any = null;
-    if (ct.includes('application/json')) {
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = null;
-      }
-    } else {
-      data = text; // plain text or HTML
-    }
+    const data = parseResponseBody(text, ct, res.status);
 
     if (!res.ok) {
       const isRailwayErrorPage = isRailwayInfrastructureError(res.status, ct, data);
@@ -389,20 +409,17 @@ async function request(
         if (newToken) {
           // Retry the original request with the fresh token
           headers['Authorization'] = `Bearer ${newToken}`;
-          const retryRes = await fetch(base + path, { ...options, headers, signal: undefined });
+          const retryRes = await fetch(base + path, {
+            ...options,
+            headers,
+            signal: controller.signal,
+          });
           if (retryRes.ok) {
             const retryText = await retryRes.text();
             const retryCt =
               (retryRes.headers && retryRes.headers.get && retryRes.headers.get('content-type')) ||
               '';
-            if (retryCt.includes('application/json')) {
-              try {
-                return retryText ? JSON.parse(retryText) : null;
-              } catch {
-                return null;
-              }
-            }
-            return retryText;
+            return parseResponseBody(retryText, retryCt, retryRes.status);
           }
           // Retry also failed — parse actual retry response and throw its error
           const retryText = await retryRes.text().catch(() => '');
@@ -476,6 +493,14 @@ async function request(
   } catch (error: any) {
     clearTimeout(timeoutId);
     inflightControllers.delete(controller);
+    throwIfUploadAborted(externalSignal);
+    if (error.isProtocolError) {
+      captureException(error, {
+        path: telemetryPath,
+        method: options.method || 'GET',
+      });
+      throw error;
+    }
     // Suppress verbose logging for expected auth errors in dev mode
     const isAuthError = path.includes('/auth/') || path.includes('/me');
     const isAbortError = error.name === 'AbortError';
@@ -617,9 +642,15 @@ async function request(
           console.log(
             `[http] Retrying 502 Bad Gateway after ${delay}ms... (${effectiveRetries}/${maxRetriesFor502} retries left)`
           );
-        await new Promise(r => setTimeout(r, delay));
+        await waitForUploadRetry(delay, externalSignal);
         // Retry with original retries count but ensure we don't exceed maxRetriesFor502
-        return request(path, options, timeoutMs, Math.min(retries - 1, maxRetriesFor502 - 1));
+        return request(
+          path,
+          options,
+          timeoutMs,
+          Math.min(retries - 1, maxRetriesFor502 - 1),
+          behavior
+        );
       }
 
       // If all retries exhausted, provide user-friendly error
@@ -661,7 +692,7 @@ async function request(
       if (retries > 0 && isRetryable) {
         // Exponential backoff: small delay before retry
         await new Promise(r => setTimeout(r, Math.min(1000, timeoutMs * 0.1)));
-        return request(path, options, timeoutMs, retries - 1);
+        return request(path, options, timeoutMs, retries - 1, behavior);
       }
       throw err;
     }
@@ -696,8 +727,8 @@ async function request(
       // request may have already reached and been processed by the server.
       if (retries > 0 && isRetryable) {
         const delay = Math.min(2000, 500 * Math.pow(2, 1 - retries)); // Exponential backoff
-        await new Promise(r => setTimeout(r, delay));
-        return request(path, options, timeoutMs, retries - 1);
+        await waitForUploadRetry(delay, externalSignal);
+        return request(path, options, timeoutMs, retries - 1, behavior);
       }
       throw err;
     }
@@ -710,6 +741,10 @@ async function request(
       captureException(error, { path, base, method: options.method || 'GET' });
     }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    inflightControllers.delete(controller);
+    externalSignal?.removeEventListener('abort', abortExternal);
   }
 }
 
@@ -758,11 +793,12 @@ export function httpPostWithOptions(
   body: any,
   timeoutMs: number,
   retries: number = 0,
-  behavior?: HttpBehaviorOptions
+  behavior?: HttpBehaviorOptions,
+  signal?: AbortSignal
 ) {
   return request(
     path,
-    { method: 'POST', body: JSON.stringify(body || {}) },
+    { method: 'POST', body: JSON.stringify(body || {}), signal },
     timeoutMs,
     Math.max(0, retries),
     behavior

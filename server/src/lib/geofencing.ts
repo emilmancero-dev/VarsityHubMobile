@@ -368,13 +368,16 @@ async function getEventPostingUnlockAnchor(
     orderBy: { created_at: 'asc' },
     select: { created_at: true },
   });
-  const earliestStory = event.game_id
-    ? await prisma.story.findFirst({
-        where: { user_id: userId, game_id: event.game_id },
-        orderBy: { created_at: 'asc' },
-        select: { created_at: true },
-      })
-    : null;
+  // Stories anchor the unlock too — game stories key on game_id, event-page
+  // stories (game-less pages) key on event_id. Check both so a first story on
+  // either surface earns the same 7-day window a first post does.
+  const storyOr: Array<{ event_id: string } | { game_id: string }> = [{ event_id: event.id }];
+  if (event.game_id) storyOr.push({ game_id: event.game_id });
+  const earliestStory = await prisma.story.findFirst({
+    where: { user_id: userId, OR: storyOr },
+    orderBy: { created_at: 'asc' },
+    select: { created_at: true },
+  });
 
   const candidates = [earliestPost?.created_at, earliestStory?.created_at].filter(
     (d): d is Date => d instanceof Date
@@ -523,10 +526,37 @@ export async function verifyStoryPostingPermission(
     return { allowed: true };
   }
 
-  // Stories are live-only: open any time up to the live cutoff (no early cutoff
-  // and never the 7-day grace — owner rules 2026-07-16 + 2026-08-28). The only
-  // way to fail this check is now being PAST the cutoff.
-  if (!isStoryPostingWindowOpen(event.date, event.live_window_hours_after_start)) {
+  // Exclusive-poster lock (owner one-off feature, 2026-07-14) applies to
+  // stories too, mirroring verifyEventPostingPermission — otherwise a
+  // non-designated user could bypass the single-poster restriction just by
+  // posting a story instead of a regular post. Null = normal multi-fan
+  // posting (falls through below).
+  if (event.exclusive_poster_id) {
+    if (event.exclusive_poster_id === userId) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      code: 'EXCLUSIVE_POSTER_ONLY',
+      reason: 'Only the designated poster can post to this event.',
+    };
+  }
+
+  // Past the live cutoff. Owner rule (Sep 2026, supersedes the 2026-07-16
+  // "stories get no grace" rule): a user who ALREADY posted or storied to this
+  // event page — i.e. holds an active 7-day posting unlock — may keep adding
+  // stories through the post-event grace window, exactly like regular posts.
+  // Everyone else is told the live window has closed. Designated/exclusive
+  // posters were already admitted above.
+  const storyWindowState = getPostPostingWindowState(
+    event.date,
+    new Date(),
+    event.live_window_hours_after_start
+  );
+  if (storyWindowState !== 'live') {
+    if (storyWindowState === 'grace' && (await hasActiveEventPostingUnlock(userId, event))) {
+      return { allowed: true };
+    }
     const { liveCutoff } = getPostPostingWindowBounds(
       event.date,
       event.live_window_hours_after_start

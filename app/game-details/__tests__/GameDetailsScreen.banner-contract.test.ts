@@ -9,7 +9,11 @@ const source = readFileSync(
 
 describe('GameDetailsScreen banner fallback contract', () => {
   it('never promotes attendee media into the event hero banner fallback', () => {
-    expect(source).toContain('vm.bannerUrl || vm.coverImageUrl || finalsBanner || null');
+    // Venue artwork is an intentional fallback (154c4ace); attendee media is not.
+    expect(source).toContain(
+      'const bannerImageUrl = finalsBanner || bannerUrl || resolvedVenuePhotoUrl'
+    );
+    expect(source).toContain('return pickBannerFromArrays(vm ?? {})');
     expect(source).not.toContain('media[0]?.url');
   });
 });

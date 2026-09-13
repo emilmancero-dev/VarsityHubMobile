@@ -53,8 +53,6 @@ npm test            # jest
 
 ## Hard Rules
 
-**Never run `eas build` or `eas submit`.** These cost money. Provide the commands for the user to run themselves.
-
 **Never use Expo Go.** Always use `npx expo run:ios` or `npx expo run:android` (dev client). Expo Go diverges from production behavior.
 
 **Railway auto-deploys from `main`.** A bad push is an instant production outage. The app is live in the App Store.

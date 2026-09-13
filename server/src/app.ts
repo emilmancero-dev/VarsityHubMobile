@@ -66,6 +66,7 @@ import { teamMembershipsRouter } from './routes/team-memberships.js';
 import { teamsRouter } from './routes/teams.js';
 import { testEmailsRouter } from './routes/test-emails.js';
 import { testNotificationsRouter } from './routes/test-notifications.js';
+import { mediaUploadWebhookRouter } from './routes/mediaUploadWebhook.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { usersRouter } from './routes/users.js';
 import { wellKnownRouter } from './routes/well-known.js';
@@ -282,6 +283,8 @@ const noStore = (_req: Request, res: Response, next: NextFunction) => {
 const rawBodyPaths = [
   '/payments/webhook',
   '/v1/payments/webhook',
+  '/webhooks/media/cloudinary',
+  '/v1/webhooks/media/cloudinary',
   '/webhooks/sendgrid',
   '/v1/webhooks/sendgrid',
 ];
@@ -296,6 +299,8 @@ app.use((req, res, next) => {
   return express.json({ limit: '1mb' })(req, res, next);
 });
 app.use(express.urlencoded({ extended: false }));
+app.use('/webhooks/media/cloudinary', mediaUploadWebhookRouter);
+app.use('/v1/webhooks/media/cloudinary', mediaUploadWebhookRouter);
 
 // Handle malformed JSON body (returns 400 instead of 500)
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

@@ -1,3 +1,5 @@
+import { isSessionExpiryError } from '@/utils/sessionExpiryError';
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Organization } from '@/api/entities';
 import type { OrganizationReviewSummaryArrayResponse } from '@/api/schemas/organization';
 import { Colors } from '@/constants/Colors';
@@ -57,7 +59,10 @@ export default function ApprovalsScreen() {
         }))
       );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load organization approvals');
+      if (isSessionExpiryError(err)) {
+        return;
+      }
+      setError(toUserMessage(err, 'Failed to load organization approvals'));
       setEntries([]);
     } finally {
       setLoading(false);

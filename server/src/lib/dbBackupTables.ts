@@ -19,6 +19,7 @@ export const TABLES_IN_ORDER = [
   'ProcessedStripeEvent',
   'AdminActivityLog',
   'AppleTransactionClaim',
+  'MediaUpload',
   // User <-> Organization cycle: User.organization_id is deferred, so User
   // can lead and Organization only needs User.
   'User',

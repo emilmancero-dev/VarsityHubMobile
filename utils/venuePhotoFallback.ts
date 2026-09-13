@@ -1,6 +1,15 @@
 export type VenuePhotoFallback = { url: string; credit: string };
 
 const CLIENT_VENUE_PHOTO_FALLBACKS: Record<string, VenuePhotoFallback> = {
+  // NCAA (college) venues — keys are lowercased venue names (see getVenuePhotoFallback).
+  'kenan stadium': {
+    url: 'https://commons.wikimedia.org/wiki/Special:FilePath/Kenan_Memorial_Stadium_2014.jpg',
+    credit: 'U.S. Department of State / Wikimedia Commons, public domain',
+  },
+  'bridgeforth stadium': {
+    url: 'https://commons.wikimedia.org/wiki/Special:FilePath/Bridgeforth_Stadium_-_James_Madison_University.jpg',
+    credit: 'Quintin Soloviev / Wikimedia Commons, CC BY 4.0',
+  },
   'amalie arena': {
     url: 'https://commons.wikimedia.org/wiki/Special:FilePath/Amalie_Arena_(cropped).jpg',
     credit: 'Indy beetle / Wikimedia Commons, CC BY-SA 4.0',

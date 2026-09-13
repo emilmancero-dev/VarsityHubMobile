@@ -225,7 +225,7 @@ function SubscriptionPaywallScreen() {
         setModal({
           visible: true,
           title: 'Purchase Failed',
-          message: err?.message || 'Unable to complete purchase. Please try again.',
+          message: toUserMessage(err, 'Unable to complete purchase. Please try again.'),
           options: [{ label: 'OK', onPress: () => setModal(null), color: '#DC2626' }],
         });
       } finally {
@@ -381,7 +381,7 @@ function SubscriptionPaywallScreen() {
       } else if (/prod_|price_/i.test(raw)) {
         msg = 'Unable to process subscription. Please try again or contact support.';
       } else if (raw) {
-        msg = raw;
+        msg = toUserMessage(error, 'Unable to complete payment. Please try again.');
       } else {
         msg = 'Unable to process subscription. Please try again.';
       }

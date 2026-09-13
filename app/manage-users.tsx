@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import CoachAccessRedirecting from '@/components/CoachAccessRedirecting';
@@ -187,7 +188,7 @@ function ManageUsersScreen() {
               await Organization.removeMember(row.scopeId!, row.membershipId!);
               await queryClient.invalidateQueries({ queryKey: ['manage-users'] });
             } catch (e: any) {
-              Alert.alert('Could not remove member', e?.message || 'Please try again.');
+              Alert.alert('Could not remove member', toUserMessage(e, 'Please try again.'));
             } finally {
               setRemovingId(null);
             }

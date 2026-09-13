@@ -1,3 +1,7 @@
+import {
+  scrubErrorEvent,
+  scrubTransactionEvent,
+} from '@varsityhub/shared/runtime/sentrySanitization';
 import * as Sentry from '@sentry/node';
 import { normalizeSentryBreadcrumbData } from '@varsityhub/shared/runtime/sentrySanitization';
 import type { Express, Request } from 'express';
@@ -5,6 +9,20 @@ import crypto from 'node:crypto';
 import { debugLog } from './debugLog.js';
 
 const SERVER_SERVICE_TAG = 'server';
+
+/** Check-ins bypass beforeSend, so gate them explicitly and isolate SDK failures. */
+export function captureSchedulerCheckIn(
+  checkIn: Parameters<typeof Sentry.captureCheckIn>[0],
+  config?: Parameters<typeof Sentry.captureCheckIn>[1]
+): string | undefined {
+  if (process.env.NODE_ENV !== 'production' || !process.env.SENTRY_DSN) return;
+  try {
+    return Sentry.captureCheckIn(checkIn, config);
+  } catch {
+    console.warn('[Scheduler] Sentry check-in could not be queued');
+    return undefined;
+  }
+}
 
 // Strip ID-like path segments so `route` stays low-cardinality enough to
 // alert on. /posts/cmod7xy123 -> /posts/:id, /games/42 -> /games/:id.
@@ -129,6 +147,7 @@ export function initSentry(app: Express) {
     // errors handled as 400 by errorHandler; this is defense-in-depth so they
     // never reach Sentry even if captured elsewhere.
     ignoreErrors: [/Failed to decode param/, 'URIError'],
+    beforeSendTransaction: scrubTransactionEvent,
     beforeSend(event: any) {
       // Drop everything from dev machines. Local runs (e.g. the
       // stripe-webhook-reconciliation cron with placeholder Stripe keys) share
@@ -152,7 +171,7 @@ export function initSentry(app: Express) {
       }
       // Defense-in-depth: scrub any request data (bodies, cookies, auth
       // headers, token query params) that slipped in before shipping.
-      return scrubSentryRequestData(event);
+      return scrubErrorEvent(scrubSentryRequestData(event));
     },
   });
 

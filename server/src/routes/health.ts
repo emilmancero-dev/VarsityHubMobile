@@ -1,9 +1,6 @@
-import crypto from 'node:crypto';
 import { Router } from 'express';
 import {
   CloudinaryUpstreamError,
-  getCloudinaryCredentials,
-  getCloudinaryFolder,
   isCloudinaryConfigured,
   uploadBufferToCloudinary,
 } from '../lib/cloudinary.js';
@@ -23,6 +20,7 @@ import { runDatabaseHealthcheck } from '../lib/healthProbe.js';
 import { runEgressProbe } from '../lib/egressProbe.js';
 import { getObjectStorageAdapter } from '../lib/objectStorage.js';
 import { resolveHealthCheckSecret } from '../lib/healthCheckSecret.js';
+import { getSchedulerHeartbeatReport } from '../lib/schedulerHeartbeat.js';
 import type { AuthedRequest } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
@@ -56,7 +54,7 @@ healthRouter.get(
       }
       return res.status(503).json({
         status: 'error',
-        message: 'Database unreachable',
+        message: 'Service unavailable',
         timestamp: new Date().toISOString(),
       });
     }
@@ -216,6 +214,42 @@ healthRouter.get(
 );
 
 /**
+ * /health/scheduler — aggregate "did every scheduled job run this cycle" signal.
+ *
+ * Detects a job that silently STOPS being scheduled — which Sentry failure
+ * alerts cannot see (they only fire when a job runs and throws). Each monitored
+ * run stamps a per-job lastRunAt; this reports 503 when any enabled job is
+ * overdue relative to its own cron cadence, or when the heartbeat store is
+ * configured but unreachable (fail-closed). Needs no paid Sentry cron seats.
+ *
+ * Mirrors /health/egress: the 200/503 status + overdue/total counts are public
+ * (a monitor watches the status code with zero secret management); per-job
+ * detail requires HEALTH_CHECK_SECRET.
+ *
+ * Usage (monitor): GET /health/scheduler  → alert when status code is 503
+ * Usage (debug):   curl -H "x-health-check-secret: $S" .../health/scheduler
+ */
+healthRouter.get(
+  '/scheduler',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const report = await getSchedulerHeartbeatReport();
+    const secret = resolveHealthCheckSecret();
+    const provided = String(req.headers['x-health-check-secret'] || '').trim();
+    const authorized = !!secret && !!provided && provided === secret;
+
+    const storeUnreachable = report.reason?.startsWith('heartbeat store');
+    res.status(report.ok ? 200 : 503).json({
+      status: report.ok ? 'ok' : storeUnreachable ? 'unverified' : 'stale',
+      overdue: report.overdueCount,
+      total: report.total,
+      // Per-job detail (reveals job names) only when authorized.
+      ...(authorized ? { jobs: report.jobs, stale: report.stale, reason: report.reason } : {}),
+      timestamp: report.generatedAt,
+    });
+  })
+);
+
+/**
  * v1.0.2 audit addition: /health/email
  * Focused email-system smoke test. Requires HEALTH_CHECK_SECRET to avoid exposing template IDs.
  * Returns 200 if SendGrid is wired up + critical templates present; 503 otherwise.
@@ -274,7 +308,7 @@ healthRouter.get(
           status: 'error',
           probe: probeAddress,
           duration_ms: durationMs,
-          error: error.message || 'Unknown error',
+          error: 'Email delivery check failed',
         });
       }
     }
@@ -299,8 +333,8 @@ healthRouter.get(
  * `uploadBufferToCloudinary` — if the signature is valid AND Cloudinary
  * accepts the credentials, it returns 200 with the uploaded URL. If
  * Cloudinary rejects ("Invalid Signature" / "Unknown API key"), it returns
- * 502 with a diagnostic dump so you can tell at a glance whether the env
- * var secret is wrong.
+ * 502 with a safe failure summary. Credentials, signatures, and raw provider
+ * errors must never be included in a response, even on authenticated probes.
  *
  * Requires HEALTH_CHECK_SECRET. Safe to call from CI or a curl prompt.
  *
@@ -319,9 +353,6 @@ healthRouter.get(
     if (!isCloudinaryConfigured()) {
       return res.status(503).json({ status: 'not_configured' });
     }
-
-    const { cloudName, apiKey, apiSecret } = getCloudinaryCredentials();
-    const folder = getCloudinaryFolder();
 
     // A 1x1 red PNG — smallest valid image bytes we can upload to verify
     // the signed-upload pipeline end-to-end.
@@ -346,45 +377,14 @@ healthRouter.get(
         duration_ms: durationMs,
         uploaded_url: result.secure_url || result.url,
         public_id: result.public_id,
-        cloud_name: cloudName,
-        api_key_prefix: `${apiKey.slice(0, 4)}…`,
-        secret_fingerprint: `${apiSecret.slice(0, 3)}…[${apiSecret.length}ch]`,
-        folder,
       });
     } catch (err: any) {
       const durationMs = Date.now() - startMs;
       const isUpstream = err instanceof CloudinaryUpstreamError;
-      // Reproduce the exact string-to-sign so the caller can compare against
-      // Cloudinary's error payload directly. Keys must mirror cloudinary.ts.
-      const timestamp = Math.floor(Date.now() / 1000);
-      const signedParams: Record<string, string> = {
-        folder,
-        timestamp: String(timestamp),
-        flags: 'exif_autostrip,strip_profile',
-      };
-      const sampleToSign = Object.keys(signedParams)
-        .sort()
-        .map(k => `${k}=${signedParams[k]}`)
-        .join('&');
-      const sampleSignature = crypto
-        .createHash('sha1')
-        .update(`${sampleToSign}${apiSecret}`)
-        .digest('hex');
       return res.status(502).json({
         status: isUpstream ? 'upstream_rejected' : 'error',
         duration_ms: durationMs,
-        cloudinary_status: isUpstream ? err.http_code : undefined,
-        cloudinary_kind: isUpstream ? err.kind : undefined,
-        cloudinary_message: isUpstream ? err.cloudinary_message : err?.message,
-        sample_string_to_sign: sampleToSign,
-        sample_signature: sampleSignature,
-        cloud_name: cloudName,
-        api_key_prefix: `${apiKey.slice(0, 4)}…`,
-        secret_fingerprint: `${apiSecret.slice(0, 3)}…[${apiSecret.length}ch]`,
-        hint:
-          isUpstream && err.kind === 'invalid_signature'
-            ? 'Our string-to-sign matches Cloudinary reconstruction but the signatures differ. Verify CLOUDINARY_API_SECRET in Railway matches Cloudinary → Settings → API Keys.'
-            : undefined,
+        error: 'Upload health check failed. Check private server diagnostics.',
       });
     }
   })

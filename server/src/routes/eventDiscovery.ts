@@ -1,3 +1,5 @@
+import { getPostVisibilityFilters } from '../lib/privacyUtils.js';
+import type { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { listEventDiscoveryItems } from '../lib/eventDiscovery.js';
 import { sendError } from '../lib/http/sendError.js';
@@ -37,6 +39,10 @@ eventDiscoveryRouter.get(
     const sportRaw =
       typeof req.query.sport === 'string' && req.query.sport.trim() ? req.query.sport.trim() : null;
 
+    const levelRaw = typeof req.query.level === 'string' ? req.query.level : null;
+    if (levelRaw && !['major', 'minor', 'college', 'other'].includes(levelRaw)) {
+      return sendError(res, 400, 'Invalid level');
+    }
     const from = parseDateParam(req.query.from);
     const to = parseDateParam(req.query.to);
     if (req.query.from && !from) return sendError(res, 400, 'Invalid from');
@@ -47,10 +53,19 @@ eventDiscoveryRouter.get(
 
     const limitRaw = Number.parseInt(String(req.query.limit ?? ''), 10);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : undefined;
+    const visibility = await getPostVisibilityFilters(req.user?.id ?? null);
+    const visiblePostWhere: Prisma.PostWhereInput = {
+      deleted_at: null,
+      AND: [visibility.authorWhere, visibility.privateTeamWhere].filter(
+        (where): where is Prisma.PostWhereInput => where != null
+      ),
+    };
     const payload = await listEventDiscoveryItems(prisma, {
+      visiblePostWhere,
       surface: surfaceRaw as 'feed' | 'map' | 'all',
       scope: scopeRaw as 'public' | 'following',
       sport: sportRaw,
+      level: levelRaw as 'major' | 'minor' | 'college' | 'other' | null,
       type: typeRaw ? (typeRaw as 'game' | 'event') : undefined,
       from,
       to,

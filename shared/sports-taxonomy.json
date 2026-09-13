@@ -27,7 +27,7 @@
     { "slug": "track_field", "label": "Track & Field" },
     { "slug": "volleyball", "label": "Volleyball" },
     { "slug": "water_polo", "label": "Water Polo" },
-    { "slug": "wrestling", "label": "Wrestling" },
+    { "slug": "wrestling", "label": "Combat Sports" },
     { "slug": "acrobatics_tumbling", "label": "Acrobatics & Tumbling" },
     { "slug": "other", "label": "Other" }
   ]

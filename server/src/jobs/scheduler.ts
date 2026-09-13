@@ -13,8 +13,10 @@
  * @module jobs/scheduler
  */
 
-import { Queue } from 'bullmq';
+import { Queue, type Worker } from 'bullmq';
 import { captureException, captureMessage } from '../lib/sentry.js';
+import { runMonitoredJob } from '../lib/schedulerMonitoring.js';
+import { closeHeartbeatStore } from '../lib/schedulerHeartbeat.js';
 
 // In-memory dedup for event reminder emails — used as fallback when Redis is unavailable
 const eventRemindersSentFallback = new Set<string>();
@@ -29,7 +31,7 @@ setInterval(
     }
   },
   24 * 60 * 60 * 1000
-);
+).unref();
 
 let _redisForDedup: any = null;
 async function getRedisForDedup(): Promise<any | null> {
@@ -92,6 +94,15 @@ function withJobTags(jobName: string, context: Record<string, any> = {}) {
 }
 
 const SCHEDULED_JOBS: ScheduledJob[] = [
+  {
+    name: 'cleanup-abandoned-media-uploads',
+    cron: '30 3 * * *',
+    description: 'Expire abandoned video uploads older than 48 hours (100 per sweep)',
+    handler: async () => {
+      const { cleanupAbandonedMediaUploads } = await import('../lib/mediaUploadCleanup.js');
+      await cleanupAbandonedMediaUploads();
+    },
+  },
   {
     name: 'game-reminders-12hr',
     cron: '0 * * * *', // Every hour at minute 0
@@ -162,6 +173,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         console.log(`[Scheduler] End-of-day transaction report for ${report.date}`);
       } catch (error) {
         console.error('[Scheduler] Failed to generate end-of-day transaction report:', error);
+        throw error;
       }
     },
   },
@@ -178,13 +190,17 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
           console.log(
             `[Scheduler] DB backup sync: ${result.tablesSync} tables, ${result.totalRows} rows`
           );
-        } else if (result.error?.includes('not configured')) {
+        } else if (
+          !process.env.DATABASE_BACKUP_URL &&
+          result.error === 'DATABASE_BACKUP_URL not configured'
+        ) {
           // Silent skip — no backup URL set
         } else {
-          console.error('[Scheduler] DB backup sync failed:', result.error);
+          throw new Error(result.error || 'DB backup sync failed');
         }
       } catch (error) {
         console.error('[Scheduler] DB backup sync error:', error);
+        throw error;
       }
     },
   },
@@ -225,6 +241,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
           primaryTotal: result.primaryTotal,
           backupTotal: result.backupTotal,
         });
+        throw new Error(`DR backup is stale: ${result.reason}`);
       } catch (error) {
         console.error('[Scheduler] DB backup freshness check error:', error);
         captureException(
@@ -233,6 +250,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'db_backup_freshness_check_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -269,6 +287,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'coach_approval_drift_probe_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -283,6 +302,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await remindPendingCoachApprovals(prisma);
       } catch (error) {
         console.error('[Scheduler] Coach approval reminder failed:', error);
+        throw error;
       }
     },
   },
@@ -297,6 +317,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await autoExpirePendingCoaches(prisma);
       } catch (error) {
         console.error('[Scheduler] Coach approval auto-expire failed:', error);
+        throw error;
       }
     },
   },
@@ -311,6 +332,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await autoExpireStaleEvents(prisma);
       } catch (error) {
         console.error('[Scheduler] Stale event auto-reject failed:', error);
+        throw error;
       }
     },
   },
@@ -326,6 +348,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
         await reconcileStuckAdRefunds(prisma);
       } catch (error) {
         console.error('[Scheduler] Ad refund reconcile failed:', error);
+        throw error;
       }
     },
   },
@@ -349,6 +372,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
           error as Error,
           withJobTags('coach-state-drift-probe', { context: 'coach_state_drift_probe_failed' })
         );
+        throw error;
       }
     },
   },
@@ -377,6 +401,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'stripe_webhook_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -410,6 +435,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'apple_iap_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -439,6 +465,7 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'google_play_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
@@ -469,12 +496,19 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
             context: 'veteran_quantity_reconciliation_failed',
           })
         );
+        throw error;
       }
     },
   },
 ];
 
 let schedulerQueue: Queue | null = null;
+// Held at module scope so the process can stop the worker and release these
+// dedicated Redis connections on shutdown (see stopSchedulerWorker).
+let schedulerWorker: Worker | null = null;
+let workerConnection: any = null;
+let queueConnection: any = null;
+let schedulerStopPromise: Promise<void> | null = null;
 
 /**
  * Setup all scheduled jobs
@@ -494,6 +528,7 @@ export async function setupScheduler(): Promise<boolean> {
     });
 
     schedulerQueue = new Queue('scheduler', { connection });
+    queueConnection = connection;
 
     // Remove existing repeatable jobs and add fresh ones
     const existingJobs = await schedulerQueue.getRepeatableJobs();
@@ -507,7 +542,7 @@ export async function setupScheduler(): Promise<boolean> {
         job.name,
         { description: job.description },
         {
-          repeat: { pattern: job.cron },
+          repeat: { pattern: job.cron, tz: 'UTC' },
           removeOnComplete: true,
           removeOnFail: { count: 10 },
         }
@@ -519,13 +554,39 @@ export async function setupScheduler(): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('[Scheduler] Failed to setup:', error);
-    return false;
+    throw error;
   }
 }
 
 // Both setupScheduler() and startSchedulerWorker() route here when REDIS_URL
 // is unset — guard so the cron jobs are only registered once per process.
 let fallbackCronArmed = false;
+
+// node-cron ScheduledTask handles + the in-flight run promises they spawn,
+// retained at module scope so drainScheduler() can stop the tasks and await
+// active runs on shutdown. In fallback (no-Redis) mode node-cron fires
+// independently of BullMQ, so without this a running job is killed
+// mid-operation when the DB/process are torn down on a deploy. Typed loosely
+// because node-cron is imported dynamically only when Redis is absent.
+const fallbackCronTasks: Array<{ stop: () => void | Promise<void> }> = [];
+const inFlightFallbackJobs = new Set<Promise<unknown>>();
+
+// The body of one fallback tick. Kept separate so setupFallbackCron can track
+// the promise it returns. Swallows its own errors (captured to Sentry), so the
+// tracked promise resolves rather than rejects — a failed job must not abort a
+// shutdown drain.
+async function runFallbackJob(job: ScheduledJob): Promise<void> {
+  try {
+    console.log(`[Scheduler] (fallback) Running ${job.name}: ${job.description}`);
+    await runMonitoredJob(job);
+  } catch (error) {
+    console.error(`[Scheduler] (fallback) ${job.name} failed:`, error);
+    captureException(
+      error instanceof Error ? error : new Error(String(error)),
+      withJobTags(job.name, { context: 'scheduler_fallback_job_failed', cron: job.cron })
+    );
+  }
+}
 
 /**
  * Fallback cron using node-cron (for when Redis is not available)
@@ -544,18 +605,19 @@ async function setupFallbackCron(): Promise<boolean> {
   // SCHEDULED_JOBS can never be missing here again.
   const { default: cron } = await import('node-cron');
   for (const job of SCHEDULED_JOBS) {
-    cron.schedule(job.cron, async () => {
-      try {
-        console.log(`[Scheduler] (fallback) Running ${job.name}: ${job.description}`);
-        await job.handler();
-      } catch (error) {
-        console.error(`[Scheduler] (fallback) ${job.name} failed:`, error);
-        captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          withJobTags(job.name, { context: 'scheduler_fallback_job_failed', cron: job.cron })
-        );
-      }
-    });
+    const task = cron.schedule(
+      job.cron,
+      () => {
+        // Track each run so drainScheduler() can await an in-flight job on
+        // shutdown; runFallbackJob swallows its errors so this never rejects.
+        const run = runFallbackJob(job);
+        inFlightFallbackJobs.add(run);
+        void run.finally(() => inFlightFallbackJobs.delete(run));
+        return run;
+      },
+      { timezone: 'UTC' }
+    );
+    fallbackCronTasks.push(task as unknown as { stop: () => void | Promise<void> });
   }
   console.log(`[Scheduler] Fallback cron armed for ${SCHEDULED_JOBS.length} jobs via node-cron`);
   return true;
@@ -587,7 +649,7 @@ export async function startSchedulerWorker(): Promise<void> {
         if (scheduledJob) {
           console.log(`[Scheduler] Running ${job.name}: ${scheduledJob.description}`);
           try {
-            await scheduledJob.handler();
+            await runMonitoredJob(scheduledJob);
           } catch (error) {
             captureException(
               error instanceof Error ? error : new Error(String(error)),
@@ -604,6 +666,8 @@ export async function startSchedulerWorker(): Promise<void> {
       },
       { connection }
     );
+    schedulerWorker = worker;
+    workerConnection = connection;
 
     worker.on('completed', job => {
       console.log(`[Scheduler] Job ${job.name} completed`);
@@ -619,7 +683,85 @@ export async function startSchedulerWorker(): Promise<void> {
     console.log('[Scheduler] Worker started');
   } catch (error) {
     console.error('[Scheduler] Failed to start worker:', error);
+    throw error;
   }
+}
+
+/**
+ * Gracefully stop the scheduler worker and release its Redis connections.
+ *
+ * BullMQ's `worker.close()` stops the worker accepting new jobs and waits for
+ * any active job to finish, so this MUST be called before the DB is torn down —
+ * otherwise a running job loses its connection mid-flight. The worker, queue,
+ * and dedup connections are dedicated ioredis instances this module opened, so
+ * BullMQ's close() does not quit them; we quit them explicitly. Idempotent —
+ * safe to call when nothing started and safe to call twice.
+ */
+export function stopSchedulerWorker(): Promise<void> {
+  if (schedulerStopPromise) return schedulerStopPromise;
+  schedulerStopPromise = drainScheduler().finally(() => {
+    schedulerStopPromise = null;
+  });
+  return schedulerStopPromise;
+}
+
+async function drainScheduler(): Promise<void> {
+  const errors: unknown[] = [];
+
+  // Fallback (no-Redis) mode: node-cron fires independently of BullMQ. Stop
+  // every task so no NEW fallback job starts, then await any in-flight run so
+  // it finishes against a live DB instead of being killed mid-operation by the
+  // queue/DB teardown and process exit that follow. In Redis mode this is a
+  // no-op (no fallback tasks were armed).
+  const tasks = fallbackCronTasks.splice(0);
+  for (const task of tasks) {
+    try {
+      await task.stop();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (inFlightFallbackJobs.size) {
+    await Promise.allSettled([...inFlightFallbackJobs]);
+    inFlightFallbackJobs.clear();
+  }
+  fallbackCronArmed = false;
+
+  // Close the worker first so in-flight jobs drain against a live DB.
+  // A failed drain MUST reject: the caller must not proceed to DB teardown.
+  if (schedulerWorker) {
+    await schedulerWorker.close();
+    schedulerWorker = null;
+  }
+  if (schedulerQueue) {
+    try {
+      await schedulerQueue.close();
+    } catch (error) {
+      console.error('[Scheduler] Error closing queue:', error);
+      errors.push(error);
+    }
+    schedulerQueue = null;
+  }
+  for (const conn of [workerConnection, queueConnection, _redisForDedup]) {
+    if (conn) {
+      try {
+        await conn.quit();
+      } catch (error) {
+        errors.push(error);
+        // Continue releasing independent resources, but do not report success.
+        conn.disconnect?.();
+      }
+    }
+  }
+  workerConnection = null;
+  queueConnection = null;
+  _redisForDedup = null;
+  try {
+    await closeHeartbeatStore();
+  } catch (error) {
+    errors.push(error);
+  }
+  if (errors.length) throw new AggregateError(errors, 'Scheduler resource cleanup failed');
 }
 
 /**

@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 // @ts-ignore
@@ -50,8 +51,8 @@ function VerifyScreen() {
           : 'Code sent',
       cooldownSeconds: 60,
     }),
-    getConfirmErrorMessage: (e: any) => e?.message || e?.data?.error || 'Verification failed',
-    getRequestErrorMessage: (e: any) => e?.message || e?.data?.error || 'Resend failed',
+    getConfirmErrorMessage: (e: any) => toUserMessage(e, 'Verification failed'),
+    getRequestErrorMessage: (e: any) => toUserMessage(e, 'Resend failed'),
     onVerified: async () => {
       const freshUser = (await getFreshAuthSnapshot(checkAuth, user)) as any;
       setScreenInfo('Email verified successfully!');

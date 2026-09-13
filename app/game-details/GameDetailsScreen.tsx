@@ -1,3 +1,11 @@
+import settings from '@/api/settings';
+import {
+  PostRecovery,
+  recoveryForOwner,
+  reusableUpload,
+  newPostRequestId,
+} from '@/utils/postRecovery';
+import { launchMediaLibraryAsync, launchMediaCameraAsync } from '@/utils/pickMedia';
 import { Colors } from '@/constants/Colors';
 import ExpandableText from '@/components/ExpandableText';
 import {
@@ -22,6 +30,7 @@ import {
   isEventPastEndOfDay,
 } from '@/utils/eventPresentation';
 import { recordEventPostingUnlock } from '@/utils/eventPostingUnlock';
+import { stripLinksFromDescription } from '@/utils/publicDescriptions';
 import { buildEventScrapbookPlan, eventScrapbookSeed } from '@/utils/eventPostGrid';
 import { optimizeImageUrl } from '@/utils/imageUrl';
 import { materializeICloudAssetIfNeeded } from '@/utils/materializeICloudAsset';
@@ -139,6 +148,9 @@ const GameDetailsScreen = () => {
     kind: 'photo' | 'video';
   } | null>(null);
   const [storyBusy, setStoryBusy] = useState(false);
+  // Human-readable phase during a story upload ("Processing video… 42%",
+  // "Uploading…") so a video story's on-device transcode doesn't read as a hang.
+  const [storyStatus, setStoryStatus] = useState<string | null>(null);
   const [storyPreview, setStoryPreview] = useState<{
     uri: string;
     mimeType: string;
@@ -148,6 +160,28 @@ const GameDetailsScreen = () => {
     durationS?: number;
   } | null>(null);
   const [storyTrimmedUri, setStoryTrimmedUri] = useState<string | null>(null);
+  const storyRecoveryRef = useRef<PostRecovery | null>(null);
+  const storySubmitRef = useRef(false);
+  const storyDraftKey =
+    authUser?.id && (vm?.gameId || vm?.eventId)
+      ? `story_recovery:${authUser.id}:${vm?.gameId ? 'game:' + vm.gameId : 'event:' + vm?.eventId}`
+      : null;
+  useEffect(() => {
+    let active = true;
+    storyRecoveryRef.current = null;
+    setStoryPreview(null);
+    setStoryTrimmedUri(null);
+    if (storyDraftKey)
+      void settings.getJson<any>(storyDraftKey, null).then(draft => {
+        if (!active || !draft || draft.ownerId !== authUser?.id) return;
+        storyRecoveryRef.current = recoveryForOwner(draft.recovery, authUser?.id);
+        setStoryPreview(draft.preview || null);
+        setStoryTrimmedUri(draft.trimmedUri || null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [storyDraftKey, authUser?.id]);
   const canTrimStoryVideo = isNativeVideoTrimSupported(Platform.OS);
   const [verticalFeedOpen, setVerticalFeedOpen] = useState(false);
   const [storiesViewer, setStoriesViewer] = useState<{
@@ -939,6 +973,11 @@ const GameDetailsScreen = () => {
         reviewsCount: null,
         isPast: computeIsPast(dateIso),
         eventType: event?.event_type ?? null,
+        venueLat: typeof (event as any)?.latitude === 'number' ? (event as any).latitude : null,
+        venueLng: typeof (event as any)?.longitude === 'number' ? (event as any).longitude : null,
+        // Designated-poster/exclusive grant for this viewer — enables "Add Story"
+        // and skips the geofence even on a finished event (server is authoritative).
+        canUploadStory: Boolean((event as any)?.can_upload_story),
       };
       setVm(vmPayload);
 
@@ -989,12 +1028,36 @@ const GameDetailsScreen = () => {
         .catch(error => {
           if (__DEV__) console.warn('[GameDetails] event posts hydration failed:', error);
         });
+
+      // Hydrate the Stories/media rail for a game-less event page. Event stories
+      // key on event_id server-side (GET /events/:id/stories) — the same rail
+      // component renders them (vm.media).
+      void retryWithBackoff(() => Event.stories(eventIdValue), {
+        maxRetries: 2,
+        initialDelayMs: 800,
+        maxDelayMs: 4000,
+      })
+        .then((mediaResult: any) => {
+          const items = Array.isArray(mediaResult)
+            ? mediaResult
+            : Array.isArray(mediaResult?.items)
+              ? mediaResult.items
+              : [];
+          setVm(prev => {
+            if (!prev || prev.eventId !== eventIdValue || prev.gameId) return prev;
+            return { ...prev, media: items };
+          });
+        })
+        .catch(error => {
+          if (__DEV__) console.warn('[GameDetails] event stories hydration failed:', error);
+        });
     },
     [replaceToCanonicalGame]
   );
 
   const handleAddStory = useCallback(async () => {
-    if (!vm?.gameId || storyBusy) return;
+    // Stories hang off a game OR a game-less event page — allow either target.
+    if ((!vm?.gameId && !vm?.eventId) || storyBusy) return;
 
     // Signed-out fans must sign in first. Without this guard the upload runs
     // and 401s at the requireAuth-gated Cloudinary signature endpoint, which
@@ -1013,10 +1076,15 @@ const GameDetailsScreen = () => {
     // them regardless of distance.
     const vmDescription = typeof vm.description === 'string' ? vm.description : '';
     const isDemoMatchup = vmDescription.includes(DEMO_MATCHUP_TAG);
+    // Server-granted story override (designated poster + active unlock, or the
+    // exclusive poster) — the server admits these users from anywhere, even on a
+    // finished event, so the client must not falsely block them at the geofence.
+    const hasStoryUploadGrant = Boolean(vm?.canUploadStory);
+    const skipGeofence = isDemoMatchup || isAdminUser || hasStoryUploadGrant;
     // Local unlock proves prior attendance for regular posts only. Stories are
     // live-window media and must re-pass geofence each time, matching the
-    // server's story permission contract.
-    if (!isDemoMatchup && !isAdminUser && location?.latitude && location?.longitude) {
+    // server's story permission contract — unless the viewer holds a server grant.
+    if (!skipGeofence && location?.latitude && location?.longitude) {
       const venueLat = vm.venueLat;
       const venueLng = vm.venueLng;
       if (typeof venueLat === 'number' && typeof venueLng === 'number') {
@@ -1039,22 +1107,6 @@ const GameDetailsScreen = () => {
       }
     }
 
-    // Request permissions first
-    const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
-    const { status: mediaStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (cameraStatus !== 'granted' || mediaStatus !== 'granted') {
-      Alert.alert(
-        'Permission Required',
-        'You need to grant camera and photo library permissions to add a story.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
-      return;
-    }
-
     // Request location permission for story tagging
     if (!permissionGranted || (Platform.OS === 'android' && needsPreciseAccuracy)) {
       const granted = await requestPermission();
@@ -1062,7 +1114,7 @@ const GameDetailsScreen = () => {
         // If the game has a linked event and it's not a demo, location is
         // required by the server for stories. Block early to avoid wasting a
         // direct upload that the server will reject.
-        if (hasEvent && !isDemoMatchup && !isAdminUser) {
+        if (hasEvent && !skipGeofence) {
           Alert.alert(
             'Location Required',
             'Location access is required to post stories at live events. Enable it in Settings to continue.',
@@ -1102,8 +1154,7 @@ const GameDetailsScreen = () => {
 
     if (
       hasEvent &&
-      !isDemoMatchup &&
-      !isAdminUser &&
+      !skipGeofence &&
       (typeof location?.latitude !== 'number' || typeof location?.longitude !== 'number')
     ) {
       const granted = permissionGranted ? true : await requestPermission();
@@ -1125,17 +1176,32 @@ const GameDetailsScreen = () => {
       setStoryBusy(true);
       const pickerOptions: ImagePicker.ImagePickerOptions = {
         ...pickerAllMediaTypesProp(),
-        quality: 0.8,
+        quality: 1,
         videoExportPreset: VIDEO_CAPTURE_PRESET,
         // Stops camera recording at the story cap; library picks are enforced
         // via the trimmer + confirmStoryUpload gate below.
         videoMaxDuration: STORY_MAX_DURATION_S,
       };
-      // Demo matchups (Duke v UNC, Cavs v Warriors) let fans upload from the
-      // camera roll as well — they're not physically at Chase Center or Cameron
-      // Indoor, so the camera-only rule for geofenced events doesn't apply.
-      let result: ImagePicker.ImagePickerResult;
-      if (isDemoMatchup) {
+      // Camera roll is allowed only for accounts the rules are already bent for:
+      // demo matchups (fans aren't at the venue), platform admins, and
+      // designated posters holding an active grant (e.g. the owner's marketing /
+      // superfan account). This is the SAME trust boundary as the geofence
+      // bypass (skipGeofence) the server already honors for these accounts.
+      // Normal attendees stay camera-only so a story still proves presence at
+      // the event — do not widen this without widening the server story grant.
+      const captureStory = async (): Promise<ImagePicker.ImagePickerResult | null> => {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Camera Permission Required', 'Allow camera access to record a story.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]);
+          return null;
+        }
+        return launchMediaCameraAsync(pickerOptions);
+      };
+      let result: ImagePicker.ImagePickerResult | null;
+      if (skipGeofence) {
         const source = await new Promise<'camera' | 'library' | null>(resolve => {
           Alert.alert(
             'Add to Story',
@@ -1154,10 +1220,10 @@ const GameDetailsScreen = () => {
         }
         result =
           source === 'library'
-            ? await ImagePicker.launchImageLibraryAsync(pickerOptions)
-            : await ImagePicker.launchCameraAsync(pickerOptions);
+            ? await launchMediaLibraryAsync(pickerOptions)
+            : await captureStory();
       } else {
-        result = await ImagePicker.launchCameraAsync(pickerOptions);
+        result = await captureStory();
       }
       if (!result || result.canceled || !result.assets || !result.assets.length) return;
 
@@ -1194,47 +1260,11 @@ const GameDetailsScreen = () => {
         return; // Upload will happen via confirmStoryUpload
       }
 
-      const base = getApiBaseUrl();
-      let uri = materializedUri;
-      const ensured = await (
-        await import('../../utils/ensureUploadableUri')
-      ).ensureUploadableUri(uri, mimeType);
-      uri = ensured.uri;
-
-      const uploaded = await uploadFile(base, uri, fileName, ensured.mimeType || mimeType);
-      const mediaUrl = uploaded?.path || uploaded?.url;
-      if (!mediaUrl) {
-        throw new Error('Upload failed');
-      }
-      {
-        const gameId = vm.gameId;
-        if (!gameId) throw new Error('Could not resolve the game for this story');
-        const storyPayload: any = { media_url: mediaUrl };
-        if (location?.latitude && location?.longitude) {
-          storyPayload.location = {
-            lat: location.latitude,
-            lng: location.longitude,
-            source: 'device',
-          };
-        }
-        await Game.addStory(gameId, storyPayload);
-        // Mirror the server's posting unlock locally so preflight prompts
-        // don't re-block this user on their next upload to this event page.
-        void recordEventPostingUnlock([gameId, vm.eventId]);
-        analytics.track(ANALYTICS_EVENTS.STORY_ADDED, { game_id: gameId });
-        try {
-          await loadGameById(gameId);
-          Alert.alert('Added', 'Story added to this game.');
-        } catch (reloadErr: any) {
-          if (__DEV__)
-            console.warn('[story] Camera - reload failed but story was uploaded:', reloadErr);
-          Alert.alert('Added', 'Story added to this game. Refresh to see it.');
-        }
-      }
+      setStoryPreview({ uri: materializedUri, mimeType, fileName, type: 'photo' });
+      setStoryTrimmedUri(null);
     } catch (err: any) {
       const status = err?.status;
       const code = err?.data?.error || '';
-      const serverMsg = err?.data?.message || '';
       const message = String(err?.message || code || '');
       if (status === 401 || /unauthorized/i.test(message)) {
         showUploadErrorAlert(err, {
@@ -1245,14 +1275,13 @@ const GameDetailsScreen = () => {
       } else if (code === 'POSTING_WINDOW_CLOSED') {
         Alert.alert(
           'Story Posting Closed',
-          serverMsg || 'The story posting window is not open for this event.'
+          toUserMessage(err, 'The story posting window is not open for this event.')
         );
       } else if (code === 'TOO_FAR_FROM_VENUE') {
         const dist = err?.data?.distance;
         Alert.alert(
           'Too Far',
-          serverMsg ||
-            `You need to be within 3 km of the venue.${dist ? ` You're ${dist.toFixed(1)} km away.` : ''}`
+          `You need to be within 3 km of the venue.${typeof dist === 'number' && Number.isFinite(dist) ? ` You're ${dist.toFixed(1)} km away.` : ''}`
         );
       } else if (code === 'LOCATION_REQUIRED') {
         Alert.alert('Location Required', 'Enable location access to post stories at this event.', [
@@ -1277,10 +1306,12 @@ const GameDetailsScreen = () => {
     hasEvent,
     isAdminUser,
     loadGameById,
+    loadVirtualFromEvent,
     storyBusy,
     vm?.description,
     vm?.gameId,
     vm?.eventId,
+    vm?.canUploadStory,
     vm?.venueLat,
     vm?.venueLng,
     location?.latitude,
@@ -1292,10 +1323,19 @@ const GameDetailsScreen = () => {
   ]);
 
   const confirmStoryUpload = useCallback(async () => {
-    if (!storyPreview || !vm?.gameId) return;
+    if (
+      storySubmitRef.current ||
+      !storyPreview ||
+      !storyDraftKey ||
+      !authUser?.id ||
+      (!vm?.gameId && !vm?.eventId)
+    )
+      return;
+    const ownerId = authUser.id;
     // Story cap: an over-limit pick must be trimmed (the trimmer clamps its
     // window to the cap) before it can upload. Keeps the preview modal open.
     if (
+      !recoveryForOwner(storyRecoveryRef.current, ownerId)?.pendingPayload &&
       !storyTrimmedUri &&
       typeof storyPreview.durationS === 'number' &&
       storyPreview.durationS > STORY_MAX_DURATION_S + 0.25
@@ -1306,62 +1346,98 @@ const GameDetailsScreen = () => {
       );
       return;
     }
+    storySubmitRef.current = true;
     setStoryBusy(true);
+    let completed = false;
     try {
       const base = getApiBaseUrl();
-      // This callback only handles videos (images upload inline in the picker
-      // handler). Prepare the final asset once, right before upload.
+      const persistRecovery = async (recovery: PostRecovery) => {
+        if (currentUserIdRef.current !== ownerId)
+          throw new Error('Your account changed. Reopen this page.');
+        storyRecoveryRef.current = recovery;
+        const draft = { ownerId, preview: storyPreview, trimmedUri: storyTrimmedUri, recovery };
+        await settings.setJson(storyDraftKey, draft);
+        const saved = await settings.getJson<any>(storyDraftKey, null);
+        if (JSON.stringify(saved) !== JSON.stringify(draft))
+          throw new Error('Could not save story recovery. Free device storage and retry.');
+      };
+      await persistRecovery(recoveryForOwner(storyRecoveryRef.current, ownerId) || { ownerId });
+      // Photos and videos share the same durable upload/finalization checkpoint.
       const rawUri = storyTrimmedUri || storyPreview.uri;
-      const prepared = await prepareVideoForUpload(rawUri);
-      const uploadUri = prepared.uri;
-      const ensured = await (
-        await import('../../utils/ensureUploadableUri')
-      ).ensureUploadableUri(uploadUri, storyPreview.mimeType);
-      const uploaded = await uploadFile(
-        base,
-        ensured.uri,
-        storyPreview.fileName,
-        ensured.mimeType || storyPreview.mimeType,
-        { timeoutMs: uploadTimeoutMsForSize(prepared.finalSizeBytes) }
-      );
-      const mediaUrl = uploaded?.path || uploaded?.url;
-      if (!mediaUrl) throw new Error('Upload failed');
+      const savedUpload = reusableUpload(storyRecoveryRef.current, ownerId, rawUri);
+      let mediaUrl = savedUpload?.url || '';
+      let posterUrl = savedUpload?.posterUrl || '';
+      if (!savedUpload && !recoveryForOwner(storyRecoveryRef.current, ownerId)?.pendingPayload) {
+        // Show preparation separately from transfer and server playback processing.
+        setStoryStatus(storyPreview.type === 'video' ? 'Processing video…' : 'Preparing photo…');
+        const prepared =
+          storyPreview.type === 'video' && Platform.OS !== 'web'
+            ? await prepareVideoForUpload(rawUri, {
+                onCompressProgress: fraction =>
+                  setStoryStatus(`Processing video… ${Math.round(fraction * 100)}%`),
+              })
+            : null;
+        const uploadUri = prepared?.uri || rawUri;
+        const ensured = await (
+          await import('../../utils/ensureUploadableUri')
+        ).ensureUploadableUri(uploadUri, storyPreview.mimeType);
+        setStoryStatus('Uploading…');
+        const uploaded = await uploadFile(
+          base,
+          ensured.uri,
+          storyPreview.fileName,
+          ensured.mimeType || storyPreview.mimeType,
+          {
+            ...(prepared ? { timeoutMs: uploadTimeoutMsForSize(prepared.finalSizeBytes) } : {}),
+            onProgress: pct => setStoryStatus(pct >= 100 ? 'Finishing up…' : `Uploading… ${pct}%`),
+            onPhase: phase => {
+              if (phase === 'processing') setStoryStatus('Preparing playback…');
+            },
+          }
+        );
+        mediaUrl = uploaded?.path || uploaded?.url || '';
+        posterUrl = (uploaded as any)?.poster_url || '';
+        if (!mediaUrl) throw new Error('Upload failed');
 
-      // R2 stores bytes verbatim, so the server can't derive a preview from the
-      // video URL the way it can for Cloudinary. Generate a first-frame poster
-      // on-device and upload it alongside the video, same as the post create
-      // path — otherwise the story tile renders black until the lazy
-      // server-side backfill lands on a later fetch. Best-effort: a story
-      // without a poster still uploads fine.
-      let posterUrl = '';
-      if ((uploaded as any)?.provider === 'r2') {
-        try {
-          // Dynamic require, same OTA-safety pattern as create-post.tsx — never
-          // crash a binary built before the module existed.
-          let VideoThumbnails: any = null;
+        // R2 stores bytes verbatim, so the server can't derive a preview from the
+        // video URL the way it can for Cloudinary. Generate a first-frame poster
+        // on-device and upload it alongside the video, same as the post create
+        // path — otherwise the story tile renders black until the lazy
+        // server-side backfill lands on a later fetch. Best-effort: a story
+        // without a poster still uploads fine.
+        await persistRecovery({ ownerId, sourceUri: rawUri, upload: { url: mediaUrl, posterUrl } });
+        if ((uploaded as any)?.provider === 'r2' && storyPreview.type === 'video') {
           try {
-            VideoThumbnails = require('expo-video-thumbnails');
-          } catch {
-            /* module unavailable in this binary */
-          }
-          if (VideoThumbnails?.getThumbnailAsync) {
-            const thumb = await VideoThumbnails.getThumbnailAsync(uploadUri, {
-              time: 0,
-              quality: 0.7,
-            });
-            if (thumb?.uri) {
-              const posterRes = await uploadFile(base, thumb.uri, 'poster.jpg', 'image/jpeg');
-              posterUrl = posterRes?.url || '';
+            // Dynamic require, same OTA-safety pattern as create-post.tsx — never
+            // crash a binary built before the module existed.
+            let VideoThumbnails: any = null;
+            try {
+              VideoThumbnails = require('expo-video-thumbnails');
+            } catch {
+              /* module unavailable in this binary */
             }
+            if (VideoThumbnails?.getThumbnailAsync) {
+              const thumb = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+                time: 0,
+                quality: 0.7,
+              });
+              if (thumb?.uri) {
+                const posterRes = await uploadFile(base, thumb.uri, 'poster.jpg', 'image/jpeg');
+                posterUrl = posterRes?.url || '';
+              }
+            }
+          } catch (posterErr: any) {
+            if (__DEV__) console.warn('[story] Poster generation failed:', posterErr?.message);
           }
-        } catch (posterErr: any) {
-          if (__DEV__) console.warn('[story] Poster generation failed:', posterErr?.message);
         }
-      }
 
+        await persistRecovery({ ownerId, sourceUri: rawUri, upload: { url: mediaUrl, posterUrl } });
+      }
       {
         const gameId = vm.gameId;
-        if (!gameId) throw new Error('Could not resolve the game for this story');
+        const eventId = vm.eventId;
+        if (!gameId && !eventId)
+          throw new Error('Could not resolve the game or event for this story');
         const storyPayload: any = { media_url: mediaUrl };
         if (posterUrl) storyPayload.poster_url = posterUrl;
         if (location?.latitude && location?.longitude) {
@@ -1371,21 +1447,37 @@ const GameDetailsScreen = () => {
             source: 'device',
           };
         }
-        await Game.addStory(gameId, storyPayload);
+        const pendingPayload = recoveryForOwner(storyRecoveryRef.current, ownerId)
+          ?.pendingPayload || { ...storyPayload, client_request_id: newPostRequestId() };
+        await persistRecovery({
+          ...recoveryForOwner(storyRecoveryRef.current, ownerId),
+          ownerId,
+          pendingPayload,
+        });
+        if (currentUserIdRef.current !== ownerId)
+          throw new Error('Your account changed. Reopen this page.');
+        if (gameId) await Game.addStory(gameId, pendingPayload);
+        else await Event.addStory(eventId as string, pendingPayload);
+        completed = true;
+        storyRecoveryRef.current = null;
+        await settings.setJson(storyDraftKey, null);
         // Mirror the server's posting unlock locally (see handleAddStory).
-        void recordEventPostingUnlock([gameId, vm.eventId]);
-        analytics.track(ANALYTICS_EVENTS.STORY_ADDED, { game_id: gameId });
+        void recordEventPostingUnlock([gameId, eventId].filter(Boolean) as string[]);
+        analytics.track(
+          ANALYTICS_EVENTS.STORY_ADDED,
+          gameId ? { game_id: gameId } : { event_id: eventId }
+        );
         try {
-          await loadGameById(gameId);
-          Alert.alert('Added', 'Story added to this game.');
+          if (gameId) await loadGameById(gameId);
+          else await loadVirtualFromEvent(eventId as string);
+          Alert.alert('Added', 'Story added.');
         } catch {
-          Alert.alert('Added', 'Story added to this game. Refresh to see it.');
+          Alert.alert('Added', 'Story added. Refresh to see it.');
         }
       }
     } catch (err: any) {
       const status = err?.status;
       const code = err?.data?.error || '';
-      const serverMsg = err?.data?.message || '';
       const message = String(err?.message || code || '');
       if (status === 401 || /unauthorized/i.test(message)) {
         showUploadErrorAlert(err, {
@@ -1396,14 +1488,13 @@ const GameDetailsScreen = () => {
       } else if (code === 'POSTING_WINDOW_CLOSED') {
         Alert.alert(
           'Story Posting Closed',
-          serverMsg || 'The story posting window is not open for this event.'
+          toUserMessage(err, 'The story posting window is not open for this event.')
         );
       } else if (code === 'TOO_FAR_FROM_VENUE') {
         const dist = err?.data?.distance;
         Alert.alert(
           'Too Far',
-          serverMsg ||
-            `You need to be within 3 km of the venue.${dist ? ` You're ${dist.toFixed(1)} km away.` : ''}`
+          `You need to be within 3 km of the venue.${typeof dist === 'number' && Number.isFinite(dist) ? ` You're ${dist.toFixed(1)} km away.` : ''}`
         );
       } else if (code === 'LOCATION_REQUIRED') {
         Alert.alert('Location Required', 'Enable location access to post stories at this event.', [
@@ -1424,11 +1515,17 @@ const GameDetailsScreen = () => {
         Alert.alert('Unable to add story', toUserMessage(err, 'Please try again.'));
       }
     } finally {
+      storySubmitRef.current = false;
       setStoryBusy(false);
-      setStoryPreview(null);
-      setStoryTrimmedUri(null);
+      setStoryStatus(null);
+      if (completed) {
+        setStoryPreview(null);
+        setStoryTrimmedUri(null);
+      }
     }
   }, [
+    storyDraftKey,
+    authUser?.id,
     storyPreview,
     storyTrimmedUri,
     vm?.gameId,
@@ -1436,6 +1533,7 @@ const GameDetailsScreen = () => {
     location?.latitude,
     location?.longitude,
     loadGameById,
+    loadVirtualFromEvent,
   ]);
 
   const _refreshVotes = useCallback(async () => {
@@ -1501,7 +1599,7 @@ const GameDetailsScreen = () => {
         if (message.toLowerCase().includes('timed out')) {
           setError('Loading is taking too long. Pull to refresh and try again.');
         } else {
-          setError(`Unable to load. ${message || 'Please try again.'}`);
+          setError(toUserMessage(err, 'Unable to load. Please try again.'));
         }
         setVm(null);
       } finally {
@@ -2425,7 +2523,9 @@ const GameDetailsScreen = () => {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s) return null;
     if (/^friendly match$/i.test(s)) return null;
-    return s;
+    // Hide raw promotional links ("Official fixture: https://…") from ingested
+    // pro/NCAA fixtures (owner note, Sep 2026).
+    return stripLinksFromDescription(s);
   }, [vm?.description]);
 
   const _renderMediaGrid = () => {
@@ -2535,17 +2635,17 @@ const GameDetailsScreen = () => {
                 <Pressable
                   style={[
                     styles.actionBtn,
-                    !vm?.gameId ||
+                    (!vm?.gameId && !vm?.eventId) ||
                     storyBusy ||
-                    !canAddStory(vm?.date, vm?.gameId, vm?.description, vm)
+                    (!canAddStory(vm?.date, vm?.gameId, vm?.description, vm) && !vm?.canUploadStory)
                       ? styles.actionBtnDisabled
                       : null,
                   ]}
                   onPress={handleAddStory}
                   disabled={
-                    !vm?.gameId ||
+                    (!vm?.gameId && !vm?.eventId) ||
                     storyBusy ||
-                    !canAddStory(vm?.date, vm?.gameId, vm?.description, vm)
+                    (!canAddStory(vm?.date, vm?.gameId, vm?.description, vm) && !vm?.canUploadStory)
                   }
                 >
                   <Ionicons
@@ -2888,6 +2988,7 @@ const GameDetailsScreen = () => {
         transparent
         animationType="slide"
         onRequestClose={() => {
+          if (storySubmitRef.current) return;
           setStoryPreview(null);
           setStoryTrimmedUri(null);
           setStoryBusy(false);
@@ -2897,45 +2998,68 @@ const GameDetailsScreen = () => {
           {storyPreview && (
             <View style={{ padding: 16 }}>
               {/* Story trim preview: authoring surface, not a consumption one. */}
-              <VideoPlayer
-                uri={storyTrimmedUri ?? storyPreview.uri}
-                style={{
-                  width: '100%',
-                  aspectRatio: 9 / 16,
-                  borderRadius: 12,
-                  alignSelf: 'center',
-                  maxHeight: 400,
-                }}
-                autoPlay={false}
-              />
-              {canTrimStoryVideo ? (
-                <VideoTrimmer
-                  uri={storyPreview.uri}
-                  maxDurationS={STORY_MAX_DURATION_S}
-                  onTrimComplete={u => setStoryTrimmedUri(u)}
-                  onTrimReset={() => setStoryTrimmedUri(null)}
+              {storyPreview.type === 'photo' ? (
+                <Image
+                  source={{ uri: storyPreview.uri }}
+                  style={{ width: '100%', height: 400 }}
+                  contentFit="contain"
                 />
               ) : (
+                <VideoPlayer
+                  uri={storyTrimmedUri ?? storyPreview.uri}
+                  style={{
+                    width: '100%',
+                    aspectRatio: 9 / 16,
+                    borderRadius: 12,
+                    alignSelf: 'center',
+                    maxHeight: 400,
+                  }}
+                  autoPlay={false}
+                />
+              )}
+              {storyPreview.type === 'video' &&
+                (canTrimStoryVideo ? (
+                  <VideoTrimmer
+                    uri={storyPreview.uri}
+                    maxDurationS={STORY_MAX_DURATION_S}
+                    onTrimComplete={u => setStoryTrimmedUri(u)}
+                    onTrimReset={() => setStoryTrimmedUri(null)}
+                  />
+                ) : (
+                  <Text
+                    style={{
+                      color: '#E5E7EB',
+                      textAlign: 'center',
+                      marginTop: 12,
+                      marginHorizontal: 8,
+                    }}
+                  >
+                    Web uploads the selected video as-is. Trimming is available in the iOS and
+                    Android app.
+                  </Text>
+                ))}
+              {storyBusy && storyStatus ? (
                 <Text
                   style={{
                     color: '#E5E7EB',
                     textAlign: 'center',
                     marginTop: 12,
-                    marginHorizontal: 8,
+                    fontWeight: '600',
                   }}
                 >
-                  Web uploads the selected video as-is. Trimming is available in the iOS and Android
-                  app.
+                  {storyStatus}
                 </Text>
-              )}
+              ) : null}
               <View
                 style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 12 }}
               >
                 <Pressable
+                  disabled={storyBusy}
                   onPress={() => {
                     setStoryPreview(null);
                     setStoryTrimmedUri(null);
                     setStoryBusy(false);
+                    setStoryStatus(null);
                   }}
                   style={{
                     backgroundColor: '#333',

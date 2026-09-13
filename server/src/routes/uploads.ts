@@ -18,9 +18,10 @@ import { prisma } from '../lib/prisma.js';
 import { addBreadcrumb, captureException } from '../lib/sentry.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import type { AuthedRequest } from '../middleware/auth.js';
-import { uploadLimiter } from '../middleware/rateLimiters.js';
+import { uploadLimiter, uploadStatusLimiter } from '../middleware/rateLimiters.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireVerified } from '../middleware/requireVerified.js';
+import { completeVideoUpload, openVideoUpload } from '../lib/mediaUploadSession.js';
 
 // Magic byte signatures for file type validation (prevents MIME spoofing)
 const MAGIC_BYTES: Array<{ mime: string; bytes: number[]; offset?: number }> = [
@@ -127,8 +128,12 @@ const requireVerifiedUnlessScopedAdBannerUpload = asyncHandler(
     // verifies their email. Non-upload routes (e.g. /sign, /files) still require
     // verification via the else branch below.
     const isUploadRoute =
-      (req.method === 'GET' && req.path === '/cloudinary-signature') ||
-      (req.method === 'POST' && req.path === '/');
+      (req.method === 'GET' &&
+        (req.path === '/cloudinary-signature' || req.path === '/r2-presign')) ||
+      (req.method === 'POST' &&
+        (req.path === '/' ||
+          req.path === '/video-sessions' ||
+          /^\/video-sessions\/[a-f0-9]{64}\/complete$/.test(req.path)));
 
     if (!isUploadRoute) {
       return requireVerified(req as any, res, next);
@@ -263,6 +268,54 @@ const fileUpload = multer({
 
 export const uploadsRouter = Router();
 
+uploadsRouter.post(
+  '/video-sessions',
+  requireAuth as any,
+  requireVerifiedUnlessScopedAdBannerUpload as any,
+  uploadLimiter as any,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      return res.json(await openVideoUpload(req.user!.id, req.body || {}));
+    } catch (error: any) {
+      const status = [400, 409, 410].includes(error?.status) ? error.status : 503;
+      if (status === 503) captureException(error, { context: 'media_upload_session' });
+      return sendError(
+        res,
+        status,
+        status === 503
+          ? 'Upload service unavailable. Please retry.'
+          : 'Unable to start this upload. Please select the video again.'
+      );
+    }
+  })
+);
+
+uploadsRouter.post(
+  '/video-sessions/:id/complete',
+  requireAuth as any,
+  requireVerifiedUnlessScopedAdBannerUpload as any,
+  uploadStatusLimiter as any,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const id = String(req.params.id);
+    if (!/^[a-f0-9]{64}$/.test(id)) return sendError(res, 400, 'Invalid upload session');
+    try {
+      return res.json(await completeVideoUpload(req.user!.id, id));
+    } catch (error: any) {
+      const status = [404, 409, 410, 422].includes(error?.status) ? error.status : 503;
+      if (status === 503) captureException(error, { context: 'media_upload_completion' });
+      return sendError(
+        res,
+        status,
+        status === 503
+          ? 'Video processing is temporarily unavailable. Please retry.'
+          : 'Unable to complete this upload. Please select the video again.'
+      );
+    }
+  })
+);
+
 // Add error logging middleware
 uploadsRouter.use((req, res, next) => {
   // Log only the request shape — never the full headers map. The headers
@@ -299,9 +352,7 @@ uploadsRouter.get(
       addBreadcrumb('Cloudinary signature unavailable', 'uploads.signature', 'warning', {
         configured: false,
       });
-      return res
-        .status(503)
-        .json({ error: 'Direct upload not available — Cloudinary not configured' });
+      return sendError(res, 503, 'Uploads are temporarily unavailable. Please try again later.');
     }
 
     try {
@@ -416,7 +467,7 @@ uploadsRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
     if (!isR2Configured()) {
-      return res.status(503).json({ error: 'Direct R2 upload not available — R2 not configured' });
+      return sendError(res, 503, 'Uploads are temporarily unavailable. Please try again later.');
     }
     const contentType = String((req.query as any).content_type || '')
       .trim()
@@ -432,9 +483,7 @@ uploadsRouter.get(
     try {
       const ticket = await createR2UploadTicket({ contentType, contentLength });
       if (!ticket) {
-        return res
-          .status(503)
-          .json({ error: 'Direct R2 upload not available — R2 not configured' });
+        return sendError(res, 503, 'Uploads are temporarily unavailable. Please try again later.');
       }
       addBreadcrumb('R2 presign issued', 'uploads.r2Presign', 'info', { key: ticket.key });
       return res.json(ticket);
@@ -443,7 +492,7 @@ uploadsRouter.get(
       if (
         /Unsupported content type|content_length|File size exceeds/i.test(String(error?.message))
       ) {
-        return res.status(400).json({ error: error.message });
+        return sendError(res, 400, 'Invalid file type or size. Please select a supported file.');
       }
       console.error('[uploads] Failed to presign R2 upload:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
@@ -799,7 +848,7 @@ uploadsRouter.use((err: any, req: Request, res: Response, next: NextFunction) =>
   }
 
   if (err.message?.startsWith('Only image') || err.message?.startsWith('File type not allowed')) {
-    return res.status(400).json({ error: err.message });
+    return sendError(res, 400, 'File type not allowed. Please select a supported image or video.');
   }
 
   // v1.0.3: Cloudinary (and any upstream provider) errors are infrastructure

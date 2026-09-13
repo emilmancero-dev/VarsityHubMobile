@@ -28,12 +28,17 @@ import { authMiddleware } from '../middleware/auth.js';
 import { adsRouter } from '../routes/ads.js';
 import { authRouter } from '../routes/auth.js';
 import { eventsRouter } from '../routes/events.js';
+import { feedRouter } from '../routes/feed.js';
+import { gamesRouter } from '../routes/games.js';
+import { groupChatsRouter } from '../routes/group-chats.js';
 import { messagesRouter } from '../routes/messages.js';
 import { notificationsRouter } from '../routes/notifications.js';
 import { organizationsRouter } from '../routes/organizations.js';
 import { postsRouter } from '../routes/posts.js';
 import { reportsRouter } from '../routes/reports.js';
+import { searchRouter } from '../routes/search.js';
 import { supportRouter } from '../routes/support.js';
+import { teamMembershipsRouter } from '../routes/team-memberships.js';
 import { teamsRouter } from '../routes/teams.js';
 import { uploadsRouter } from '../routes/uploads.js';
 import { usersRouter } from '../routes/users.js';
@@ -51,9 +56,14 @@ fullApp.use('/users', usersRouter);
 fullApp.use('/organizations', organizationsRouter);
 fullApp.use('/ads', adsRouter);
 fullApp.use('/messages', messagesRouter);
+fullApp.use('/group-chats', groupChatsRouter);
 fullApp.use('/notifications', notificationsRouter);
 fullApp.use('/reports', reportsRouter);
 fullApp.use('/support', supportRouter);
+fullApp.use('/games', gamesRouter);
+fullApp.use('/feed', feedRouter);
+fullApp.use('/search', searchRouter);
+fullApp.use('/team-memberships', teamMembershipsRouter);
 fullApp.use(
   (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const status = typeof err?.statusCode === 'number' ? err.statusCode : 500;
@@ -119,16 +129,16 @@ async function createUser(
   });
 }
 
-type Verdict = 'GRANTED' | 'DENIED' | 'CRASHED' | 'NOT_FOUND';
+type Verdict = 'GRANTED' | 'DENIED' | 'CRASHED' | 'NOT_FOUND' | 'INVALID';
 
 function classify(status: number, body: any): Verdict {
   if (status >= 500) return 'CRASHED';
   if (status === 401 || status === 403) return 'DENIED';
   if (status === 404) return 'NOT_FOUND';
   if (status >= 200 && status < 300) return 'GRANTED';
-  // 400 = bad request (not a permission issue) — treat as granted-but-invalid-payload
-  if (status === 400) return 'GRANTED';
-  if (status === 409) return 'GRANTED'; // conflict = reached logic
+  // Validation/conflict responses establish reachability, not successful access.
+  if (status === 400) return 'INVALID';
+  if (status === 409) return 'INVALID'; // conflict does not prove access
   return 'CRASHED';
 }
 
@@ -189,6 +199,7 @@ beforeAll(async () => {
     .post('/teams')
     .set('Authorization', `Bearer ${rookieToken}`)
     .send({ name: `Matrix Team ${ts}`, organization_id: orgId });
+  expect(teamRes.status).toBe(201);
   if (teamRes.status === 201) {
     rookieTeamId = teamRes.body.team?.id || teamRes.body.id;
   }
@@ -197,6 +208,7 @@ beforeAll(async () => {
     .post('/teams')
     .set('Authorization', `Bearer ${veteranToken}`)
     .send({ name: `Matrix Veteran Team ${ts}`, organization_id: vetOrgId });
+  expect(veteranTeamRes.status).toBe(201);
   if (veteranTeamRes.status === 201) {
     veteranTeamId = veteranTeamRes.body.team?.id || veteranTeamRes.body.id;
   }
@@ -206,6 +218,7 @@ beforeAll(async () => {
     .post('/posts')
     .set('Authorization', `Bearer ${rookieToken}`)
     .send({ content: `Matrix test post ${ts}` });
+  expect(postRes.status).toBe(201);
   if (postRes.status === 201) {
     testPostId = postRes.body.id;
   }
@@ -216,6 +229,7 @@ beforeAll(async () => {
     .post('/events')
     .set('Authorization', `Bearer ${veteranToken}`)
     .send({ title: `Matrix Event ${ts}`, date: futureDate, location: 'Test' });
+  expect(eventRes.status).toBe(201);
   if (eventRes.status === 201) {
     testEventId = eventRes.body.id;
   }
@@ -233,6 +247,9 @@ afterAll(async () => {
     // Events
     if (userIds.length)
       await prisma.event.deleteMany({ where: { creator_id: { in: userIds } } }).catch(() => {});
+    // Games (created by the matrix Games/coach-tool probes)
+    if (userIds.length)
+      await prisma.game.deleteMany({ where: { created_by_id: { in: userIds } } }).catch(() => {});
     // Team invites
     if (teamIds.length)
       await prisma.teamInvite.deleteMany({ where: { team_id: { in: teamIds } } }).catch(() => {});
@@ -427,7 +444,7 @@ describe('Access Matrix — Full Feature Scan', () => {
     });
 
     it('GET /teams/:id — view team detail (public)', async () => {
-      if (!rookieTeamId) return;
+      expect(rookieTeamId).toBeTruthy();
       const { fan, rookie, veteran } = await hitAll('get', `/teams/${rookieTeamId}`);
       record('View team detail', 'GET /teams/:id', fan, rookie, veteran);
       expect(fan.status).toBeLessThan(500);
@@ -442,7 +459,7 @@ describe('Access Matrix — Full Feature Scan', () => {
     });
 
     it('POST /teams/:id/invites — invite to team (owner only)', async () => {
-      if (!rookieTeamId) return;
+      expect(rookieTeamId).toBeTruthy();
       const { fan, rookie, veteran } = await hitAll('post', `/teams/${rookieTeamId}/invite`, {
         email: `invite-test-${ts}@example.com`,
         role: 'coach',
@@ -525,18 +542,15 @@ describe('Access Matrix — Full Feature Scan', () => {
         .catch(() => {});
     });
 
-    it('POST /organizations/:id/invite — invite to org (veteran+ plan)', async () => {
+    it('POST /organizations/:id/invite — unrelated users cannot invite', async () => {
       const { fan, rookie, veteran } = await hitAll('post', `/organizations/${vetOrgId}/invite`, {
         email: `org-invite-${ts}@example.com`,
         role: 'member',
       });
-      record('Invite to org', 'POST /organizations/:id/invite', fan, rookie, veteran, {
-        veteranOnly: true,
-      });
-      // Fan: denied (not org member)
-      expect(fan.status).toBeGreaterThanOrEqual(403);
-      // Rookie: denied (plan too low OR not org member)
-      expect(rookie.status).toBeGreaterThanOrEqual(403);
+      record('Invite to org', 'POST /organizations/:id/invite', fan, rookie, veteran);
+      expect(fan.status).toBe(403);
+      expect(rookie.status).toBe(403);
+      // Same organization ownership boundary, independent of subscription tier.
     });
 
     it('POST /organizations/join-requests — request to join org', async () => {
@@ -644,7 +658,7 @@ describe('Access Matrix — Full Feature Scan', () => {
     });
 
     it('POST /events/:id/rsvp — RSVP to event', async () => {
-      if (!testEventId) return;
+      expect(testEventId).toBeTruthy();
       const { fan, rookie, veteran } = await hitAll('post', `/events/${testEventId}/rsvp`, {
         status: 'going',
       });
@@ -683,28 +697,28 @@ describe('Access Matrix — Full Feature Scan', () => {
     });
 
     it('POST /posts/:id/upvote — upvote post', async () => {
-      if (!testPostId) return;
+      expect(testPostId).toBeTruthy();
       const { fan, rookie, veteran } = await hitAll('post', `/posts/${testPostId}/upvote`);
       record('Upvote post', 'POST /posts/:id/upvote', fan, rookie, veteran);
       expect(fan.status).toBeLessThan(500);
     });
 
     it('POST /posts/:id/bookmark — bookmark post', async () => {
-      if (!testPostId) return;
+      expect(testPostId).toBeTruthy();
       const { fan, rookie, veteran } = await hitAll('post', `/posts/${testPostId}/bookmark`);
       record('Bookmark post', 'POST /posts/:id/bookmark', fan, rookie, veteran);
       expect(fan.status).toBeLessThan(500);
     });
 
     it('GET /posts/:id/comments — list comments (public)', async () => {
-      if (!testPostId) return;
+      expect(testPostId).toBeTruthy();
       const { fan, rookie, veteran } = await hitAll('get', `/posts/${testPostId}/comments`);
       record('List comments', 'GET /posts/:id/comments', fan, rookie, veteran);
       expect(fan.status).toBe(200);
     });
 
     it('POST /posts/:id/comments — create comment', async () => {
-      if (!testPostId) return;
+      expect(testPostId).toBeTruthy();
       const { fan, rookie, veteran } = await hitAll('post', `/posts/${testPostId}/comments`, {
         content: 'Test comment',
       });
@@ -931,6 +945,329 @@ describe('Access Matrix — Full Feature Scan', () => {
     });
   });
 
+  // ─── GAMES (shared + coach game tools) ────────────
+
+  describe('Games', () => {
+    let gameId: string | undefined;
+
+    beforeAll(async () => {
+      // A game created by the rookie coach — reused by the read probes below.
+      // Games must be associated with a team (server rule), so attach the
+      // rookie's own team → derives approved.
+      const res = await request(fullApp)
+        .post('/games')
+        .set('Authorization', `Bearer ${rookieToken}`)
+        .send({ title: `Matrix Game ${ts}`, location: 'Test Field', home_team_id: rookieTeamId });
+      expect(res.status).toBe(201);
+      gameId = res.body?.id || res.body?.game?.id;
+      expect(gameId).toBeTruthy();
+    });
+
+    afterAll(async () => {
+      if (gameId) await prisma.game.deleteMany({ where: { id: gameId } }).catch(() => {});
+    });
+
+    it('GET /games — list games', async () => {
+      const { fan, rookie, veteran } = await hitAll('get', '/games');
+      const { flags } = record('List games', 'GET /games', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+    });
+
+    it('GET /games/opponent-pending — pending opponent approvals (coach tool)', async () => {
+      const { fan, rookie, veteran } = await hitAll('get', '/games/opponent-pending');
+      const { flags } = record(
+        'Opponent pending',
+        'GET /games/opponent-pending',
+        fan,
+        rookie,
+        veteran
+      );
+      // Auth'd staff-scoped read: never a crash, never a missing route.
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+    });
+
+    it('GET /games/:id — game detail (public read)', async () => {
+      // Fail loudly if the seed create broke — a silent skip would hide a
+      // regression in POST /games, which is exactly what this audit guards.
+      expect(gameId).toBeTruthy();
+      const { fan, rookie, veteran } = await hitAll('get', `/games/${gameId}`);
+      const { flags } = record('View game detail', 'GET /games/:id', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(fan.status).toBe(200);
+    });
+
+    it('GET /games/:id/summary — game summary (public read)', async () => {
+      expect(gameId).toBeTruthy();
+      const { fan, rookie, veteran } = await hitAll('get', `/games/${gameId}/summary`);
+      const { flags } = record('View game summary', 'GET /games/:id/summary', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+    });
+
+    it('POST /games — create game (verified+onboarded; coach-managed = approved, else pending)', async () => {
+      // Attaching the rookie's team: rookie (owner) → approved, fan/veteran
+      // (non-managers) → pending. Not a role gate — mirrors POST /events.
+      const { fan, rookie, veteran } = await hitAll('post', '/games', {
+        title: `Matrix Game Create ${ts}`,
+        location: 'Test Field',
+        home_team_id: rookieTeamId,
+      });
+      const { flags } = record('Create game', 'POST /games', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      for (const [res, approval] of [
+        [fan, 'pending'],
+        [rookie, 'approved'],
+        [veteran, 'pending'],
+      ] as const) {
+        expect(res.status).toBe(201);
+        const id = res.body?.id || res.body?.game?.id;
+        expect(id).toBeTruthy();
+        const game = await prisma.game.findUniqueOrThrow({ where: { id } });
+        expect(game.approval_status).toBe(approval);
+        const event = await prisma.event.findFirstOrThrow({ where: { game_id: id } });
+        expect(event.approval_status).toBe(approval);
+        expect(event.status).toBe(approval === 'approved' ? 'approved' : 'draft');
+      }
+      // Cleanup any games created by this probe.
+      for (const res of [fan, rookie, veteran]) {
+        const id = res.body?.id || res.body?.game?.id;
+        if (id) await prisma.game.deleteMany({ where: { id } }).catch(() => {});
+      }
+    });
+
+    it('DELETE /games/:id — only the creating side may delete (ownership boundary)', async () => {
+      // Fresh throwaway game owned by the rookie coach.
+      const created = await request(fullApp)
+        .post('/games')
+        .set('Authorization', `Bearer ${rookieToken}`)
+        .send({
+          title: `Matrix Game Del ${ts}`,
+          location: 'Test Field',
+          home_team_id: rookieTeamId,
+        });
+      expect(created.status).toBe(201);
+      const delId = created.body?.id || created.body?.game?.id;
+      expect(delId).toBeTruthy();
+
+      // Sequential (NOT parallel): non-owners must be denied while the game still
+      // exists — a parallel rookie-delete would race them into a 404.
+      const del = (token: string) =>
+        request(fullApp).delete(`/games/${delId}`).set('Authorization', `Bearer ${token}`);
+      const fan = await del(fanToken);
+      const veteran = await del(veteranToken);
+      const rookie = await del(rookieToken); // creator → deletes it (also the cleanup)
+
+      record('Delete game', 'DELETE /games/:id', fan, rookie, veteran);
+      // Ownership: creator allowed, everyone else denied with a clean message.
+      expect(fan.status).toBe(403);
+      expect(veteran.status).toBe(403);
+      expect(fan.body?.error || fan.body?.message).toBeTruthy();
+      expect([200, 204]).toContain(rookie.status);
+      // Belt-and-suspenders cleanup in case the delete didn't remove it.
+      await prisma.game.deleteMany({ where: { id: delId } }).catch(() => {});
+    });
+  });
+
+  // ─── FEED ─────────────────────────────────────────
+
+  describe('Feed', () => {
+    it('GET /feed/bundle — composed feed (auth required)', async () => {
+      const { fan, rookie, veteran } = await hitAll('get', '/feed/bundle');
+      const { flags } = record('Feed bundle', 'GET /feed/bundle', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+      expect(fan.status).toBe(200);
+    });
+  });
+
+  // ─── SEARCH ───────────────────────────────────────
+
+  describe('Search', () => {
+    it('GET /search — universal search (optional auth)', async () => {
+      const { fan, rookie, veteran } = await hitAll('get', '/search?q=matrix');
+      const { flags } = record('Search', 'GET /search?q=', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+    });
+  });
+
+  // ─── DIRECT MESSAGES & GROUP CHATS ────────────────
+
+  describe('Direct Messages & Group Chats', () => {
+    it('GET /messages/unread-count — DM unread badge (verified)', async () => {
+      const { fan, rookie, veteran } = await hitAll('get', '/messages/unread-count');
+      const { flags } = record(
+        'DM unread count',
+        'GET /messages/unread-count',
+        fan,
+        rookie,
+        veteran
+      );
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+    });
+
+    it('POST /messages/mark-read — mark thread read (route reachable)', async () => {
+      const { fan, rookie, veteran } = await hitAll('post', '/messages/mark-read', {});
+      const { flags } = record('DM mark read', 'POST /messages/mark-read', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+    });
+
+    it('GET /group-chats — list my group chats (verified)', async () => {
+      const { fan, rookie, veteran } = await hitAll('get', '/group-chats');
+      const { flags } = record('List group chats', 'GET /group-chats', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+    });
+
+    it('POST /group-chats — create group chat (route reachable)', async () => {
+      // Empty body → validation 400 (route exists, no crash); membership/ownership
+      // enforcement is exercised by the group-chat suite, not this reachability probe.
+      const { fan, rookie, veteran } = await hitAll('post', '/group-chats', {});
+      const { flags } = record('Create group chat', 'POST /group-chats', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+    });
+  });
+
+  // ─── COACH TEAM TOOLS ─────────────────────────────
+
+  describe('Coach Team Tools', () => {
+    it('GET /teams/limits — plan/roster limits (coach tool)', async () => {
+      const { fan, rookie, veteran } = await hitAll('get', '/teams/limits');
+      const { flags } = record('Team limits', 'GET /teams/limits', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+    });
+
+    it('GET /teams/:id/members — roster (coach tool)', async () => {
+      expect(rookieTeamId).toBeTruthy();
+      const { fan, rookie, veteran } = await hitAll('get', `/teams/${rookieTeamId}/members`);
+      const { flags } = record('Team roster', 'GET /teams/:id/members', fan, rookie, veteran);
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+      // Owner must be able to read their own roster.
+      expect(rookie.status).toBe(200);
+      expect(fan.status).toBe(403);
+      expect(veteran.status).toBe(403);
+    });
+
+    it('GET /teams/:id/admin-summary — coach admin dashboard (coach tool)', async () => {
+      expect(rookieTeamId).toBeTruthy();
+      const { fan, rookie, veteran } = await hitAll('get', `/teams/${rookieTeamId}/admin-summary`);
+      const { flags } = record(
+        'Team admin summary',
+        'GET /teams/:id/admin-summary',
+        fan,
+        rookie,
+        veteran
+      );
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+      // The team owner must reach their own admin summary.
+      expect(rookie.status).toBe(200);
+      expect(fan.status).toBe(403);
+      expect(veteran.status).toBe(403);
+    });
+
+    it('GET /team-memberships/search-users — roster add search (coach tool)', async () => {
+      const { fan, rookie, veteran } = await hitAll(
+        'get',
+        `/team-memberships/search-users?q=matrix&teamId=${rookieTeamId ?? ''}`
+      );
+      const { flags } = record(
+        'Roster user search',
+        'GET /team-memberships/search-users',
+        fan,
+        rookie,
+        veteran
+      );
+      expect(flags.filter(f => f.startsWith('FLAG_CRASH'))).toEqual([]);
+      expect(flags.filter(f => f.startsWith('FLAG_ROUTE_MISSING'))).toEqual([]);
+      expect(rookie.status).toBe(200);
+      expect(fan.status).toBe(403);
+      expect(veteran.status).toBe(403);
+    });
+  });
+
+  describe('Independent access dimensions', () => {
+    it.each([
+      [200, 'GRANTED'],
+      [400, 'INVALID'],
+      [409, 'INVALID'],
+      [401, 'DENIED'],
+      [403, 'DENIED'],
+      [404, 'NOT_FOUND'],
+      [500, 'CRASHED'],
+    ] as const)('classifies HTTP %s as %s', (status, verdict) => {
+      expect(classify(status, {})).toBe(verdict);
+    });
+
+    it('anonymous search is public and returns typed result groups', async () => {
+      const res = await request(fullApp).get('/search?q=matrix');
+      expect(res.status).toBe(200);
+      for (const key of ['users', 'teams', 'organizations', 'games', 'events', 'posts']) {
+        expect(Array.isArray(res.body[key])).toBe(true);
+      }
+    });
+
+    it.each([
+      '/auth/me',
+      '/feed/bundle',
+      '/group-chats',
+      '/messages/unread-count',
+      '/teams/managed',
+    ])('anonymous requests are denied: %s', async path => {
+      const res = await request(fullApp).get(path);
+      expect(res.status).toBe(401);
+      expect(res.body.error || res.body.message).toBeTruthy();
+    });
+
+    it.each(['verification', 'onboarding'] as const)(
+      '%s gates game writes without creating records',
+      async dimension => {
+        const original = await prisma.user.findUniqueOrThrow({ where: { id: fanId } });
+        const before = await prisma.game.count({ where: { created_by_id: fanId } });
+        try {
+          await prisma.user.update({
+            where: { id: fanId },
+            data:
+              dimension === 'verification'
+                ? { email_verified: false }
+                : {
+                    onboarding_completed: false,
+                    preferences: {
+                      ...(original.preferences as Record<string, any>),
+                      onboarding_completed: false,
+                    },
+                  },
+          });
+          const res = await request(fullApp)
+            .post('/games')
+            .set('Authorization', `Bearer ${fanToken}`)
+            .send({
+              title: `Matrix gated ${ts}`,
+              location: 'Test Field',
+              home_team_id: rookieTeamId,
+            });
+          expect(res.status).toBe(403);
+          expect(res.body.error || res.body.message).toBeTruthy();
+          expect(await prisma.game.count({ where: { created_by_id: fanId } })).toBe(before);
+        } finally {
+          await prisma.user.update({
+            where: { id: fanId },
+            data: {
+              email_verified: original.email_verified,
+              onboarding_completed: original.onboarding_completed,
+              preferences: original.preferences as any,
+            },
+          });
+        }
+      }
+    );
+  });
+
   // ─── FINAL MATRIX REPORT ─────────────────────────
 
   describe('Matrix Report', () => {
@@ -967,7 +1304,7 @@ describe('Access Matrix — Full Feature Scan', () => {
         '╠═══════════════════════════════════════════════════════════════════════════════════════════════════════╣'
       );
       console.log(
-        '║ Legend: G=Granted  D=Denied  C=Crashed  N=Not Found                                                ║'
+        '║ Legend: G=Granted  D=Denied  C=Crashed  N=Not Found  I=Invalid payload/conflict                                                ║'
       );
       console.log(
         '╚═══════════════════════════════════════════════════════════════════════════════════════════════════════╝'
@@ -996,7 +1333,9 @@ describe('Access Matrix — Full Feature Scan', () => {
           }
         }
       } else {
-        console.log('\n  ✓ No flags raised — all permission boundaries clean.');
+        console.log(
+          '\n  No smoke flags raised. Unasserted permissions and UI workflows remain unverified.'
+        );
       }
       console.log('');
 
@@ -1018,7 +1357,7 @@ describe('Access Matrix — Full Feature Scan', () => {
         lines.push(`${feat} │ ${ep} │ ${f} │ ${r} │ ${v} │ ${fl}`);
       }
       lines.push('═'.repeat(105));
-      lines.push('Legend: G=Granted  D=Denied  C=Crashed  N=Not Found');
+      lines.push('Legend: G=Granted  D=Denied  C=Crashed  N=Not Found  I=Invalid payload/conflict');
       lines.push('');
       lines.push('FLAG SUMMARY');
       lines.push(`  Crashes (5xx):                   ${crashes.length}`);
@@ -1036,7 +1375,9 @@ describe('Access Matrix — Full Feature Scan', () => {
         }
       } else {
         lines.push('');
-        lines.push('  ✓ No flags raised — all permission boundaries clean.');
+        lines.push(
+          '  No smoke flags raised. Unasserted permissions and UI workflows remain unverified.'
+        );
       }
       const outPath = join(process.cwd(), 'access-matrix-report.txt');
       writeFileSync(outPath, lines.join('\n') + '\n');
@@ -1049,6 +1390,7 @@ describe('Access Matrix — Full Feature Scan', () => {
       expect(fanCoach).toEqual([]);
       // ASSERT: no rookie accessing veteran features
       expect(rookieVet).toEqual([]);
+      expect(badDenial).toEqual([]);
     });
   });
 });

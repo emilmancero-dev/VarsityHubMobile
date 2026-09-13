@@ -561,6 +561,7 @@ model Game {
 
 model Post {
   id String @id @default(cuid())
+  client_request_hash String?
 
   author_id String
   author    User   @relation(fields: [author_id], references: [id], onDelete: Cascade)
@@ -639,6 +640,21 @@ model Post {
   @@index([country_code, deleted_at, upvotes_count, created_at])
   @@index([type, created_at])
   @@index([event_id, created_at])
+}
+
+// Durable owner-bound direct upload checkpoint. No credentials are stored here.
+model MediaUpload {
+  id String @id
+  owner_id String
+  content_type String
+  expected_bytes Int
+  public_id String @unique
+  state String @default("uploading")
+  result Json?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  @@index([owner_id, created_at])
+  @@index([state, created_at])
 }
 
 model Poll {
@@ -747,6 +763,7 @@ model Event {
   creator           User?                   @relation(fields: [creator_id], references: [id], onDelete: SetNull)
   rsvps             EventRsvp[]
   posts             Post[]
+  stories           Story[]
   votes             EventVote[]
   postingUnlocks    EventPostingUnlock[]
   designatedPosters EventDesignatedPoster[]
@@ -1167,9 +1184,15 @@ model EventVote {
 
 model Story {
   id String @id @default(cuid())
+  client_request_hash String?
 
-  game_id String
-  user_id String?
+  // A story hangs off EITHER a game OR an event page. Games carry scores; pro
+  // and other game-less event pages don't, so their stories key on event_id.
+  // Exactly one of game_id / event_id is set (enforced in the create handlers).
+  // game_id stays nullable-not-required so existing game stories are untouched.
+  game_id  String?
+  event_id String?
+  user_id  String?
 
   media_url  String
   // Still poster for video stories (esp. R2-hosted, which have no
@@ -1183,8 +1206,9 @@ model Story {
   lat Float?
   lng Float?
 
-  game Game  @relation(fields: [game_id], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  game  Game?  @relation(fields: [game_id], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [event_id], references: [id], onDelete: Cascade)
+  user  User?  @relation(fields: [user_id], references: [id], onDelete: SetNull)
 
   @@index([game_id, created_at])
   @@index([expires_at])
@@ -1192,6 +1216,9 @@ model Story {
   // game_id = X AND expires_at < now()`) — existing (game_id, created_at) and
   // (expires_at) alone force a scan through every story for the game.
   @@index([game_id, expires_at])
+  // Same access patterns for event-page stories (list + lazy-expiry sweep).
+  @@index([event_id, created_at])
+  @@index([event_id, expires_at])
   @@index([lat, lng])
 }
 

@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Stack, useRouter } from 'expo-router';
@@ -49,18 +50,7 @@ export default function EditUsernameScreen() {
       Alert.alert('Success', 'Username updated successfully');
       safeGoBack(router);
     } catch (e: any) {
-      let errorMessage = 'Could not save username';
-      if (e?.data?.message) {
-        errorMessage = e.data.message;
-      } else if (e?.data?.error) {
-        errorMessage = e.data.error;
-      } else if (e?.message) {
-        errorMessage = e.message;
-      } else if (e?.response?.data?.message) {
-        errorMessage = e.response.data.message;
-      } else if (e?.response?.data?.error) {
-        errorMessage = e.response.data.error;
-      }
+      const errorMessage = toUserMessage(e, 'Could not save username. Please try again.');
       Alert.alert('Save failed', errorMessage);
     } finally {
       setSaving(false);

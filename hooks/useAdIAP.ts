@@ -1,3 +1,4 @@
+import { toUserMessage } from '@/utils/toUserMessage';
 /**
  * useAdIAP — IAP for ad hosting (MOND_THURS, FRI_SUN).
  * iOS: Apple IAP. Android: Stripe fallback.
@@ -114,7 +115,7 @@ async function submitAdVerification(item: PendingAdVerification) {
 }
 
 function getVerificationErrorMessage(err: any) {
-  return err?.message || err?.data?.error || 'Receipt verification is taking longer than usual';
+  return toUserMessage(err, 'Receipt verification is taking longer than usual');
 }
 
 export async function flushPendingAdVerifications(onError?: (message: string) => void) {
@@ -335,7 +336,7 @@ export function useAdIAP() {
         },
         'error'
       );
-      const errMsg = msg || 'Purchase failed';
+      const errMsg = toUserMessage(err, 'Purchase failed. Please try again.');
       const p = pendingAdRef.current;
       if (p) {
         pendingAdRef.current = null;
@@ -379,7 +380,7 @@ export function useAdIAP() {
             },
             'warning'
           );
-          setError(err instanceof Error ? err.message : 'Failed to load ad products');
+          setError(toUserMessage(err, 'Failed to load ad products'));
           throw err;
         })
         .finally(() => {
@@ -448,9 +449,7 @@ export function useAdIAP() {
 
       const missingSkus = requiredSkus.filter(sku => !availableProductIdsRef.current.includes(sku));
       if (missingSkus.length > 0) {
-        const errMsg =
-          `Apple ad products unavailable for this build: ${missingSkus.join(', ')}. ` +
-          `App Store Connect must expose these exact product IDs for bundle ${IOS_BUNDLE_ID}.`;
+        const errMsg = 'Ad purchases are temporarily unavailable. Please try again later.';
         captureBreadcrumb(
           'Ad purchase blocked: missing store products',
           'payments.ad',
@@ -508,7 +507,7 @@ export function useAdIAP() {
             }
           } catch (err: any) {
             if (__DEV__) console.error('[useAdIAP] requestPurchase error:', err);
-            const errMsg = err?.message || 'Purchase failed';
+            const errMsg = toUserMessage(err, 'Purchase failed');
             const p = pendingAdRef.current;
             if (p) {
               pendingAdRef.current = null;

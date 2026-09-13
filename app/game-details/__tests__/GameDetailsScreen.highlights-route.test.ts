@@ -39,7 +39,11 @@ describe('GameDetailsScreen post route contract', () => {
     expect(virtualEventEnd).toBeGreaterThan(virtualEventStart);
     expect(virtualEventSource).toContain('Post.getByEvent(eventIdValue)');
     expect(virtualEventSource).toContain('return { ...prev, posts: items };');
-    expect(virtualEventSource).not.toContain('media: items');
+    const storyHydration = virtualEventSource.indexOf('Event.stories(eventIdValue)');
+    expect(storyHydration).toBeGreaterThan(-1);
+    const postHydration = virtualEventSource.slice(0, storyHydration);
+    expect(postHydration).not.toContain('media: items');
+    expect(virtualEventSource.slice(storyHydration)).toContain('return { ...prev, media: items };');
     expect(virtualEventSource).not.toContain('return { ...prev, posts: items, media }');
   });
 

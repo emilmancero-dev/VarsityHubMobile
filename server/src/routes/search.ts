@@ -17,6 +17,7 @@ import { captureMessage } from '../lib/sentry.js';
 import { highlightPostSelect } from '../lib/highlightPostSelect.js';
 import { getInteractionSets, withInteractions } from '../lib/postEnrichment.js';
 import { DEMO_LEAGUE_NAMES } from '../lib/demoContent.js';
+import { findNearestDatedMatches } from '../lib/searchTemporalRanking.js';
 import { parseDateQuery } from '../lib/searchDateQuery.js';
 
 export const searchRouter = Router();
@@ -39,6 +40,7 @@ searchRouter.get(
       1,
       Math.min(parseInt(String((req.query as any).limit || '10'), 10) || 10, 20)
     );
+    const searchNow = new Date();
     const currentUserId = req.user?.id ?? null;
     const excludeDemoLeagues = String((req.query as any).exclude_demo_leagues || '') === '1';
 
@@ -270,39 +272,56 @@ searchRouter.get(
           _count: { select: { memberships: true, teams: true } },
         },
       }),
-      prisma.game.findMany({
-        where: gameWhere,
-        take: limit,
-        // Most recent / upcoming first now that past fixtures are in scope.
-        orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
-        select: {
-          id: true,
-          title: true,
-          date: true,
-          location: true,
-          home_team: true,
-          away_team: true,
-          away_team_name: true,
-          event_type: true,
-          banner_url: true,
-          cover_image_url: true,
-        },
-      }),
-      prisma.event.findMany({
-        where: eventWhere,
-        take: limit,
-        // Most recent / upcoming first now that past events are in scope.
-        orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
-        select: {
-          id: true,
-          title: true,
-          date: true,
-          location: true,
-          event_type: true,
-          banner_url: true,
-          game_id: true,
-        },
-      }),
+      findNearestDatedMatches(
+        ({ direction, anchor, take }) =>
+          prisma.game.findMany({
+            where: {
+              AND: [gameWhere, { date: direction === 'future' ? { gte: anchor } : { lt: anchor } }],
+            },
+            take,
+            // Bound each side separately so far-future fixtures cannot crowd out nearby dates.
+            orderBy: [{ date: direction === 'future' ? 'asc' : 'desc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              title: true,
+              date: true,
+              location: true,
+              home_team: true,
+              away_team: true,
+              away_team_name: true,
+              event_type: true,
+              banner_url: true,
+              cover_image_url: true,
+            },
+          }),
+        limit,
+        dateWindow?.start ?? searchNow
+      ),
+      findNearestDatedMatches(
+        ({ direction, anchor, take }) =>
+          prisma.event.findMany({
+            where: {
+              AND: [
+                eventWhere,
+                { date: direction === 'future' ? { gte: anchor } : { lt: anchor } },
+              ],
+            },
+            take,
+            // Keep the same temporal ordering for standalone events and games.
+            orderBy: [{ date: direction === 'future' ? 'asc' : 'desc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              title: true,
+              date: true,
+              location: true,
+              event_type: true,
+              banner_url: true,
+              game_id: true,
+            },
+          }),
+        limit,
+        dateWindow?.start ?? searchNow
+      ),
       // Media-only, same as /highlights — HighlightCard (the renderer used for
       // post search results) expects a media post shape.
       prisma.post.findMany({
