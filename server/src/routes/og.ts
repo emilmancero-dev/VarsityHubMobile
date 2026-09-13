@@ -3,6 +3,8 @@ import escapeHtml from 'escape-html';
 import { prisma } from '../lib/prisma.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { isGamePubliclyVisible } from '../lib/gameApproval.js';
+import { resolvePreviewUrl } from '../lib/mediaUtils.js';
+import { isPostHiddenFromViewer } from '../lib/privacyUtils.js';
 
 /**
  * Open Graph link-preview pages for event/game share links.
@@ -170,6 +172,50 @@ ogRouter.get(
         title: `${event.title} — VarsityHub`,
         description: formatDateLocation(event.date, event.location),
         imageUrl: event.game?.banner_url || event.game?.cover_image_url || null,
+        canonicalUrl,
+      })
+    );
+  })
+);
+
+ogRouter.get(
+  '/posts/:id',
+  asyncHandler(async (req, res) => {
+    const id = String(req.params.id);
+    const canonicalUrl = `${CANONICAL_APP_BASE_URL}/posts/${encodeURIComponent(id)}`;
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=300');
+
+    const post = await prisma.post.findFirst({
+      where: { id, deleted_at: null },
+      select: {
+        title: true,
+        content: true,
+        media_url: true,
+        poster_url: true,
+        author_id: true,
+        team_id: true,
+        author: { select: { display_name: true, username: true } },
+        game: { select: { home_team_id: true, away_team_id: true } },
+      },
+    });
+
+    // Same public-only boundary GET /posts/:id already enforces via
+    // isPostHiddenFromViewer — anonymous crawler viewer (null) so a private
+    // author or private team never leaks a title/image through this side door.
+    if (!post || (await isPostHiddenFromViewer(post, null))) {
+      return res.send(genericOgPage(canonicalUrl));
+    }
+
+    const authorName = post.author?.display_name || post.author?.username || 'VarsityHub';
+    const title = post.title?.trim() || `Post by ${authorName}`;
+    const description = post.content?.trim().slice(0, 200) || 'View this post on VarsityHub.';
+
+    return res.send(
+      ogPage({
+        title: `${title} — VarsityHub`,
+        description,
+        imageUrl: resolvePreviewUrl(post),
         canonicalUrl,
       })
     );

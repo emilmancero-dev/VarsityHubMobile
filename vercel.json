@@ -210,7 +210,7 @@
           "value": ".*(facebookexternalhit|Facebot|Twitterbot|Slackbot|LinkedInBot|WhatsApp|TelegramBot|Discordbot|SkypeUriPreview|redditbot|Applebot).*"
         }
       ],
-      "destination": "https://api-production-8ac3.up.railway.app/posts/:id"
+      "destination": "https://api-production-8ac3.up.railway.app/og/posts/:id"
     },
     {
       "source": "/teams/:id",
