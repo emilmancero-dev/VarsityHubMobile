@@ -526,6 +526,22 @@ export async function verifyStoryPostingPermission(
     return { allowed: true };
   }
 
+  // Exclusive-poster lock (owner one-off feature, 2026-07-14) applies to
+  // stories too, mirroring verifyEventPostingPermission — otherwise a
+  // non-designated user could bypass the single-poster restriction just by
+  // posting a story instead of a regular post. Null = normal multi-fan
+  // posting (falls through below).
+  if (event.exclusive_poster_id) {
+    if (event.exclusive_poster_id === userId) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      code: 'EXCLUSIVE_POSTER_ONLY',
+      reason: 'Only the designated poster can post to this event.',
+    };
+  }
+
   // Past the live cutoff. Owner rule (Sep 2026, supersedes the 2026-07-16
   // "stories get no grace" rule): a user who ALREADY posted or storied to this
   // event page — i.e. holds an active 7-day posting unlock — may keep adding
