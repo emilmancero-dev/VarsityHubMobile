@@ -128,6 +128,23 @@ describe('share-landing — OG metadata enrichment', () => {
     expect(res.text).toContain('summary_large_image'); // image present → big card
   });
 
+  it('query-style /share?type=post&id= routes to the post OG (not the generic card)', async () => {
+    // The app's share sheet emits /share?type=post&id=…; it must resolve to the
+    // real post preview, not the imageless generic landing (owner note, Sep 2026).
+    postFindUnique.mockResolvedValueOnce({
+      content: 'Big win against Springfield High!',
+      media_url: 'https://cdn.example.com/highlight.jpg',
+      author: { display_name: 'Coach Carter', username: 'coach_c' },
+    } as any);
+
+    const res = await request(makeApp()).get('/share?type=post&id=abc').set('Accept', 'text/html');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Big win against Springfield High!');
+    expect(res.text).toContain('https://cdn.example.com/highlight.jpg');
+    expect(res.text).toContain('summary_large_image');
+  });
+
   it('game landing pulls title + location + date for description', async () => {
     gameFindUnique.mockResolvedValueOnce({
       title: 'Westhill vs Stamford',

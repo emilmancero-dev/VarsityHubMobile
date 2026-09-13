@@ -513,6 +513,36 @@ function genericLandingHandler(req: Request, res: Response, next: NextFunction) 
   return res.send(renderLanding(genericLanding(req), requestOrigin(req)));
 }
 
+// The app's share sheet emits query-style links (/share?type=post&id=…). Route
+// them to the matching entity landing so crawlers get a real og:image + title
+// instead of the generic card (owner note, Sep 2026: shared links show no
+// preview image). Path-style links (/posts/:id …) already hit their handlers
+// directly; this only rescues the query form. Falls back to the generic landing
+// when type/id are missing or unknown, and reuses each handler's existing
+// privacy/visibility gates.
+function shareQueryHandler(req: Request, res: Response, next: NextFunction) {
+  const type = typeof req.query.type === 'string' ? req.query.type : null;
+  const id = typeof req.query.id === 'string' ? req.query.id : null;
+  if (!type || !id) return genericLandingHandler(req, res, next);
+  req.params = { ...req.params, id };
+  switch (type) {
+    case 'post':
+      return postLanding(req, res, next);
+    case 'game':
+      return gameLanding(req, res, next);
+    case 'event':
+      return eventLanding(req, res, next);
+    case 'team':
+      return teamLanding(req, res, next);
+    case 'program':
+      return programLanding(req, res, next);
+    case 'profile':
+      return userLanding(req, res, next);
+    default:
+      return genericLandingHandler(req, res, next);
+  }
+}
+
 export const shareLandingRouter = Router();
 shareLandingRouter.use(shareLandingLimiter);
 shareLandingRouter.get('/posts/:id', postLanding);
@@ -526,6 +556,6 @@ shareLandingRouter.get('/events/:id', eventLanding);
 shareLandingRouter.get('/join/:code', genericLandingHandler);
 shareLandingRouter.get('/join/team/:code', genericLandingHandler);
 shareLandingRouter.get('/join/org/:code', genericLandingHandler);
-shareLandingRouter.get('/share', genericLandingHandler);
+shareLandingRouter.get('/share', shareQueryHandler);
 
 export { SHAREABLE_PATHS, renderLanding };
