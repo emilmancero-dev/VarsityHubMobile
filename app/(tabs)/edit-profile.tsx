@@ -58,7 +58,7 @@ const SPORTS_OPTIONS = [
   'Hockey',
   'Tennis',
   'Golf',
-  'Wrestling',
+  'Combat Sports',
   'Other',
 ];
 

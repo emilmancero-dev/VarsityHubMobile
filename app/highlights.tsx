@@ -109,7 +109,7 @@ const getSportCategory = (sport?: string, title?: string | null, content?: strin
     if (sportLower.includes('volleyball'))
       return { name: 'Volleyball', icon: '🏐', color: '#FF1744' };
     if (sportLower.includes('wrestling'))
-      return { name: 'Wrestling', icon: '🤼', color: '#7B1FA2' };
+      return { name: 'Combat Sports', icon: '🤼', color: '#7B1FA2' };
     if (sportLower.includes('track'))
       return { name: 'Track & Field', icon: '🏃', color: '#FF9800' };
     if (sportLower.includes('swimming')) return { name: 'Swimming', icon: '🏊', color: '#0288D1' };
@@ -133,7 +133,7 @@ const getSportCategory = (sport?: string, title?: string | null, content?: strin
     return { name: 'Hockey', icon: '🏒', color: '#1C1C1C' };
   if (text.includes('tennis')) return { name: 'Tennis', icon: '🎾', color: '#228B22' };
   if (text.includes('volleyball')) return { name: 'Volleyball', icon: '🏐', color: '#FF1744' };
-  if (text.includes('wrestling')) return { name: 'Wrestling', icon: '🤼', color: '#7B1FA2' };
+  if (text.includes('wrestling')) return { name: 'Combat Sports', icon: '🤼', color: '#7B1FA2' };
   if (text.includes('track')) return { name: 'Track & Field', icon: '🏃', color: '#FF9800' };
   if (text.includes('swimming')) return { name: 'Swimming', icon: '🏊', color: '#0288D1' };
   if (text.includes('golf')) return { name: 'Golf', icon: '⛳', color: '#558B2F' };
