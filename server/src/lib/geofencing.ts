@@ -526,10 +526,21 @@ export async function verifyStoryPostingPermission(
     return { allowed: true };
   }
 
-  // Stories are live-only: open any time up to the live cutoff (no early cutoff
-  // and never the 7-day grace — owner rules 2026-07-16 + 2026-08-28). The only
-  // way to fail this check is now being PAST the cutoff.
-  if (!isStoryPostingWindowOpen(event.date, event.live_window_hours_after_start)) {
+  // Past the live cutoff. Owner rule (Sep 2026, supersedes the 2026-07-16
+  // "stories get no grace" rule): a user who ALREADY posted or storied to this
+  // event page — i.e. holds an active 7-day posting unlock — may keep adding
+  // stories through the post-event grace window, exactly like regular posts.
+  // Everyone else is told the live window has closed. Designated/exclusive
+  // posters were already admitted above.
+  const storyWindowState = getPostPostingWindowState(
+    event.date,
+    new Date(),
+    event.live_window_hours_after_start
+  );
+  if (storyWindowState !== 'live') {
+    if (storyWindowState === 'grace' && (await hasActiveEventPostingUnlock(userId, event))) {
+      return { allowed: true };
+    }
     const { liveCutoff } = getPostPostingWindowBounds(
       event.date,
       event.live_window_hours_after_start

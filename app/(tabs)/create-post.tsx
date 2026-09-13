@@ -193,6 +193,15 @@ function CreatePostScreen() {
   // modal goes away. It is an honest spinner, never a fabricated percentage.
   const [pickPreparing, setPickPreparing] = useState<string | null>(null);
   const [postSuccess, setPostSuccess] = useState(false);
+  // Snapshot of what was just posted, captured before the form resets, so the
+  // success confirmation can show the media preview + the event it attached to
+  // (owner note, Sep 2026: "confirmation page with a check mark… shows post
+  // preview and the event it's attached to").
+  const [successInfo, setSuccessInfo] = useState<{
+    mediaUri?: string;
+    mediaType?: 'image' | 'video';
+    eventLabel?: string;
+  } | null>(null);
   const [trimmedUri, setTrimmedUri] = useState<string | null>(null);
   const showPrecisionWarning =
     Platform.OS === 'android' &&
@@ -202,6 +211,19 @@ function CreatePostScreen() {
   const locationReady =
     typeof location?.latitude === 'number' && typeof location?.longitude === 'number';
   const canTrimVideo = isNativeVideoTrimSupported(Platform.OS);
+
+  // Dismiss the success confirmation: clear the just-posted snapshot, reset the
+  // composer, and return to the feed. Shared by the confirmation's Done button
+  // and the auto-dismiss fallback.
+  const finishSuccess = useCallback(() => {
+    setPostSuccess(false);
+    setSuccessInfo(null);
+    setContent('');
+    setPicked(null);
+    setError(null);
+    safeGoBack(router, '/(tabs)/feed');
+  }, [router]);
+
   const [draftReady, setDraftReady] = useState(false);
   const [contentConsent, setContentConsent] = useState(false);
   const recoveryRef = useRef<PostRecovery | null>(null);
@@ -539,6 +561,18 @@ function CreatePostScreen() {
 
   const pickFromLibraryRaw = async (media: 'image' | 'video') => {
     try {
+      // Request photo-library access before launching. The camera path and
+      // edit-profile already do this; this picker did not, so a device with
+      // denied/limited Photos access failed with the generic "Failed to select
+      // media" error instead of a clear prompt. ('limited' reports granted.)
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert(
+          'Photos permission needed',
+          'Allow VarsityHub access to your photos in Settings to add media to your post.'
+        );
+        return;
+      }
       if (media === 'video') setPickPreparing('Preparing video…');
       const r = await launchMediaLibraryAsync({
         ...pickerMediaTypeFor(media),
@@ -598,6 +632,14 @@ function CreatePostScreen() {
       // v1.0.2 audit fix: use shared iCloud detection (matches BannerUpload patterns)
       if (isICloudError(error)) {
         Alert.alert(ICLOUD_ERROR_TITLE, ICLOUD_ERROR_MESSAGE);
+      } else if (error?.code === 'MEDIA_PICKER_UPDATE_REQUIRED') {
+        // Video selection needs the VarsityMediaPicker native module, which only
+        // ships in a new binary (not OTA). An older installed build hits this —
+        // tell the user to update rather than showing a generic failure.
+        Alert.alert(
+          'Update required',
+          'Video selection requires the latest app build. Please update VarsityHub and try again.'
+        );
       } else {
         Alert.alert('Error', 'Failed to select media. Please try again.');
       }
@@ -1144,21 +1186,30 @@ function CreatePostScreen() {
       }
 
       setPreviewVisible(false);
+
+      // Capture what was just posted BEFORE the form resets, so the success
+      // confirmation can show the media preview and the attached event.
+      const postedEventLabel = suggestedGame
+        ? suggestedGame.title ||
+          [suggestedGame.home_team, suggestedGame.away_team].filter(Boolean).join(' vs ')
+        : undefined;
+      setSuccessInfo({
+        mediaUri: trimmedUri ?? picked?.uri,
+        mediaType: picked?.type,
+        eventLabel: postedEventLabel || undefined,
+      });
       setPostSuccess(true);
 
-      const finish = () => {
-        setPostSuccess(false);
-        setContent('');
-        setPicked(null);
-        setError(null);
-        safeGoBack(router, '/(tabs)/feed');
-      };
+      // Safety net so the confirmation is never a dead end — the user can also
+      // dismiss it immediately with Done.
+      setTimeout(finishSuccess, 3500);
 
       // Owner rule (2026-07-16): remind attendees to keep event posts on-topic,
       // but only on their FIRST post to a given event page. The server already
       // proved they were there — it accepted the post — so this is a reminder,
       // not a gate. Seen-state is per (user, event); a fan posting thirteen
-      // times reads it once.
+      // times reads it once. Shown over the confirmation; dismissing it leaves
+      // the confirmation visible.
       const showNotice =
         selectedEventIds.length > 0 &&
         (await shouldShowEventPostingNotice(user?.id, selectedEventIds));
@@ -1168,14 +1219,9 @@ function CreatePostScreen() {
         Alert.alert(
           '🏟️ Keep it to the game',
           'Please only post photos and videos from the game. Anything unrelated may result in your post being taken down.',
-          [{ text: 'Got it', onPress: finish }],
-          { onDismiss: finish }
+          [{ text: 'Got it' }]
         );
-        return;
       }
-
-      // Keep checkmark state briefly, then navigate — no full-screen popup
-      setTimeout(finish, 800);
     } catch (e: any) {
       if (uploadController.signal.aborted && !recoveryRef.current?.pendingPayload) {
         setError('Upload paused. Your draft is saved; retry when ready.');
@@ -1309,10 +1355,63 @@ function CreatePostScreen() {
     );
   }
 
+  // Disable the left-edge swipe-back while a trimmable video is loaded: the
+  // trimmer's left handle sits inside the 40px edge zone, so an edge-swipe would
+  // hijack the trim drag and navigate back instead (owner note, Sep 2026).
+  const trimmerActive = picked?.type === 'video' && canTrimVideo;
+
   return (
-    <SwipeBackContainer>
+    <SwipeBackContainer enabled={!trimmerActive}>
       <SafeAreaView style={[styles.container, { backgroundColor: Colors[colorScheme].background }]}>
         <Stack.Screen options={{ headerShown: false }} />
+
+        {/* Success confirmation — check mark, a preview of what was posted, and
+            the event it attached to (owner note, Sep 2026). */}
+        {postSuccess && successInfo && (
+          <View
+            style={[styles.successOverlay, { backgroundColor: Colors[colorScheme].background }]}
+          >
+            <View style={styles.successCheckCircle}>
+              <Ionicons name="checkmark" size={44} color="#FFFFFF" />
+            </View>
+            <Text style={[styles.successTitle, { color: Colors[colorScheme].text }]}>
+              {postType === 'highlight' ? 'Highlight shared!' : 'Posted!'}
+            </Text>
+            {successInfo.mediaUri ? (
+              successInfo.mediaType === 'video' ? (
+                <View style={[styles.successPreview, styles.successVideoPreview]}>
+                  <Ionicons name="videocam" size={32} color="#FFFFFF" />
+                </View>
+              ) : (
+                <RNImage
+                  source={{ uri: successInfo.mediaUri }}
+                  style={styles.successPreview}
+                  resizeMode="cover"
+                />
+              )
+            ) : null}
+            {successInfo.eventLabel ? (
+              <View style={styles.successEventRow}>
+                <Ionicons name="calendar-outline" size={16} color={Colors[colorScheme].mutedText} />
+                <Text
+                  style={[styles.successEventText, { color: Colors[colorScheme].mutedText }]}
+                  numberOfLines={1}
+                >
+                  {successInfo.eventLabel}
+                </Text>
+              </View>
+            ) : null}
+            <Pressable
+              testID="create-post-success-done"
+              onPress={finishSuccess}
+              style={[styles.successDoneButton, { backgroundColor: Colors[colorScheme].tint }]}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+            >
+              <Text style={styles.successDoneText}>Done</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Header */}
         <View
@@ -1391,30 +1490,30 @@ function CreatePostScreen() {
             <View style={styles.tilesRow}>
               <Pressable
                 testID="create-post-photo-picker"
-                style={[styles.tile, styles.primaryTile]}
+                style={[styles.tile, styles.photoTile]}
                 onPress={() => pickFromLibrary('image')}
                 accessibilityLabel="Photo Gallery"
               >
                 <Ionicons name="image-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.tileLabel, styles.primaryTileLabel]}>Photo</Text>
+                <Text style={[styles.tileLabel, styles.lightTileLabel]}>Photo</Text>
               </Pressable>
               <Pressable
                 testID="create-post-camera-picker"
-                style={[styles.tile, styles.primaryTile]}
+                style={[styles.tile, styles.cameraTile]}
                 onPress={() => captureWithCamera()}
                 accessibilityLabel="Camera"
               >
-                <Ionicons name="camera-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.tileLabel, styles.primaryTileLabel]}>Camera</Text>
+                <Ionicons name="camera-outline" size={24} color="#1B2430" />
+                <Text style={[styles.tileLabel, styles.darkTileLabel]}>Camera</Text>
               </Pressable>
               <Pressable
                 testID="create-post-video-picker"
-                style={[styles.tile, styles.primaryTile]}
+                style={[styles.tile, styles.videoTile]}
                 onPress={() => pickFromLibrary('video')}
                 accessibilityLabel="Video Gallery"
               >
-                <Ionicons name="videocam-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.tileLabel, styles.primaryTileLabel]}>Video</Text>
+                <Ionicons name="videocam-outline" size={24} color="#1B2430" />
+                <Text style={[styles.tileLabel, styles.darkTileLabel]}>Video</Text>
               </Pressable>
             </View>
           </View>
@@ -2453,9 +2552,21 @@ const styles = StyleSheet.create({
         }),
     elevation: 3,
   },
-  primaryTile: {
-    backgroundColor: '#1B3A6B',
-    borderColor: '#1B3A6B',
+  // Owner note (Sep 2026): the three Add Media tiles are color-coded by medium —
+  // Photo = bronze, Camera = silver, Video = gold. Each carries a foreground
+  // color that stays legible on its background (white on bronze; dark ink on the
+  // lighter silver/gold).
+  photoTile: {
+    backgroundColor: '#A0662E',
+    borderColor: '#A0662E',
+  },
+  cameraTile: {
+    backgroundColor: '#AEB2B8',
+    borderColor: '#AEB2B8',
+  },
+  videoTile: {
+    backgroundColor: '#C9A227',
+    borderColor: '#C9A227',
   },
   tileLabel: {
     fontSize: 12,
@@ -2463,8 +2574,63 @@ const styles = StyleSheet.create({
     // color: Uses dynamic color in JSX
     marginTop: 6,
   },
-  primaryTileLabel: {
+  successOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 16,
+  },
+  successCheckCircle: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: '#16A34A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  successPreview: {
+    width: 140,
+    height: 140,
+    borderRadius: 14,
+    backgroundColor: '#000',
+  },
+  successVideoPreview: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successEventRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+  },
+  successEventText: {
+    fontSize: 14,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  successDoneButton: {
+    marginTop: 8,
+    paddingHorizontal: 40,
+    paddingVertical: 13,
+    borderRadius: 12,
+  },
+  successDoneText: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  lightTileLabel: {
+    color: '#FFFFFF',
+  },
+  darkTileLabel: {
+    color: '#1B2430',
   },
   storyButtonContainer: {
     marginTop: 20,

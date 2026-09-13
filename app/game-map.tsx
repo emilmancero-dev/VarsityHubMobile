@@ -8,7 +8,7 @@ import { Stack, useRouter } from 'expo-router';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { safeGoBack } from '@/utils/navigation';
 import SportFilterBar from '@/components/SportFilterBar';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -140,6 +140,38 @@ function GameMapScreen() {
     [levelBase]
   );
 
+  // Owner note (Sep 2026): selecting a league level must NOT wipe the sport
+  // filter — the two filters work together. Keep the chosen sport across level
+  // switches, and only drop it when that sport no longer exists in the new
+  // level's set (so the map never filters down to an empty, confusing result).
+  useEffect(() => {
+    if (selectedSport && !presentSports.includes(selectedSport)) {
+      setSelectedSport(null);
+    }
+  }, [presentSports, selectedSport]);
+
+  // League tiers actually present in the current view. Owner note (Sep 2026):
+  // a "Minor" chip that filters to an empty map is misleading — there is no
+  // minor-league ingest source yet, so no minor pins exist. Drive the tier chips
+  // off real data so the row never advertises a tier we can't populate.
+  const presentLevels = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of dateBase) {
+      const level = e.league_level ?? null;
+      if (level === 'major' || level === 'minor' || level === 'college') set.add(level);
+      else set.add('other');
+    }
+    return set;
+  }, [dateBase]);
+
+  // If the active tier is no longer present (e.g. a date change dropped it),
+  // fall back to All so the map never sits on an empty tier filter.
+  useEffect(() => {
+    if (selectedLevel && !presentLevels.has(selectedLevel)) {
+      setSelectedLevel(null);
+    }
+  }, [presentLevels, selectedLevel]);
+
   const clearDate = useCallback(() => setSelectedDate(''), []);
   const selectMapDate = useCallback((picked: Date) => {
     const start = new Date(picked);
@@ -227,40 +259,47 @@ function GameMapScreen() {
                 { label: 'Minor', value: 'minor' },
                 { label: 'NCAA', value: 'college' },
                 { label: 'Other', value: 'other' },
-              ].map(level => {
-                const active = selectedLevel === level.value;
-                return (
-                  <Pressable
-                    key={level.label}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${level.label} leagues`}
-                    accessibilityState={{ selected: active }}
-                    onPress={() => {
-                      // Toggle off when re-tapping the active chip (except All).
-                      setSelectedLevel(active ? null : level.value);
-                      setSelectedSport(null);
-                    }}
-                    style={[
-                      styles.dateChip,
-                      {
-                        backgroundColor: active
-                          ? Colors[colorScheme].tint
-                          : Colors[colorScheme].background,
-                        borderColor: active ? Colors[colorScheme].tint : Colors[colorScheme].border,
-                      },
-                    ]}
-                  >
-                    <Text
+              ]
+                // Data-driven: 'All' always shows; a tier chip shows only when
+                // that tier has events in the current view (no empty Minor chip).
+                .filter(level => level.value === null || presentLevels.has(level.value))
+                .map(level => {
+                  const active = selectedLevel === level.value;
+                  return (
+                    <Pressable
+                      key={level.label}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${level.label} leagues`}
+                      accessibilityState={{ selected: active }}
+                      onPress={() => {
+                        // Toggle off when re-tapping the active chip (except All).
+                        // The sport filter persists across level changes (a stale
+                        // sport is cleared by the effect above only when absent).
+                        setSelectedLevel(active ? null : level.value);
+                      }}
                       style={[
-                        styles.dateChipText,
-                        { color: active ? '#FFFFFF' : Colors[colorScheme].text },
+                        styles.dateChip,
+                        {
+                          backgroundColor: active
+                            ? Colors[colorScheme].tint
+                            : Colors[colorScheme].background,
+                          borderColor: active
+                            ? Colors[colorScheme].tint
+                            : Colors[colorScheme].border,
+                        },
                       ]}
                     >
-                      {level.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+                      <Text
+                        style={[
+                          styles.dateChipText,
+                          { color: active ? '#FFFFFF' : Colors[colorScheme].text },
+                        ]}
+                      >
+                        {level.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
             </ScrollView>
           </View>
         )}

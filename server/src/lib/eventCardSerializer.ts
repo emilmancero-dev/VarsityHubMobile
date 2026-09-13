@@ -88,6 +88,12 @@ export function buildCapabilities(
   const activeDesignatedGrant = isDesignated && hasActiveUnlock;
   const overrideAllowed = activeDesignatedGrant || isExclusivePoster;
   const canPostWithoutFreshGeofence = overrideAllowed || hasActiveUnlock;
+  // Story access mirrors verifyStoryPostingPermission (owner rule, Sep 2026):
+  // the designated/exclusive override skips everything, AND during the post-event
+  // GRACE window a user who already posted/storied here (holds an active unlock)
+  // may add a story from anywhere. During the LIVE window a story still requires
+  // the geofence, so a plain unlock does not grant story access there.
+  const storyAllowed = overrideAllowed || (state === 'grace' && hasActiveUnlock);
   const windowLive = state === 'live';
   const closedCode = 'POSTING_WINDOW_CLOSED';
   const liveNeedsLocationCode = 'LOCATION_REQUIRED';
@@ -112,8 +118,8 @@ export function buildCapabilities(
               : closedCode,
       },
       story: {
-        allowed_now: overrideAllowed,
-        reason_code: overrideAllowed
+        allowed_now: storyAllowed,
+        reason_code: storyAllowed
           ? null
           : blockedByExclusive
             ? 'EXCLUSIVE_POSTER_ONLY'
@@ -124,7 +130,7 @@ export function buildCapabilities(
     },
     upload_access: {
       can_upload_post: canPostWithoutFreshGeofence,
-      can_upload_story: overrideAllowed,
+      can_upload_story: storyAllowed,
       needs_live_geofence_check: !canPostWithoutFreshGeofence && windowLive,
     },
   };

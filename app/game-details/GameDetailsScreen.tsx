@@ -30,6 +30,7 @@ import {
   isEventPastEndOfDay,
 } from '@/utils/eventPresentation';
 import { recordEventPostingUnlock } from '@/utils/eventPostingUnlock';
+import { stripLinksFromDescription } from '@/utils/publicDescriptions';
 import { buildEventScrapbookPlan, eventScrapbookSeed } from '@/utils/eventPostGrid';
 import { optimizeImageUrl } from '@/utils/imageUrl';
 import { materializeICloudAssetIfNeeded } from '@/utils/materializeICloudAsset';
@@ -2522,7 +2523,9 @@ const GameDetailsScreen = () => {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s) return null;
     if (/^friendly match$/i.test(s)) return null;
-    return s;
+    // Hide raw promotional links ("Official fixture: https://…") from ingested
+    // pro/NCAA fixtures (owner note, Sep 2026).
+    return stripLinksFromDescription(s);
   }, [vm?.description]);
 
   const _renderMediaGrid = () => {

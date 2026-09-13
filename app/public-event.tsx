@@ -35,6 +35,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { replaceAsRedirect, safeGoBack } from '@/utils/navigation';
 import { promptForSignIn } from '@/utils/requireSignIn';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
+import { stripLinksFromDescription } from '@/utils/publicDescriptions';
 
 function PublicEventScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
@@ -167,6 +168,9 @@ function PublicEventScreen() {
     }, [params?.id, loadEventData])
   );
 
+  // Hide raw promotional links ("Official fixture: https://…") from the
+  // description shown on the event page (owner note, Sep 2026).
+  const cleanedDescription = stripLinksFromDescription(event?.description);
   const eventDate = event?.date ? new Date(String(event.date)) : null;
   const validDate = eventDate && !isNaN(eventDate.getTime()) ? eventDate : null;
   const dateLabel = validDate
@@ -247,9 +251,9 @@ function PublicEventScreen() {
             </View>
           )}
 
-          {!!event?.description && (
+          {!!cleanedDescription && (
             <Text style={[styles.description, { color: Colors[colorScheme].mutedText }]}>
-              {event.description}
+              {cleanedDescription}
             </Text>
           )}
 

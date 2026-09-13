@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npx expo export --platform web",
+  "buildCommand": "npx expo export --platform web && node scripts/relocate-web-vendor-assets.mjs",
   "outputDirectory": "dist",
   "installCommand": "npm ci",
   "framework": null,

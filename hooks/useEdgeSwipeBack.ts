@@ -15,7 +15,8 @@ const SWIPE_THRESHOLD = 60; // Min horizontal distance to trigger back
  * Uses manual activation so only touches starting in the left edge zone activate,
  * letting ScrollViews handle all other touches normally.
  */
-export function useEdgeSwipeBack() {
+export function useEdgeSwipeBack(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const router = useRouter();
   const navHistory = useContext(NavigationHistoryContext);
   const startedAtEdge = useSharedValue(false);
@@ -37,6 +38,10 @@ export function useEdgeSwipeBack() {
   };
 
   const edgeSwipeGesture = Gesture.Pan()
+    // When disabled (e.g. while the video trimmer is active — its left handle
+    // sits inside the 40px edge zone and would otherwise trigger a back-swipe),
+    // the recognizer never activates.
+    .enabled(enabled)
     .manualActivation(true)
     .onTouchesDown((e, stateManager) => {
       'worklet';

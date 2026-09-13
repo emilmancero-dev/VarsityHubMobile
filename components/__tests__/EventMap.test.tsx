@@ -99,7 +99,7 @@ describe('EventMap', () => {
 
   it('colors pins by league tier (Major / Minor / NCAA)', () => {
     expect(resolveMarkerColor({ league_level: 'major' })).toBe('#1E3A8A');
-    expect(resolveMarkerColor({ league_level: 'minor' })).toBe('#3B82F6');
+    expect(resolveMarkerColor({ league_level: 'minor' })).toBe('#DC2626');
     expect(resolveMarkerColor({ league_level: 'college' })).toBe('#9CA3AF');
   });
 

@@ -20,7 +20,7 @@ export const HAS_POSTS_COLOR = '#D4AF37'; // gold — page has posts (override)
 
 export const LEAGUE_LEVEL_COLORS = {
   major: '#1E3A8A', // navy — top tier
-  minor: '#3B82F6', // bright blue
+  minor: '#DC2626', // red — minor league (owner note, Sep 2026)
   college: '#9CA3AF', // silver — NCAA
   other: '#16A34A', // green — local / high-school / league-less / uncatalogued
 } as const;

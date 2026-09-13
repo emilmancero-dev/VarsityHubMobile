@@ -25,7 +25,6 @@ import { PRO_SCHEDULE_LEAGUES } from '../lib/proSchedule/types.js';
 import { geocodeLocation } from '../lib/geocoding.js';
 import {
   hasActiveEventPostingUnlock,
-  isDesignatedEventPoster,
   serializeLiveWindow,
   verifyStoryPostingPermission,
   viewerHasPostedOnEntity,
@@ -1283,17 +1282,18 @@ eventsRouter.get(
       (payload as any).can_edit = canManage;
 
       // Per-viewer story override, same rule the story create-gate enforces: a
-      // designated poster with an active unlock (or the exclusive poster) may
-      // add a story to this event page from anywhere, even after the live
-      // window has closed. The client uses this to enable "Add Story" and skip
-      // the geofence for such users. Everyone else follows the normal window.
-      const [designated, activeUnlock] = await Promise.all([
-        isDesignatedEventPoster(req.user.id, event.id),
-        hasActiveEventPostingUnlock(req.user.id, { id: event.id, game_id: event.game_id ?? null }),
-      ]);
+      // user who already posted/storied here (holds an active 7-day unlock) — or
+      // the exclusive poster — may add a story to this event page from anywhere,
+      // even after the live window has closed (owner rule, Sep 2026). The client
+      // uses this to enable "Add Story" and skip the geofence for such users.
+      // Everyone else follows the normal live window.
+      const activeUnlock = await hasActiveEventPostingUnlock(req.user.id, {
+        id: event.id,
+        game_id: event.game_id ?? null,
+      });
       const isExclusivePoster =
         !!event.exclusive_poster_id && event.exclusive_poster_id === req.user.id;
-      (payload as any).can_upload_story = (designated && activeUnlock) || isExclusivePoster;
+      (payload as any).can_upload_story = activeUnlock || isExclusivePoster;
     }
     return res.json(payload);
   })

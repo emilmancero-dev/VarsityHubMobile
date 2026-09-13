@@ -390,14 +390,15 @@ describe('first-post-unlocks-7-days posting rule', () => {
   });
 
   describe('stories', () => {
-    // Owner rule (2026-07-16, Fanatics Fest): stories are LIVE-ONLY and always
-    // geofenced. "STORY POST HAVE TO BE STRICTLY FOR WHEN THEY ARE AT THE GEO
-    // FENCED LOCATION" / "USERS CANT UPLOAD TO STORIES AFTER THEY HAVE LEFT THE
-    // GAME" / "STORY POST, do not get the same 7 days after the fact".
-    //
-    // This block previously pinned the opposite: a window running from UTC
-    // midnight to +48h, and an unlock that let users post stories from
-    // anywhere. Both are deliberately reversed here.
+    // Story window rules:
+    // - LIVE window: a story is always geofenced — an unlock does NOT skip the
+    //   geofence while the event is live (you must actually be there to add a
+    //   live story). This is stricter than regular posts.
+    // - POST-EVENT grace: owner rule (Sep 2026, supersedes the 2026-07-16
+    //   "stories get no grace" rule) — a user who ALREADY posted/storied here
+    //   (holds an active 7-day unlock) may keep adding stories from anywhere
+    //   through the grace window, exactly like regular posts. Everyone else is
+    //   blocked once the live window closes.
     const STORY_TIME = new Date('2026-05-10T19:00:00.000Z'); // 1h into the event
 
     it('has no early cutoff and closes at the live cutoff — not +48h', () => {
@@ -541,9 +542,20 @@ describe('first-post-unlocks-7-days posting rule', () => {
       expect(result.code).toBe('LOCATION_SPOOF_SUSPECTED');
     });
 
-    it('no stories after the live window closes, unlock or not', async () => {
-      jest.setSystemTime(new Date('2026-05-10T21:00:01.000Z')); // past +3h
+    it('allows an unlocked user to add a story during the post-event grace window, from anywhere', async () => {
+      // Owner rule (Sep 2026): already posted/storied here → keep adding stories
+      // through the grace window, matching regular posts. No location needed.
+      jest.setSystemTime(new Date('2026-05-10T21:00:01.000Z')); // past +3h, in grace
       mockUnlockFindUnique.mockResolvedValue({ unlocked_at: new Date(EVENT_DATE) });
+
+      const result = await verifyStoryPostingPermission('event-1', 'user-1', null, null, null);
+
+      expect(result.allowed).toBe(true);
+    });
+
+    it('blocks a story after the live window for a user WITHOUT an unlock', async () => {
+      jest.setSystemTime(new Date('2026-05-10T21:00:01.000Z')); // past +3h, in grace
+      mockUnlockFindUnique.mockResolvedValue(null);
 
       const result = await verifyStoryPostingPermission(
         'event-1',
@@ -552,6 +564,16 @@ describe('first-post-unlocks-7-days posting rule', () => {
         VENUE.lon,
         null
       );
+
+      expect(result.allowed).toBe(false);
+      expect(result.code).toBe('POSTING_WINDOW_CLOSED');
+    });
+
+    it('blocks stories once the grace window has fully closed, even with an unlock', async () => {
+      jest.setSystemTime(new Date('2026-05-18T21:00:01.000Z')); // > 7 days after start
+      mockUnlockFindUnique.mockResolvedValue({ unlocked_at: new Date(EVENT_DATE) });
+
+      const result = await verifyStoryPostingPermission('event-1', 'user-1', null, null, null);
 
       expect(result.allowed).toBe(false);
       expect(result.code).toBe('POSTING_WINDOW_CLOSED');
