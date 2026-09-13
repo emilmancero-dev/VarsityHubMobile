@@ -2,8 +2,7 @@ import EventMap, { EventMapData } from '@/components/EventMap';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import * as Location from 'expo-location';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { safeGoBack } from '@/utils/navigation';
 import { shouldShowEventOnMap } from '@/utils/mapEventFilters';
@@ -18,7 +17,6 @@ import { httpGet } from '@/api/http';
 
 function GameMapScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ lat?: string; lng?: string }>();
   const colorScheme = useColorScheme() ?? 'light';
 
   const [loading, setLoading] = useState(true);
@@ -29,44 +27,36 @@ function GameMapScreen() {
   const loadGames = useCallback(async () => {
     setLoading(true);
     try {
-      // Get user location from params or current location
-      let lat = params.lat ? parseFloat(params.lat) : null;
-      let lng = params.lng ? parseFloat(params.lng) : null;
-
-      if (!lat || !lng) {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          // GPS can hang indefinitely indoors or in a crowd — race it against
-          // a hard timeout so this fetch (and the "Loading nearby games..."
-          // overlay it drives) never gets stuck. On timeout we just fetch
-          // without a location filter instead of blocking the whole screen.
-          const location = await Promise.race([
-            Location.getCurrentPositionAsync({}),
-            new Promise<null>(resolve => setTimeout(() => resolve(null), 6000)),
-          ]);
-          if (location) {
-            lat = location.coords.latitude;
-            lng = location.coords.longitude;
-          }
-        }
-      }
-
-      // Fetch games and events; when user has location, filter to nearby (radius 50mi)
+      // Fetch the complete current map window. Location is only used by the map
+      // for centering; it must never narrow which VarsityHub games are visible.
       const eventsQuery = new URLSearchParams();
       eventsQuery.set('approval_status', 'approved');
-      if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
-        eventsQuery.set('lat', String(lat));
-        eventsQuery.set('lng', String(lng));
-        eventsQuery.set('radius', '50');
-      }
+      eventsQuery.set('limit', '100');
       const [gamesResponse, eventsResponse] = await Promise.all([
-        // v1.0.2: mapView restricts to games this week — past games drop off the map in real time.
-        Game.list(
-          'date',
-          lat != null && lng != null
-            ? { lat, lng, limit: 50, mapView: true }
-            : { limit: 50, mapView: true }
-        ).catch((error: any) => {
+        // mapView restricts to the current seven-day window; pagination keeps
+        // dense national slates from hiding games behind a first-page cap.
+        (async () => {
+          const allGames: any[] = [];
+          let cursor: string | null = null;
+          for (let page = 0; page < 10; page += 1) {
+            const pageResponse: any = await Game.list('date', {
+              cursor,
+              limit: 100,
+              mapView: true,
+            });
+            const pageGames = Array.isArray(pageResponse)
+              ? pageResponse
+              : pageResponse?.games || pageResponse?.items || [];
+            if (!Array.isArray(pageGames)) break;
+            allGames.push(...pageGames);
+            const nextCursor = Array.isArray(pageResponse)
+              ? null
+              : pageResponse?.nextCursor || null;
+            if (!nextCursor || pageGames.length === 0) break;
+            cursor = nextCursor;
+          }
+          return { items: allGames };
+        })().catch((error: any) => {
           if (__DEV__) console.error('[game-map] Failed to fetch games:', error);
           return { items: [] };
         }),
@@ -76,9 +66,10 @@ function GameMapScreen() {
         }),
       ]);
 
-      const gamesList = Array.isArray(gamesResponse)
-        ? gamesResponse
-        : gamesResponse?.games || gamesResponse?.items || [];
+      const gamesPayload: any = gamesResponse;
+      const gamesList = Array.isArray(gamesPayload)
+        ? gamesPayload
+        : gamesPayload?.games || gamesPayload?.items || [];
       const eventsList = Array.isArray(eventsResponse)
         ? eventsResponse
         : eventsResponse?.items || [];
@@ -177,7 +168,7 @@ function GameMapScreen() {
     } finally {
       setLoading(false);
     }
-  }, [params.lat, params.lng]);
+  }, []);
 
   useEffect(() => {
     void loadGames();
