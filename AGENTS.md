@@ -133,7 +133,6 @@ New code composes with these single patterns; never stack a parallel mechanism:
 ## Anti-Patterns (Don't Do These)
 
 - Don't use Expo Go — always `npx expo run:ios` / `npx expo run:android`
-- Don't run `eas build` or `eas submit` — costs credits, let the user run those
 - Don't add client-side workarounds that bypass server-enforced rules
 - Don't push to `main` without testing — Railway auto-deploys immediately
 - Don't change Railway env vars casually. Sensitive vars like `JWT_SECRET`, OAuth keys, and Apple signing keys have production blast radius; rotate/change them only when the task explicitly requires it and after understanding impact.
