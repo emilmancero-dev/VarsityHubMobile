@@ -161,6 +161,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "app/(tabs)/create-post.tsx#action:1c9ffa02283c": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "app/(tabs)/create-post.tsx#action:48b494c5128f": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -3321,6 +3325,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "app/feed.tsx#api-call:3078292bb77d": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "app/feed.tsx#api-call:3161ef4ab5d3": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -4086,10 +4094,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/game-map.tsx#action:1fc8399f10c5": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/game-map.tsx#action:2cd53280e546": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -4107,6 +4111,10 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/game-map.tsx#action:a368df280312": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/game-map.tsx#action:b81607805e7e": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -9606,6 +9614,10 @@
       "endpoint": "POST /games",
       "dimensions": ["authenticated fan", "rookie owner", "veteran non-owner"]
     },
+    "server/src/routes/games.ts#endpoint:4d871741e7aa": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "server/src/routes/games.ts#endpoint:5c0707add482": {
       "status": "partial",
       "reason": "Access-matrix probe exists; not all applicable role, state, privacy and response-content cases are asserted.",
@@ -9825,6 +9837,10 @@
       "dimensions": ["authenticated fan", "rookie owner", "veteran non-owner"]
     },
     "server/src/routes/og.ts#endpoint:5e8d017e333f": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "server/src/routes/og.ts#endpoint:c8900039709b": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
