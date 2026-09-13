@@ -90,6 +90,10 @@ describe('TeamScreen with a nonexistent team id', () => {
     // One mount fetch only (test client has retry disabled) — the storm
     // regression pushes this into the dozens.
     expect(mockScreenSummary.mock.calls.length).toBeLessThanOrEqual(2);
-    expect(screen.getByText(/could not load team/i)).toBeTruthy();
+    // Error copy now flows through the shared toUserMessage() fallback
+    // ("Failed to load team data") instead of a hardcoded "Could not load
+    // team" string — the storm-prevention behavior above is what this test
+    // actually guards.
+    expect(screen.getByText(/failed to load team data/i)).toBeTruthy();
   });
 });

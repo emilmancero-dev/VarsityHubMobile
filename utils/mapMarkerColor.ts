@@ -8,14 +8,23 @@ import type { EventMapData } from '@/components/EventMap.types';
  * the on-map legend. It no longer varies by sport/team/type (that was the
  * inconsistent "colors vary" system owners flagged).
  *
- * The single override is `has_posts`: a page that already has viewer-visible
- * posts is highlighted GOLD regardless of tier, so people can spot pages worth
- * opening. Cluster ("Multiple — tap to choose") pins are colored separately by
+ * Two overrides, highest precedence first:
+ *  1. `isPresent`: the VIEWER is currently at this event's venue while it's
+ *     live (owner ask, Sept 2026 — "if a user is at a sporting event it
+ *     should pin"). This is per-viewer, computed client-side from the
+ *     device's own location — never shared with other users — so it only
+ *     ever lights up on that one person's map.
+ *  2. `has_posts`: a page that already has viewer-visible posts is
+ *     highlighted GOLD regardless of tier, so people can spot pages worth
+ *     opening.
+ * Cluster ("Multiple — tap to choose") pins are colored separately by
  * EventMap with the app tint, not here.
  *
  * Keep this in sync with the legend rows in components/EventMap.tsx and the
  * tier classification in app/game-map.tsx (Other = level ∉ {major,minor,college}).
  */
+export const PRESENT_AT_VENUE_COLOR = '#0EA5E9'; // sky blue — you're here right now
+
 export const HAS_POSTS_COLOR = '#D4AF37'; // gold — page has posts (override)
 
 export const LEAGUE_LEVEL_COLORS = {
@@ -26,8 +35,10 @@ export const LEAGUE_LEVEL_COLORS = {
 } as const;
 
 export function resolveMarkerColor(
-  event: Pick<EventMapData, 'has_posts' | 'league_level'>
+  event: Pick<EventMapData, 'has_posts' | 'league_level'>,
+  isPresent?: boolean
 ): string {
+  if (isPresent) return PRESENT_AT_VENUE_COLOR;
   if (event.has_posts === true) return HAS_POSTS_COLOR;
   switch (event.league_level) {
     case 'major':

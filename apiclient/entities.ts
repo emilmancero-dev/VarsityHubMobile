@@ -318,6 +318,11 @@ export const Game = {
     const qs = '?ids=' + ids.map(id => encodeURIComponent(id)).join(',');
     return httpGet('/games/votes-summary' + qs);
   },
+  postsSummaryBatch: (ids: string[]): Promise<Record<string, boolean>> => {
+    if (ids.length === 0) return Promise.resolve({});
+    const qs = '?ids=' + ids.map(id => encodeURIComponent(id)).join(',');
+    return httpGet('/games/posts-summary' + qs) as Promise<Record<string, boolean>>;
+  },
   castVote: (id: string, team: 'A' | 'B') =>
     httpPost(`/games/${encodeURIComponent(id)}/votes`, { team }),
   clearVote: (id: string) => httpDelete(`/games/${encodeURIComponent(id)}/votes`),

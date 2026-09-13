@@ -26,6 +26,7 @@ import {
   getBlockedUserIds,
   getExcludedPrivateAuthorIds,
   getExcludedPrivateTeamIds,
+  getPostVisibilityFilters,
   getRequestBlockedCache,
   mergeAndWhere,
 } from '../lib/privacyUtils.js';
@@ -2303,6 +2304,59 @@ gamesRouter.get(
       return res.json(result);
     } catch (err) {
       console.error('[games] votes-summary error:', err);
+      return sendError(res, 500, 'Internal server error');
+    }
+  })
+);
+
+// Owner ask (Sept 2026): a live game that gets a post should be visually
+// promoted in the feed. Same batch-summary pattern as /votes-summary — one
+// call for the whole visible page rather than a request per card. A game's
+// posts can live directly on it OR on its linked event (dual-linkage model),
+// so has_posts checks both, mirroring eventDiscovery.ts's has_posts logic.
+gamesRouter.get(
+  '/posts-summary',
+  authMiddleware as any,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    try {
+      const idsParam = String(req.query.ids || '').trim();
+      if (!idsParam) return sendError(res, 400, 'ids required (comma-separated game IDs)');
+      const ids = idsParam
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (ids.length === 0) return res.json({});
+      if (ids.length > 50) return sendError(res, 400, 'Max 50 ids per request');
+
+      const visibility = await getPostVisibilityFilters(req.user?.id ?? null);
+      const visiblePostWhere: any = {
+        deleted_at: null,
+        AND: [visibility.authorWhere, visibility.privateTeamWhere].filter(
+          (where): where is NonNullable<typeof where> => where != null
+        ),
+      };
+
+      const games = await prisma.game.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          _count: { select: { posts: { where: visiblePostWhere } } },
+          events: {
+            take: 1,
+            select: { _count: { select: { posts: { where: visiblePostWhere } } } },
+          },
+        },
+        take: ids.length,
+      });
+
+      const result: Record<string, boolean> = {};
+      for (const game of games as any[]) {
+        result[game.id] =
+          (game._count?.posts ?? 0) > 0 || (game.events?.[0]?._count?.posts ?? 0) > 0;
+      }
+      return res.json(result);
+    } catch (err) {
+      console.error('[games] posts-summary error:', err);
       return sendError(res, 500, 'Internal server error');
     }
   })

@@ -101,6 +101,12 @@ jest.unstable_mockModule('../lib/privacyUtils.js', () => ({
   getExcludedPrivateTeamIds: jest.fn(async () => []),
   getBlockedUserIds: jest.fn(async () => []),
   getRequestBlockedCache: jest.fn(() => new Map()),
+  getPostVisibilityFilters: jest.fn(async () => ({
+    excludedAuthorIds: [],
+    excludedTeamIds: [],
+    authorWhere: null,
+    privateTeamWhere: null,
+  })),
   mergeAndWhere: jest.fn((where: any, clause: any) => {
     if (!clause) return where;
     where.AND = where.AND || [];

@@ -51,6 +51,10 @@ function fixture(existingPending = true) {
     content: 'Saved post',
     selectedGameId: undefined,
     selectedEventId: undefined,
+    // Used by the post-success confirmation copy (postedEventLabel); null
+    // matches the composer's own initial state and is irrelevant to the
+    // recovery/retry behavior these tests actually cover.
+    suggestedGame: null,
     postType: 'post',
     newPostRequestId: () => `new-request-${++requestSequence}`,
     hadPendingPayload: existingPending,
@@ -67,6 +71,7 @@ function fixture(existingPending = true) {
     },
     setPreviewVisible: jest.fn(),
     setPostSuccess: success,
+    setSuccessInfo: jest.fn(),
   };
   const run = () => {
     context.hadPendingPayload = Boolean(recoveryRef.current?.pendingPayload);

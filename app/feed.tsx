@@ -62,6 +62,7 @@ import {
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { getLiveBounds, isGameLive, isGameOver, shouldPinToFeed } from '@/utils/liveWindow';
 import { getVenuePhotoFallback } from '@/utils/venuePhotoFallback';
+import { HAS_POSTS_COLOR } from '@/utils/mapMarkerColor';
 import { optimizeImageUrl } from '@/utils/imageUrl';
 import { prefetchGameSummary } from '@/utils/prefetch';
 import {
@@ -295,6 +296,9 @@ const buildVotePreviewEntry = (
 type FeedGameCardProps = {
   gameItem: GameItem;
   isLive: boolean;
+  // Owner ask (Sept 2026): a live card's border goes red -> gold once someone
+  // has posted about it. Undefined/false renders the original red.
+  hasPosts?: boolean;
   testIDPrefix: string;
   voteSummary: VotePreviewEntry | null;
   rsvp: { going: boolean; count: number } | undefined;
@@ -311,6 +315,7 @@ type FeedGameCardProps = {
 const FeedGameCard = memo(function FeedGameCard({
   gameItem,
   isLive,
+  hasPosts,
   testIDPrefix,
   voteSummary,
   rsvp,
@@ -385,7 +390,10 @@ const FeedGameCard = memo(function FeedGameCard({
   return (
     <Pressable
       testID={`${testIDPrefix}-game-card-${gameItem.id}`}
-      style={[styles.singleEventCard, isLive ? { borderWidth: 2, borderColor: '#EF4444' } : null]}
+      style={[
+        styles.singleEventCard,
+        isLive ? { borderWidth: 2, borderColor: hasPosts ? HAS_POSTS_COLOR : '#EF4444' } : null,
+      ]}
       onPressIn={() => {
         if (!isEventOnly) prefetchGameSummary(String(gameItem.id));
       }}
@@ -512,6 +520,10 @@ export default function FeedScreen() {
   const [socialFeedWarning, setSocialFeedWarning] = useState<string | null>(null);
   const voteSummariesRef = useRef<Record<string, VotePreviewEntry>>({});
   const [voteSummaries, setVoteSummaries] = useState<Record<string, VotePreviewEntry>>({});
+  // Owner ask (Sept 2026): a live game that gets a post should move to the top
+  // of its section and its border should go from red to gold. Keyed by game id.
+  const postsActivityRef = useRef<Record<string, boolean>>({});
+  const [postsActivity, setPostsActivity] = useState<Record<string, boolean>>({});
   const rsvpSummariesRef = useRef<Record<string, { going: boolean; count: number }>>({});
   const [rsvpSummaries, setRsvpSummaries] = useState<
     Record<string, { going: boolean; count: number }>
@@ -583,6 +595,36 @@ export default function FeedScreen() {
       }
     } catch (err) {
       if (__DEV__) console.warn('Vote summary batch failed', err);
+    }
+  }, []);
+
+  // Only live games matter for the gold-border/top-of-feed promotion, so this
+  // stays a small, cheap batch — not every card in the feed.
+  const preloadPostsActivity = useCallback(async (gameList: GameItem[]) => {
+    const now = Date.now();
+    const ids = gameList
+      .filter(game => game.source_type !== 'event' && isGameLive(game, now))
+      .map(game => String(game.id))
+      .filter(id => id)
+      .slice(0, 50);
+    if (!ids.length) return;
+    try {
+      const batch = await Game.postsSummaryBatch(ids);
+      const next = { ...postsActivityRef.current };
+      let changed = false;
+      ids.forEach(id => {
+        const value = Boolean((batch as Record<string, boolean>)?.[id]);
+        if (next[id] !== value) {
+          next[id] = value;
+          changed = true;
+        }
+      });
+      if (changed) {
+        setPostsActivity(next);
+        postsActivityRef.current = next;
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('Posts activity batch failed', err);
     }
   }, []);
 
@@ -1215,9 +1257,23 @@ export default function FeedScreen() {
     const handle = InteractionManager.runAfterInteractions(() => {
       void preloadVoteSummaries(games.slice(0, 12));
       void preloadRsvpSummaries(games);
+      void preloadPostsActivity(games);
     });
     return () => handle.cancel();
-  }, [games, preloadVoteSummaries, preloadRsvpSummaries]);
+  }, [games, preloadVoteSummaries, preloadRsvpSummaries, preloadPostsActivity]);
+
+  // A live game can get its first post at any moment, and that's exactly what
+  // should promote it — polling only on full feed reloads would miss it for
+  // however long the fan stays on the screen. Re-check just the live games
+  // periodically while the feed is focused; cheap since preloadPostsActivity
+  // already scopes to isGameLive and caps at 50 ids.
+  useEffect(() => {
+    if (!games.length) return;
+    const interval = setInterval(() => {
+      void preloadPostsActivity(games);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [games, preloadPostsActivity]);
 
   // Refresh feed data + unread counts on focus, then poll every 60s while visible.
   // Single hook replaces two separate useFocusEffects that both fetched unread counts.
@@ -1390,6 +1446,14 @@ export default function FeedScreen() {
       const bLive = isGameLive(b, now);
       if (aLive && !bLive) return -1;
       if (!aLive && bLive) return 1;
+      // Owner ask: a live event that gets a post moves to the top of the live
+      // group, so fans see where the action already is.
+      if (aLive && bLive) {
+        const aPosted = Boolean(postsActivity[String(a.id)]);
+        const bPosted = Boolean(postsActivity[String(b.id)]);
+        if (aPosted && !bPosted) return -1;
+        if (!aPosted && bPosted) return 1;
+      }
       return aB.startsAt - bB.startsAt;
     });
 
@@ -1418,7 +1482,7 @@ export default function FeedScreen() {
       upcomingEvents: unpinned,
       pastEvents: past,
     };
-  }, [filtered, viewerPosition]);
+  }, [filtered, viewerPosition, postsActivity]);
 
   // Ad rotation timer logic (max 2 advertisers):
   // 1 ad: Show ad for 5 minutes, then placeholder for 15 seconds, repeat
@@ -1797,6 +1861,7 @@ export default function FeedScreen() {
         <FeedGameCard
           gameItem={gameItem}
           isLive={isLive}
+          hasPosts={Boolean(postsActivity[String(gameItem.id)])}
           testIDPrefix={testIDPrefix}
           voteSummary={voteSummaries[String(gameItem.id)] || null}
           rsvp={rsvpSummaries[String((gameItem as any).event_id || '')]}
@@ -1806,7 +1871,7 @@ export default function FeedScreen() {
         />
       );
     },
-    [colorScheme, voteSummaries, rsvpSummaries, handleGamePress, onRefresh]
+    [colorScheme, voteSummaries, rsvpSummaries, postsActivity, handleGamePress, onRefresh]
   );
 
   const renderFeedItem = useCallback(

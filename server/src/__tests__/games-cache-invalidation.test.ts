@@ -100,6 +100,12 @@ jest.unstable_mockModule('../lib/privacyUtils.js', () => ({
   getExcludedPrivateTeamIds: jest.fn(async () => []),
   getBlockedUserIds: jest.fn(async () => []),
   getRequestBlockedCache: jest.fn(() => new Map()),
+  getPostVisibilityFilters: jest.fn(async () => ({
+    excludedAuthorIds: [],
+    excludedTeamIds: [],
+    authorWhere: null,
+    privateTeamWhere: null,
+  })),
   buildPrivateTeamGameVisibilityWhere: jest.fn(() => ({})),
   mergeAndWhere: jest.fn((...clauses: any[]) => ({ AND: clauses.filter(Boolean) })),
 }));

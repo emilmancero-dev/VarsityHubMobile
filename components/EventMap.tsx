@@ -32,6 +32,7 @@ export type { EventMapData, EventMapProps } from './EventMap.types';
 
 import { resolveMarkerColor } from '@/utils/mapMarkerColor';
 export { resolveMarkerColor } from '@/utils/mapMarkerColor';
+import { isAtVenue, isGameLive } from '@/utils/liveWindow';
 
 const SINGLE_EVENT_REGION_DELTA = 0.35;
 
@@ -302,7 +303,23 @@ export default function EventMap({
     }, 1100);
   };
 
-  const getMarkerColor = (event: EventMapData) => resolveMarkerColor(event);
+  const getMarkerColor = (event: EventMapData, isPresent?: boolean) =>
+    resolveMarkerColor(event, isPresent);
+
+  // Owner ask (Sept 2026): "if a user is at a sporting event it should pin."
+  // Per-viewer only — computed from this device's own location, never shared.
+  // isGameLive falls back to date+3h when the trimmed map marker has no
+  // starts_at/live_until (see utils/liveWindow.ts), so this works with the
+  // lean marker payload as-is.
+  const isPresentAtVenue = (event: EventMapData) =>
+    Boolean(
+      userLocation &&
+      isGameLive(event, Date.now()) &&
+      isAtVenue(event, {
+        latitude: userLocation.coords.latitude,
+        longitude: userLocation.coords.longitude,
+      })
+    );
 
   const openEventFromMarker = (eventId: string, eventType?: 'game' | 'event' | 'post') => {
     const now = Date.now();
@@ -381,7 +398,7 @@ export default function EventMap({
               <Marker
                 key={lead.id}
                 coordinate={coordinate}
-                pinColor={getMarkerColor(lead)}
+                pinColor={getMarkerColor(lead, isPresentAtVenue(lead))}
                 // Default pins carry no custom subview, so react-native-maps has
                 // nothing to re-rasterize — pin down tracksViewChanges (as the
                 // cluster pins already do) so many markers don't churn on load.
@@ -510,11 +527,19 @@ export default function EventMap({
               { label: 'NCAA', event: { league_level: 'college' } },
               { label: 'Other', event: { league_level: null } },
               { label: 'Has posts', event: { has_posts: true } },
-            ] as { label: string; event: Parameters<typeof resolveMarkerColor>[0] }[]
+              { label: "You're here", event: {}, isPresent: true },
+            ] as {
+              label: string;
+              event: Parameters<typeof resolveMarkerColor>[0];
+              isPresent?: boolean;
+            }[]
           ).map(row => (
             <View key={row.label} style={styles.legendRow}>
               <View
-                style={[styles.legendDot, { backgroundColor: resolveMarkerColor(row.event) }]}
+                style={[
+                  styles.legendDot,
+                  { backgroundColor: resolveMarkerColor(row.event, row.isPresent) },
+                ]}
               />
               <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
                 {row.label}
