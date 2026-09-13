@@ -3,17 +3,18 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { compositeAdapter } from './compositeAdapter.js';
 import { espnAdapter } from './espnAdapter.js';
+import { seatGeekAdapter } from './seatGeekAdapter.js';
 import type { ProFixture, ProScheduleAdapter } from './types.js';
+import { PRO_SCHEDULE_LEAGUES } from './types.js';
 import { wweAdapter } from './wweAdapter.js';
 
 /**
  * Schedule provider adapters.
  *
- * No provider is wired yet — selecting and licensing one is a purchasing
- * decision (SportsDataIO, Sportradar, API-Sports and TheSportsDB all license
- * schedule data). Adding one means implementing `fetchFixtures` to return
- * ProFixture[]; nothing downstream changes, because ingestion only ever sees
- * the normalized shape.
+ * Schedule facts are normalized at the provider boundary. ESPN remains the
+ * source for the major leagues, while SeatGeek is used for NCAA, minor-league,
+ * and other sporting events. Provider coverage is bounded by what each
+ * upstream actually publishes; ingestion never invents missing fixtures.
  *
  * IMPORTANT when adding one: schedule facts themselves are not owned by the
  * leagues (Feist; NBA v. Motorola), but the provider's terms of service are a
@@ -24,7 +25,7 @@ import { wweAdapter } from './wweAdapter.js';
 
 const fixtureSchema = z.object({
   external_ref: z.string().min(1).max(200),
-  league: z.enum(['nfl', 'nba', 'wnba', 'mlb', 'wwe']),
+  league: z.enum(PRO_SCHEDULE_LEAGUES),
   starts_at: z.coerce.date(),
   home_team_ref: z.string().nullable().default(null),
   away_team_ref: z.string().nullable().default(null),
@@ -49,7 +50,7 @@ const fixtureSchema = z.object({
 export function jsonFileAdapter(path: string): ProScheduleAdapter {
   return {
     name: `json:${path}`,
-    leagues: ['nfl', 'nba', 'wnba', 'mlb', 'wwe'] as const,
+    leagues: PRO_SCHEDULE_LEAGUES,
     async fetchFixtures(league: ProLeague, from: Date, to: Date): Promise<ProFixture[]> {
       const raw = await readFile(path, 'utf8');
       const parsed: unknown = JSON.parse(raw);
@@ -81,23 +82,35 @@ export function jsonFileAdapter(path: string): ProScheduleAdapter {
 /**
  * Resolves the configured adapter, or null when none is configured.
  *
- * Returning null rather than throwing is deliberate: the ingest job runs on a
- * schedule, and an unconfigured provider is an expected state (the feature ships
- * dark until a provider is licensed). It must log and no-op, not crash the boot.
+ * Returning null for no provider is deliberate. A selected provider without its
+ * required credentials is different: that is a deployment error and must fail
+ * loudly instead of silently dropping NCAA/minor schedules.
  */
 export function resolveConfiguredAdapter(env = process.env): ProScheduleAdapter | null {
   const file = env.PRO_SCHEDULE_JSON_PATH;
   if (file) return jsonFileAdapter(file);
 
-  // Live rolling source: ESPN for the four league sports + TheSportsDB for
-  // touring WWE, behind one composite so the cron covers all five leagues.
+  // Live rolling sources are composed so each league has one owner. SeatGeek
+  // supplies the NCAA and minor-league feeds that ESPN does not expose here.
   if (env.PRO_SCHEDULE_PROVIDER === 'espn') {
     return compositeAdapter([espnAdapter(), wweAdapter()]);
+  }
+  if (env.PRO_SCHEDULE_PROVIDER === 'seatgeek') {
+    if (!env.SEATGEEK_CLIENT_ID) {
+      throw new Error('[proSchedule] PRO_SCHEDULE_PROVIDER=seatgeek requires SEATGEEK_CLIENT_ID');
+    }
+    return seatGeekAdapter(env.SEATGEEK_CLIENT_ID);
+  }
+  if (env.PRO_SCHEDULE_PROVIDER === 'combined') {
+    if (!env.SEATGEEK_CLIENT_ID) {
+      throw new Error('[proSchedule] PRO_SCHEDULE_PROVIDER=combined requires SEATGEEK_CLIENT_ID');
+    }
+    return compositeAdapter([espnAdapter(), wweAdapter(), seatGeekAdapter(env.SEATGEEK_CLIENT_ID)]);
   }
 
   return null;
 }
 
 export const NO_ADAPTER_MESSAGE =
-  '[proSchedule] no schedule provider configured — set PRO_SCHEDULE_JSON_PATH for a bulk ' +
-  'export, or wire a licensed provider in resolveConfiguredAdapter(). Skipping ingest.';
+  '[proSchedule] no schedule provider configured — set PRO_SCHEDULE_JSON_PATH, or set ' +
+  'PRO_SCHEDULE_PROVIDER=combined with SEATGEEK_CLIENT_ID. Skipping ingest.';

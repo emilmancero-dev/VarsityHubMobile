@@ -167,6 +167,9 @@ enum ProLeague {
   wnba
   mlb
   wwe
+  ncaa
+  minor
+  other
 }
 
 // ===========================
@@ -707,6 +710,9 @@ model Event {
   pro_away_team_id String?
   proHomeTeam      ProTeam? @relation("pro_home_events", fields: [pro_home_team_id], references: [id], onDelete: SetNull)
   proAwayTeam      ProTeam? @relation("pro_away_events", fields: [pro_away_team_id], references: [id], onDelete: SetNull)
+  // Provider classification for schedule-backed events without franchise rows
+  // (for example SeatGeek NCAA, minor-league, and other sports fixtures).
+  pro_league ProLeague?
 
   // Stable upstream key (`{league}:{provider-game-id}`) making schedule
   // ingestion idempotent: a re-run updates a postponed or relocated fixture in

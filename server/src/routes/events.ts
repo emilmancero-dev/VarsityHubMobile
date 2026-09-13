@@ -30,6 +30,7 @@ import { consumeReviewToken, verifyReviewToken } from '../lib/reviewTokens.js';
 import { stripHtml } from '../lib/sanitizeHtml.js';
 import { mustSucceed } from '../lib/sideEffect.js';
 import { venuePhotoFor } from '../lib/proSchedule/venuePhotos.js';
+import { PRO_SCHEDULE_LEAGUES } from '../lib/proSchedule/types.js';
 import {
   canManageAnyTeam,
   canManageTeam as canManageTeamScoped,
@@ -53,7 +54,7 @@ registerIdValidation(eventsRouter);
  *  raise if/when production traces show a real ceiling. */
 const RSVP_FANOUT_LIMIT = 50_000;
 const RSVP_FANOUT_BATCH = 200;
-const PRO_LEAGUES = ['nfl', 'nba', 'wnba', 'mlb', 'wwe'] as const;
+const PRO_LEAGUES = PRO_SCHEDULE_LEAGUES;
 const encodeEventRsvpCursor = (row: { created_at: Date | string; id: string }) => {
   const createdAt =
     row.created_at instanceof Date
@@ -364,13 +365,16 @@ const serializeEvent = (
       event.team?.sport ??
       event.game?.homeTeam?.sport ??
       event.game?.awayTeam?.sport ??
-      proLeagueToSport(event.proHomeTeam?.league ?? event.proAwayTeam?.league) ??
+      proLeagueToSport(
+        event.proHomeTeam?.league ?? event.proAwayTeam?.league ?? event.pro_league
+      ) ??
       null,
+    // Persisted provider classification also covers teamless schedule events.
+    pro_league: event.pro_league ?? event.proHomeTeam?.league ?? event.proAwayTeam?.league ?? null,
     // Pro teams carry no logo (trademark), only an accent color. The card uses
     // these two to render a branded gradient when a pro event has no banner.
     pro_home_color: event.proHomeTeam?.primary_color ?? null,
     pro_away_color: event.proAwayTeam?.primary_color ?? null,
-    pro_league: event.proHomeTeam?.league ?? event.proAwayTeam?.league ?? null,
     venue_photo: venuePhotoFor(event.location),
     ...serializeLiveWindow(event.date, event.live_window_hours_after_start),
   };
@@ -424,8 +428,7 @@ eventsRouter.get(
     const take = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 100;
     const dateFrom = typeof req.query.from === 'string' ? new Date(req.query.from) : null;
     const dateTo = typeof req.query.to === 'string' ? new Date(req.query.to) : null;
-    const proOnly =
-      String(req.query.pro_only || req.query.pro || '').toLowerCase() === 'true';
+    const proOnly = String(req.query.pro_only || req.query.pro || '').toLowerCase() === 'true';
     const eventOnly = String(req.query.event_only || '').toLowerCase() === 'true';
     const proLeagueRaw =
       typeof req.query.pro_league === 'string' ? req.query.pro_league.trim().toLowerCase() : '';
@@ -460,7 +463,11 @@ eventsRouter.get(
     if (proOnly) {
       where.AND = where.AND || [];
       where.AND.push({
-        OR: [{ pro_home_team_id: { not: null } }, { pro_away_team_id: { not: null } }],
+        OR: [
+          { pro_home_team_id: { not: null } },
+          { pro_away_team_id: { not: null } },
+          { pro_league: { not: null } },
+        ],
       });
     }
     if (proLeague) {
@@ -469,6 +476,7 @@ eventsRouter.get(
         OR: [
           { proHomeTeam: { is: { league: proLeague } } },
           { proAwayTeam: { is: { league: proLeague } } },
+          { pro_league: proLeague },
         ],
       });
     }

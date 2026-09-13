@@ -1941,4 +1941,7 @@ export const PRO_TEAM_SEED_COUNTS: Record<ProLeague, number> = {
   mlb: MLB.length,
   wnba: WNBA.length,
   wwe: WWE.length,
+  ncaa: 0,
+  minor: 0,
+  other: 0,
 };

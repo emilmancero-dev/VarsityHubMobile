@@ -1,5 +1,6 @@
 import { espnAdapter } from '../lib/proSchedule/espnAdapter.js';
 import { ingestFixtures, ingestLeague } from '../lib/proSchedule/ingest.js';
+import { seatGeekAdapter } from '../lib/proSchedule/seatGeekAdapter.js';
 import { WWE_FIXTURES_2026 } from '../lib/proSchedule/wweSchedule2026.js';
 import { prisma } from '../lib/prisma.js';
 import { PRO_TEAM_SEED } from '../lib/proTeams.js';
@@ -129,9 +130,15 @@ export async function runProSportsBootstrap(): Promise<void> {
     const windowDays = getProScheduleWindowDays();
     const from = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
     const to = new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000);
-    for (const league of ['nfl', 'mlb', 'nba', 'wnba'] as ProLeague[]) {
+    for (const league of ['nfl', 'mlb', 'nba', 'wnba', 'ncaa', 'minor', 'other'] as ProLeague[]) {
       try {
-        const s = await ingestLeague(espn, league, from, to);
+        const adapter =
+          (league === 'ncaa' || league === 'minor' || league === 'other') &&
+          ['combined', 'seatgeek'].includes(process.env.PRO_SCHEDULE_PROVIDER ?? '') &&
+          process.env.SEATGEEK_CLIENT_ID
+            ? seatGeekAdapter(process.env.SEATGEEK_CLIENT_ID)
+            : espn;
+        const s = await ingestLeague(adapter, league, from, to);
         console.log(
           `[pro-bootstrap] ${league} ingest: created=${s.created} updated=${s.updated} skipped=${s.skipped}`
         );

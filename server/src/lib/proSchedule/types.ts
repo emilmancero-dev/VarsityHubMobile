@@ -62,6 +62,17 @@ export type ProScheduleAdapter = {
   fetchFixtures(league: ProLeague, from: Date, to: Date): Promise<ProFixture[]>;
 };
 
+export const PRO_SCHEDULE_LEAGUES = [
+  'nfl',
+  'nba',
+  'wnba',
+  'mlb',
+  'wwe',
+  'ncaa',
+  'minor',
+  'other',
+] as const;
+
 /**
  * Hours after start that the geofenced posting window stays open, per league.
  * The window always opens 1 hour before start (server/src/lib/geofencing.ts);
@@ -77,4 +88,7 @@ export const LIVE_WINDOW_HOURS_BY_LEAGUE: Record<ProLeague, number> = {
   wwe: 4,
   nba: 3,
   wnba: 3,
+  ncaa: 4,
+  minor: 4,
+  other: 4,
 };

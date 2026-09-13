@@ -46,6 +46,7 @@ type ExistingEventSnapshot = {
   longitude: number | null;
   pro_home_team_id: string | null;
   pro_away_team_id: string | null;
+  pro_league: ProLeague | null;
   live_window_hours_after_start: number | null;
   status: EventStatus;
 };
@@ -60,6 +61,7 @@ function hasProviderFieldChanges(existing: ExistingEventSnapshot, next: Resolved
     existing.longitude !== next.longitude ||
     existing.pro_home_team_id !== next.pro_home_team_id ||
     existing.pro_away_team_id !== next.pro_away_team_id ||
+    existing.pro_league !== next.league ||
     existing.live_window_hours_after_start !== next.live_window_hours_after_start ||
     existing.status !== next.status
   );
@@ -116,6 +118,7 @@ export async function ingestFixtures(
       longitude: true,
       pro_home_team_id: true,
       pro_away_team_id: true,
+      pro_league: true,
       live_window_hours_after_start: true,
       status: true,
     },
@@ -143,6 +146,7 @@ export async function ingestFixtures(
     longitude: number | null;
     pro_home_team_id: string | null;
     pro_away_team_id: string | null;
+    pro_league: ProLeague;
     live_window_hours_after_start: number | null;
     status: EventStatus;
     approval_status: 'approved';
@@ -160,6 +164,7 @@ export async function ingestFixtures(
       longitude: number | null;
       pro_home_team_id: string | null;
       pro_away_team_id: string | null;
+      pro_league: ProLeague;
       live_window_hours_after_start: number | null;
       status: EventStatus;
     };
@@ -206,6 +211,7 @@ export async function ingestFixtures(
             longitude: v.longitude,
             pro_home_team_id: v.pro_home_team_id,
             pro_away_team_id: v.pro_away_team_id,
+            pro_league: v.league,
             live_window_hours_after_start: v.live_window_hours_after_start,
             status: v.status,
           },
@@ -225,6 +231,7 @@ export async function ingestFixtures(
       longitude: v.longitude,
       pro_home_team_id: v.pro_home_team_id,
       pro_away_team_id: v.pro_away_team_id,
+      pro_league: v.league,
       live_window_hours_after_start: v.live_window_hours_after_start,
       status: v.status,
       // System-ingested: no creator, and pre-approved because there is no human

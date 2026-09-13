@@ -1,0 +1,5 @@
+ALTER TYPE "ProLeague" ADD VALUE IF NOT EXISTS 'ncaa';
+ALTER TYPE "ProLeague" ADD VALUE IF NOT EXISTS 'minor';
+ALTER TYPE "ProLeague" ADD VALUE IF NOT EXISTS 'other';
+
+ALTER TABLE "Event" ADD COLUMN IF NOT EXISTS "pro_league" "ProLeague";

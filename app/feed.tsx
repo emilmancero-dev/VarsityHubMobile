@@ -84,7 +84,7 @@ type GameItem = {
   venue_photo?: { url: string; credit: string } | null;
   pro_home_color?: string | null;
   pro_away_color?: string | null;
-  pro_league?: 'nfl' | 'nba' | 'wnba' | 'mlb' | 'wwe' | null;
+  pro_league?: 'nfl' | 'nba' | 'wnba' | 'mlb' | 'wwe' | 'ncaa' | 'minor' | 'other' | null;
   starts_at?: string | null;
   live_from?: string | null;
   live_until?: string | null;

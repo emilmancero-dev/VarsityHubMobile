@@ -23,6 +23,7 @@ export type ProTeamVenue = {
 
 export type ResolvedFixture = {
   pro_external_ref: string;
+  league: ProLeague;
   title: string;
   date: Date;
   timezone: string | null;
@@ -42,8 +43,7 @@ export type ResolveFailure =
   | { code: 'NO_TITLE' };
 
 export type ResolveResult =
-  | { ok: true; value: ResolvedFixture }
-  | { ok: false; error: ResolveFailure };
+  { ok: true; value: ResolvedFixture } | { ok: false; error: ResolveFailure };
 
 /** "Boston Celtics at Los Angeles Lakers" reads worse than the short form. */
 function deriveTitle(home: ProTeamVenue | null, away: ProTeamVenue | null): string | null {
@@ -122,6 +122,7 @@ export function resolveFixture(
     ok: true,
     value: {
       pro_external_ref: fixture.external_ref,
+      league: fixture.league,
       title,
       date: fixture.starts_at,
       timezone: fixture.timezone ?? home?.timezone ?? null,

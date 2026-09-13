@@ -20,7 +20,7 @@ import { prisma } from '../src/lib/prisma.js';
 import { NO_ADAPTER_MESSAGE, resolveConfiguredAdapter } from '../src/lib/proSchedule/adapters.js';
 import { ingestLeague } from '../src/lib/proSchedule/ingest.js';
 
-const ALL_LEAGUES: ProLeague[] = ['nfl', 'nba', 'wnba', 'mlb', 'wwe'];
+const ALL_LEAGUES: ProLeague[] = ['nfl', 'nba', 'wnba', 'mlb', 'wwe', 'ncaa', 'minor', 'other'];
 
 const apply = process.argv.includes('--apply');
 const leagueArg = process.argv.find(a => a.startsWith('--league='))?.split('=')[1];
