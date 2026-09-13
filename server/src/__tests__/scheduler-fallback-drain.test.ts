@@ -36,7 +36,8 @@ jest.unstable_mockModule('../lib/schedulerMonitoring.js', () => ({
   runMonitoredJob: runMonitoredJobMock,
 }));
 
-const { setupScheduler, stopSchedulerWorker, SCHEDULED_JOBS } = await import('../jobs/scheduler.js');
+const { setupScheduler, stopSchedulerWorker, SCHEDULED_JOBS } =
+  await import('../jobs/scheduler.js');
 
 const originalRedis = process.env.REDIS_URL;
 afterAll(() => {

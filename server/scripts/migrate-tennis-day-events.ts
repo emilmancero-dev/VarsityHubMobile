@@ -79,7 +79,12 @@ async function reassignContent(tx: typeof prisma, fromId: string, toId: string) 
 
 async function main() {
   const rows = (await prisma.event.findMany({
-    where: { OR: [{ pro_external_ref: { startsWith: 'atp:' } }, { pro_external_ref: { startsWith: 'wta:' } }] },
+    where: {
+      OR: [
+        { pro_external_ref: { startsWith: 'atp:' } },
+        { pro_external_ref: { startsWith: 'wta:' } },
+      ],
+    },
     select: { id: true, title: true, pro_external_ref: true },
     take: 2000,
   })) as Row[];
@@ -101,7 +106,9 @@ async function main() {
       const m = /:h(\d+)$/.exec(r.pro_external_ref ?? '');
       return m ? Number(m[1]) : -1; // base-ref rows (already migrated) sort last as -1
     };
-    const enriched = await Promise.all(group.map(async r => ({ r, content: await contentTotal(r.id) })));
+    const enriched = await Promise.all(
+      group.map(async r => ({ r, content: await contentTotal(r.id) }))
+    );
     enriched.sort((a, b) => b.content - a.content || windowHour(b.r) - windowHour(a.r));
     const keeper = enriched[0].r;
     const losers = enriched.slice(1).map(e => e.r);
@@ -120,7 +127,9 @@ async function main() {
     console.log(`        title "${keeper.title}" -> "${newTitle}"`);
     for (const l of losers) {
       const c = enriched.find(e => e.r.id === l.id)!.content;
-      console.log(`  MERGE+DELETE ${l.id}  ref ${l.pro_external_ref}  (content=${c}${c > 0 ? ' — will be reassigned to keeper' : ''})`);
+      console.log(
+        `  MERGE+DELETE ${l.id}  ref ${l.pro_external_ref}  (content=${c}${c > 0 ? ' — will be reassigned to keeper' : ''})`
+      );
     }
 
     if (!apply) continue;

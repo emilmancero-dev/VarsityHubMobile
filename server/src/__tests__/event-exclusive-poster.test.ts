@@ -26,9 +26,8 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
   },
 }));
 
-const { verifyEventPostingPermission, verifyStoryPostingPermission } = await import(
-  '../lib/geofencing.js'
-);
+const { verifyEventPostingPermission, verifyStoryPostingPermission } =
+  await import('../lib/geofencing.js');
 
 const baseEvent = (over: Record<string, unknown>) => ({
   id: 'ev1',
