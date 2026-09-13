@@ -23,11 +23,29 @@ export type EventDiscoveryParams = {
 };
 
 const MAP_LOOKAHEAD_MS = 5 * 24 * 60 * 60 * 1000;
-const FEED_PAST_LOOKBACK_MS = 12 * 60 * 60 * 1000;
+// Feed reaches further forward than the map. Normal games/events show ~2 weeks
+// out (FEED_NORMAL_LOOKAHEAD_MS); pro/league fixtures form a marquee rail that
+// reaches ~6 weeks (FEED_LOOKAHEAD_MS) so a far-off pro game still surfaces. The
+// past recap looks back 4 days so a multi-day series stays referenceable from
+// its final day. These windows are FEED-surface only — the map keeps its tight
+// 5-day forward window untouched. Mirrors the windows the client used to assemble
+// on its own via utils/feedGameQueries (now composed here instead).
+const FEED_PAST_LOOKBACK_MS = 4 * 24 * 60 * 60 * 1000;
+const FEED_LOOKAHEAD_MS = 45 * 24 * 60 * 60 * 1000;
+const FEED_NORMAL_LOOKAHEAD_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_DISCOVERY_RANGE_MS = MAP_LOOKAHEAD_MS;
 // Following scope is a personal calendar of the viewer's teams — future-only and
 // effectively unbounded, NOT the public 5-day map/feed clamp.
 const FOLLOWING_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
+// The default live map view has no explicit date range (from=now), so a fixture
+// whose kickoff has already passed drops out of the `date >= from` DB floor even
+// while it is still in progress (e.g. an NFL game is still live ~3h after
+// kickoff). This is a fetch-only safety margin — generous enough to cover the
+// longest live_window_hours_after_start override (Fanatics Fest day events run
+// 18h) — not the visibility gate itself. The precise per-item check that
+// actually decides whether a still-fetched row survives lives in the map filter
+// below, keyed off each item's own serialized `live_window.live_until`.
+const MAP_LIVE_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 300;
 
@@ -35,7 +53,7 @@ function defaultWindow(surface: DiscoverySurface, now: Date) {
   if (surface === 'feed') {
     return {
       from: new Date(now.getTime() - FEED_PAST_LOOKBACK_MS),
-      to: new Date(now.getTime() + MAP_LOOKAHEAD_MS),
+      to: new Date(now.getTime() + FEED_LOOKAHEAD_MS),
     };
   }
   return { from: now, to: new Date(now.getTime() + MAP_LOOKAHEAD_MS) };
@@ -43,22 +61,63 @@ function defaultWindow(surface: DiscoverySurface, now: Date) {
 
 function clampWindow(surface: DiscoverySurface, requestedFrom: Date, requestedTo: Date, now: Date) {
   // The map's date-picker can reach arbitrarily far back (past event pages, since
-  // VarsityHub's start), so the map surface has no past floor. Feed keeps its short
-  // lookback; everything else is now-forward. The forward edge and the max range
-  // are unchanged — a single request still can't span more than the 5-day policy.
+  // VarsityHub's start), so the map surface has no past floor. Feed keeps its 4-day
+  // lookback; everything else is now-forward. The forward edge and the max range are
+  // surface-aware: the feed reaches 45 days out (its marquee rail), the map stays at
+  // the 5-day policy.
   const earliest =
     surface === 'map'
       ? new Date(0)
       : surface === 'feed'
         ? new Date(now.getTime() - FEED_PAST_LOOKBACK_MS)
         : now;
-  const latest = new Date(now.getTime() + MAP_LOOKAHEAD_MS);
+  const forwardMs = surface === 'feed' ? FEED_LOOKAHEAD_MS : MAP_LOOKAHEAD_MS;
+  const maxRangeMs =
+    surface === 'feed' ? FEED_LOOKAHEAD_MS + FEED_PAST_LOOKBACK_MS : MAX_DISCOVERY_RANGE_MS;
+  const latest = new Date(now.getTime() + forwardMs);
   const from = new Date(Math.max(requestedFrom.getTime(), earliest.getTime()));
   const to = new Date(Math.min(requestedTo.getTime(), latest.getTime()));
-  if (to.getTime() - from.getTime() > MAX_DISCOVERY_RANGE_MS) {
-    return { from, to: new Date(from.getTime() + MAX_DISCOVERY_RANGE_MS) };
+  if (to.getTime() - from.getTime() > maxRangeMs) {
+    return { from, to: new Date(from.getTime() + maxRangeMs) };
   }
   return { from, to };
+}
+
+// A map marker renders far less than a feed card. Rather than ship the full
+// ~1KB serialized card per pin, the `map` surface projects each card down to the
+// fields the client map actually reads (components/EventMap.types.ts EventMapData
+// + utils/mapDiscovery.toMapEvents). Feed/all surfaces keep the full card — this
+// only narrows the map. Backward-compatible: the client eventCard schema is
+// lenient (only id + source_type are required, everything else optional/unknown-
+// tolerant), so an older app build parses the trimmed payload without breaking.
+// Pinned by event-discovery-contract.test.ts.
+const MAP_MARKER_FIELDS = [
+  'id',
+  'source_type',
+  'event_id',
+  'game_id',
+  'has_posts',
+  'title',
+  'date',
+  'location',
+  'latitude',
+  'longitude',
+  'sport',
+  'league_slug',
+  'league_name',
+  'league_level',
+  'league_gender',
+  'pro_home_color',
+  'pro_away_color',
+  'upload_access',
+] as const;
+
+function toMapMarker(card: Record<string, any>): Record<string, any> {
+  const marker: Record<string, any> = {};
+  for (const key of MAP_MARKER_FIELDS) {
+    if (card[key] !== undefined) marker[key] = card[key];
+  }
+  return marker;
 }
 
 async function loadViewerState(
@@ -205,7 +264,13 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
   // A selected day that contains now is still today's schedule, including
   // fixtures that have already started. Only a wholly past selection needs posts.
   const pastCutoff = from <= now && to >= now ? from : now;
-  const dateWhere = { gte: from, lte: to };
+  // Only the true default live-map request (no explicit from, public scope)
+  // gets the widened DB floor — an explicit date-picker range keeps its exact
+  // requested bounds untouched.
+  const isDefaultLiveMapWindow = surface === 'map' && params.from == null && scope !== 'following';
+  const dateWhere = isDefaultLiveMapWindow
+    ? { gte: new Date(Math.max(0, from.getTime() - MAP_LIVE_LOOKBACK_MS)), lte: to }
+    : { gte: from, lte: to };
   const queryLimit = Math.min(limit * 2, MAX_LIMIT);
   const followingTeamIdList = followingTeamIds ? [...followingTeamIds] : [];
   const managedTeamIdList = managedTeamIds ? [...managedTeamIds] : [];
@@ -380,14 +445,39 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
   const viewerState = await loadViewerState(db, params.viewerId, eventIds, now);
 
   const ctx: SerializeCtx = { now, from, to, viewerState };
-  const gameItems = scopedGames.map((game: any) => ({
-    ...serializeGameCard(game, ctx),
-    has_posts: (game._count?.posts ?? 0) > 0 || (game.events?.[0]?._count?.posts ?? 0) > 0,
-  }));
-  const eventItems = scopedEvents.map((event: any) => ({
-    ...serializeEventCard(event, ctx),
-    has_posts: (event._count?.posts ?? 0) > 0,
-  }));
+  // Feed game cards render final scores and derive the LIVE badge + printed start
+  // from server-authoritative bounds (utils/liveWindow.getLiveBounds reads
+  // starts_at/live_until). The map marker needs none of this, so these stay
+  // feed-only enrichments layered over the shared serializer — the map surface is
+  // untouched and still trims to toMapMarker below.
+  const gameItems = scopedGames.map((game: any) => {
+    const card = serializeGameCard(game, ctx);
+    return {
+      ...card,
+      has_posts: (game._count?.posts ?? 0) > 0 || (game.events?.[0]?._count?.posts ?? 0) > 0,
+      ...(surface === 'feed'
+        ? {
+            home_score: game.home_score ?? null,
+            away_score: game.away_score ?? null,
+            starts_at: (card as any).live_window?.starts_at ?? null,
+            live_until: (card as any).live_window?.live_until ?? null,
+          }
+        : {}),
+    };
+  });
+  const eventItems = scopedEvents.map((event: any) => {
+    const card = serializeEventCard(event, ctx);
+    return {
+      ...card,
+      has_posts: (event._count?.posts ?? 0) > 0,
+      ...(surface === 'feed'
+        ? {
+            starts_at: (card as any).live_window?.starts_at ?? null,
+            live_until: (card as any).live_window?.live_until ?? null,
+          }
+        : {}),
+    };
+  });
 
   const merged = [...gameItems, ...eventItems].sort((a, b) => {
     if (a.feed_priority !== b.feed_priority) return a.feed_priority - b.feed_priority;
@@ -412,17 +502,41 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
         })
       : merged;
 
+  // Feed window split: normal (non-pro/non-league) rows are capped at the 2-week
+  // window; the pro/league marquee rail keeps its full ~6-week reach. This mirrors
+  // the client's old two-window fetch (14-day games + 45-day pro_only) now that the
+  // feed composes here. `pro_only` server-side = pro team linked OR a sports-league
+  // fixture (routes/events.ts), which on the card is pro_league / league_slug.
+  const normalCutoffMs = now.getTime() + FEED_NORMAL_LOOKAHEAD_MS;
+  const isProOrLeague = (item: any) => item.pro_league != null || item.league_slug != null;
+  const windowed =
+    surface === 'feed'
+      ? filtered.filter((item: any) => {
+          if (!item.date) return true;
+          const t = new Date(item.date).getTime();
+          if (Number.isNaN(t)) return true;
+          return t <= normalCutoffMs || isProOrLeague(item);
+        })
+      : filtered;
+
   return {
     items:
       surface === 'map'
-        ? filtered
+        ? windowed
             .filter(
               item =>
                 item.map_visibility.visible &&
-                (item.has_posts || (item.date != null && new Date(item.date) >= pastCutoff))
+                (item.has_posts ||
+                  (item.date != null && new Date(item.date) >= pastCutoff) ||
+                  // Still in progress right now, even though it started before
+                  // pastCutoff: use the item's own computed live window rather
+                  // than a second hardcoded duration guess.
+                  (item.live_window?.live_until != null &&
+                    new Date(item.live_window.live_until) >= now))
             )
             .slice(0, limit)
-        : filtered.slice(0, limit),
+            .map(toMapMarker)
+        : windowed.slice(0, limit),
     meta: {
       surface,
       from: from.toISOString(),
