@@ -30,7 +30,7 @@ export default function SettingsLayout() {
       <Stack.Screen
         name="rsvp-history"
         options={{
-          title: 'RSVP History',
+          title: '📺 Watching History',
         }}
       />
       <Stack.Screen

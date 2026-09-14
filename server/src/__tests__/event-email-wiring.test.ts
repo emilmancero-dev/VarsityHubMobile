@@ -5,10 +5,8 @@ import { join } from 'node:path';
 const eventsSrc = readFileSync(join(process.cwd(), 'src', 'routes', 'events.ts'), 'utf8');
 
 describe('event email wiring', () => {
-  it('sends RSVP confirmation email from the live RSVP route', () => {
-    expect(eventsSrc).toMatch(
-      /eventsRouter\.post\(\s*'\/:id\/rsvp'[\s\S]*?sendEventRsvpConfirmedEmail\(\{/
-    );
+  it('does NOT send a confirmation email from the live "watching" (RSVP) route — owner rule 2026-09-14: "No email for now"', () => {
+    expect(eventsSrc).not.toMatch(/sendEventRsvpConfirmedEmail/);
   });
 
   it('sends a submission receipt email from the live create route', () => {

@@ -33,9 +33,9 @@ export default function RsvpSheet({
           <View style={{ alignItems: 'center', marginBottom: 8 }}>
             <View style={[styles.handle, { backgroundColor: theme.border }]} />
           </View>
-          <Text style={[styles.title, { color: theme.text }]}>RSVP</Text>
+          <Text style={[styles.title, { color: theme.text }]}>📺 Watching</Text>
           <Text style={[styles.meta, { color: theme.mutedText }]}>
-            Going: {goingCount}
+            Watching: {goingCount}
             {typeof capacity === 'number' ? ` / ${capacity}` : ''}
           </Text>
           {typeof remaining === 'number' && (
@@ -49,7 +49,7 @@ export default function RsvpSheet({
               style={[styles.primaryBtn, { backgroundColor: theme.tint }]}
               onPress={onToggleRsvp}
             >
-              <Text style={styles.primaryBtnText}>{isGoing ? 'Cancel RSVP' : 'Confirm RSVP'}</Text>
+              <Text style={styles.primaryBtnText}>{isGoing ? 'Undo' : "I'm Watching"}</Text>
             </Pressable>
             <Pressable style={[styles.outlineBtn, { borderColor: theme.border }]} onPress={onClose}>
               <Text style={[styles.outlineBtnText, { color: theme.text }]}>Close</Text>

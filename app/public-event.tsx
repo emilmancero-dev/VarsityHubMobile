@@ -128,7 +128,7 @@ function PublicEventScreen() {
         () => {
           void router.push('/sign-in');
         },
-        { message: 'Sign in to RSVP to this event.' }
+        { message: 'Sign in to mark yourself as watching this event.' }
       );
       return;
     }
@@ -145,7 +145,7 @@ function PublicEventScreen() {
     } catch {
       setRsvpGoing(!next);
       setRsvpCount(c => Math.max(0, c + (next ? -1 : 1)));
-      Alert.alert('RSVP failed', 'We could not update your RSVP. Please try again.');
+      Alert.alert('Update failed', 'We could not update your watching status. Please try again.');
     } finally {
       setRsvpBusy(false);
     }
@@ -272,18 +272,14 @@ function PublicEventScreen() {
                 },
               ]}
             >
-              <MaterialIcons
-                name={rsvpGoing ? 'check-circle' : 'add-circle-outline'}
-                size={18}
-                color={rsvpGoing ? '#FFFFFF' : Colors[colorScheme].tint}
-              />
+              <Text style={styles.rsvpEmoji}>📺</Text>
               <Text
                 style={[
                   styles.rsvpButtonText,
                   { color: rsvpGoing ? '#FFFFFF' : Colors[colorScheme].tint },
                 ]}
               >
-                {(rsvpGoing ? "You're going" : 'RSVP') + rsvpLabelSuffix}
+                {(rsvpGoing ? "You're watching" : "I'm Watching") + rsvpLabelSuffix}
               </Text>
             </Pressable>
           )}
@@ -423,6 +419,10 @@ const styles = StyleSheet.create({
   rsvpButtonText: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  rsvpEmoji: {
+    fontSize: 16,
+    lineHeight: 19,
   },
   postsSection: {
     marginTop: 8,

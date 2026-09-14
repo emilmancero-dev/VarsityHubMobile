@@ -147,7 +147,7 @@ const RSVPBadge = ({
       return;
     }
     if (isEventPast) {
-      Alert.alert('RSVP closed', 'You cannot RSVP to events that have already occurred.');
+      Alert.alert('Watching closed', 'You cannot mark events as watching once they have occurred.');
       return;
     }
 
@@ -161,10 +161,10 @@ const RSVPBadge = ({
       setRsvpCount(response.count || 0);
 
       Alert.alert(
-        newRsvpState ? 'RSVP Confirmed' : 'RSVP Removed',
+        newRsvpState ? "You're Watching" : 'Removed',
         newRsvpState
-          ? `You are now attending this ${entityLabel}!`
-          : `You are no longer attending this ${entityLabel}.`
+          ? `You're now marked as watching this ${entityLabel}!`
+          : `You're no longer marked as watching this ${entityLabel}.`
       );
 
       onRSVPChange?.();
@@ -172,10 +172,13 @@ const RSVPBadge = ({
       const status = error?.status;
       const message = String(error?.message || error?.data?.error || '');
       if (status === 400 && /event has passed/i.test(message)) {
-        Alert.alert('RSVP closed', 'You cannot RSVP to events that have already occurred.');
+        Alert.alert(
+          'Watching closed',
+          'You cannot mark events as watching once they have occurred.'
+        );
       } else {
-        if (__DEV__) console.error('RSVP error:', error);
-        Alert.alert('Error', 'Failed to update RSVP. Please try again.');
+        if (__DEV__) console.error('Watching toggle error:', error);
+        Alert.alert('Error', 'Failed to update watching status. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -183,17 +186,17 @@ const RSVPBadge = ({
   };
 
   const badgeText = isEventPast
-    ? 'RSVP closed'
+    ? 'Watching closed'
     : isRsvped || rsvpCount > 0
-      ? `${rsvpCount} going`
-      : '+';
+      ? `📺 ${rsvpCount}`
+      : '📺';
   const badgeA11yLabel = isEventPast
-    ? `RSVP closed. ${rsvpCount} went`
+    ? `Watching closed. ${rsvpCount} watched`
     : isRsvped
-      ? `${rsvpCount} going - Tap to remove RSVP`
+      ? `${rsvpCount} watching - Tap to undo`
       : rsvpCount > 0
-        ? `${rsvpCount} going - Tap to RSVP`
-        : 'Tap to RSVP';
+        ? `${rsvpCount} watching - Tap to mark as watching`
+        : 'Tap to mark as watching';
 
   return (
     <Pressable

@@ -38,7 +38,7 @@ function RsvpHistoryScreen() {
   });
   const items: Item[] = useMemo(() => (Array.isArray(data) ? data : []), [data]);
   const loading = isPending;
-  const error = isError ? 'Failed to load RSVP history. Pull down to refresh.' : null;
+  const error = isError ? 'Failed to load watching history. Pull down to refresh.' : null;
 
   // Filter items by search query and date
   const filteredItems = useMemo(() => {
@@ -114,7 +114,7 @@ function RsvpHistoryScreen() {
       edges={['top', 'bottom']}
     >
       <Stack.Screen
-        options={{ title: 'RSVP History', headerBackTitle: 'Back', headerShown: true }}
+        options={{ title: '📺 Watching History', headerBackTitle: 'Back', headerShown: true }}
       />
 
       {/* Search and Filter Controls */}
@@ -206,7 +206,7 @@ function RsvpHistoryScreen() {
       )}
       {!loading && upcoming.length === 0 && (
         <Text style={[styles.muted, { color: Colors[colorScheme].mutedText }]}>
-          No upcoming RSVPs.
+          Nothing marked as watching yet.
         </Text>
       )}
       {!loading && upcoming.length > 0 && (
@@ -221,7 +221,9 @@ function RsvpHistoryScreen() {
       )}
       <Text style={[styles.header, { marginTop: 6, color: Colors[colorScheme].text }]}>Past</Text>
       {!loading && past.length === 0 && (
-        <Text style={[styles.muted, { color: Colors[colorScheme].mutedText }]}>No past RSVPs.</Text>
+        <Text style={[styles.muted, { color: Colors[colorScheme].mutedText }]}>
+          No past watched events.
+        </Text>
       )}
       {!loading && past.length > 0 && (
         <FlatList

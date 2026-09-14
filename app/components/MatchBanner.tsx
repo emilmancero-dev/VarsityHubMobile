@@ -470,10 +470,10 @@ export default React.memo(function MatchBanner({
       <Pressable
         onPress={onGoingPress}
         accessibilityRole={onGoingPress ? 'button' : undefined}
-        accessibilityLabel="View RSVP details"
+        accessibilityLabel="View who's watching"
         style={styles.goingBadge as any}
       >
-        <Text style={styles.goingBadgeText as any}>{Math.max(0, goingCount!)} going</Text>
+        <Text style={styles.goingBadgeText as any}>📺 {Math.max(0, goingCount!)} watching</Text>
       </Pressable>
     ) : null;
 

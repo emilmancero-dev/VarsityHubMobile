@@ -676,7 +676,7 @@ export default function SettingsScreen() {
               />
             )}
             <NavRow
-              title="RSVP History"
+              title="📺 Watching History"
               onPress={() => void router.push('/settings/rsvp-history')}
             />
             <NavRow

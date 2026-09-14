@@ -522,9 +522,9 @@ const GameDetailsScreen = () => {
   const rsvpChipLabel = useMemo(() => {
     if (!hasEvent) return null;
     const n = goingCount != null ? goingCount : 0;
-    if (gamePhase === 'upcoming') return vm?.userRsvped ? `Going • ${n}` : `RSVP • ${n}`;
-    if (gamePhase === 'live') return `${n} going`;
-    return `${n} went`;
+    if (gamePhase === 'upcoming') return vm?.userRsvped ? `📺 Watching • ${n}` : `📺 Watch • ${n}`;
+    if (gamePhase === 'live') return `${n} watching`;
+    return `${n} watched`;
   }, [hasEvent, goingCount, gamePhase, vm?.userRsvped]);
 
   const openRsvpSheet = useCallback(() => {
@@ -1695,11 +1695,13 @@ const GameDetailsScreen = () => {
   const onToggleRsvp = useCallback(async () => {
     if (!vm?.eventId || rsvpBusy) return;
     if (!authUser) {
-      promptForSignIn(() => router.push('/sign-in'), { message: 'Sign in to RSVP.' });
+      promptForSignIn(() => router.push('/sign-in'), {
+        message: 'Sign in to mark yourself as watching.',
+      });
       return;
     }
     if (!canRsvpNow) {
-      Alert.alert('RSVP closed', 'You can only RSVP before kickoff.');
+      Alert.alert('Watching closed', 'You can only mark yourself as watching before kickoff.');
       return;
     }
     // snapshot current vm for potential rollback
@@ -1737,8 +1739,8 @@ const GameDetailsScreen = () => {
       });
       // notify user of success
       Alert.alert(
-        'RSVP updated',
-        nextDesired ? 'You are marked as going.' : 'You are no longer marked as going.'
+        '📺 Watching updated',
+        nextDesired ? "You're marked as watching." : "You're no longer marked as watching."
       );
     } catch (err: any) {
       // rollback optimistic update
@@ -1746,11 +1748,11 @@ const GameDetailsScreen = () => {
       const status = err?.status;
       const message = String(err?.message || err?.data?.error || '');
       if (status === 400 && /event has passed/i.test(message)) {
-        Alert.alert('RSVP closed', 'This event has already started or ended.');
+        Alert.alert('Watching closed', 'This event has already started or ended.');
         return;
       }
-      if (__DEV__) console.error('Failed to toggle RSVP', err);
-      Alert.alert('RSVP', 'Unable to update RSVP right now. Please try again.');
+      if (__DEV__) console.error('Failed to toggle watching', err);
+      Alert.alert('Watching', 'Unable to update watching status right now. Please try again.');
     } finally {
       setRsvpBusy(false);
     }
@@ -2177,28 +2179,26 @@ const GameDetailsScreen = () => {
             {hasEvent ? (
               <Pressable
                 onPress={openRsvpSheet}
-                style={[styles.circleButton, gamePhase !== 'upcoming' ? styles.rsvpDisabled : null]}
+                style={[
+                  styles.circleButton,
+                  gamePhase === 'upcoming' && vm?.userRsvped ? styles.watchingActive : null,
+                  gamePhase !== 'upcoming' ? styles.rsvpDisabled : null,
+                ]}
                 accessibilityRole="button"
-                accessibilityLabel="Event RSVP"
+                accessibilityLabel={
+                  gamePhase === 'upcoming'
+                    ? vm?.userRsvped
+                      ? 'Watching — tap to undo'
+                      : 'Mark as watching'
+                    : 'Watching unavailable'
+                }
                 accessibilityHint={rsvpChipLabel ?? undefined}
               >
-                <Ionicons
-                  name={
-                    gamePhase === 'upcoming'
-                      ? vm?.userRsvped
-                        ? 'checkmark-circle'
-                        : 'add-circle-outline'
-                      : 'lock-closed'
-                  }
-                  size={18}
-                  color={
-                    gamePhase === 'upcoming'
-                      ? vm?.userRsvped
-                        ? Colors[colorScheme].text
-                        : Colors[colorScheme].tint
-                      : Colors[colorScheme].mutedText
-                  }
-                />
+                {gamePhase === 'upcoming' ? (
+                  <Text style={styles.watchingEmoji}>📺</Text>
+                ) : (
+                  <Ionicons name="lock-closed" size={18} color={Colors[colorScheme].mutedText} />
+                )}
               </Pressable>
             ) : null}
             <Pressable onPress={onShare} accessibilityRole="button" style={styles.circleButton}>
@@ -3390,8 +3390,8 @@ const GameDetailsScreen = () => {
         <View style={styles.sheetContainer}>
           <View style={styles.sheetHandleBar} />
           <View style={styles.sheetHeaderRow}>
-            <Ionicons name="people" size={18} color={Colors[colorScheme].tint} />
-            <Text style={styles.sheetTitle}>{rsvpChipLabel || 'Event RSVP'}</Text>
+            <Text style={styles.watchingEmoji}>📺</Text>
+            <Text style={styles.sheetTitle}>{rsvpChipLabel || 'Watching'}</Text>
           </View>
 
           {gamePhase === 'upcoming' ? (
@@ -3408,21 +3408,16 @@ const GameDetailsScreen = () => {
                   rsvpBusy || !canRsvpNow ? styles.rsvpDisabled : null,
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={vm?.userRsvped ? 'Mark not going' : 'RSVP going'}
+                accessibilityLabel={vm?.userRsvped ? 'Undo watching' : 'Mark as watching'}
               >
-                <Ionicons
-                  name={vm?.userRsvped ? 'close-circle' : 'checkmark-circle'}
-                  size={18}
-                  color="#fff"
-                />
                 <Text style={styles.sheetPrimaryBtnText}>
-                  {vm?.userRsvped ? 'Mark not going' : 'I am going'}
+                  {vm?.userRsvped ? '📺 Undo' : "📺 I'm Watching"}
                 </Text>
               </Pressable>
               <Text style={styles.sheetNote}>You can change this anytime before kickoff.</Text>
             </>
           ) : (
-            <Text style={styles.sheetNote}>RSVP is closed for this event.</Text>
+            <Text style={styles.sheetNote}>Watching is closed for this event.</Text>
           )}
 
           <View style={styles.sheetStatsRow}>
@@ -3430,7 +3425,9 @@ const GameDetailsScreen = () => {
               <Text style={styles.sheetStatValue}>
                 {goingCount != null ? String(goingCount) : '0'}
               </Text>
-              <Text style={styles.sheetStatLabel}>{gamePhase === 'final' ? 'Went' : 'Going'}</Text>
+              <Text style={styles.sheetStatLabel}>
+                {gamePhase === 'final' ? 'Watched' : 'Watching'}
+              </Text>
             </View>
             {vm?.capacity ? (
               <View style={styles.sheetStatCard}>
@@ -4003,6 +4000,8 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    watchingActive: { backgroundColor: '#c7d2fe' },
+    watchingEmoji: { fontSize: 16, lineHeight: 20 },
     scroll: { flex: 1 },
     content: { paddingHorizontal: 16, paddingTop: 24 },
     loadingBox: { paddingVertical: 24, alignItems: 'center' },

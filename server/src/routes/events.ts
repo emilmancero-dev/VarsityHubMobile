@@ -11,7 +11,6 @@ import {
 import { logAdminActivity, logAdminActivityFromReq } from '../lib/adminActivityLogger.js';
 import {
   sendEventCanceledEmail,
-  sendEventRsvpConfirmedEmail,
   sendEventSubmissionReceivedEmail,
   sendEventUpdatedEmail,
 } from '../lib/email.js';
@@ -1477,18 +1476,9 @@ eventsRouter.post(
           console.warn('[events] Failed to schedule reminders:', err)
         );
 
-        if (me.email) {
-          sendEventRsvpConfirmedEmail({
-            to: me.email,
-            attendeeName: me.display_name || undefined,
-            eventTitle: event.title || 'Event',
-            eventDate,
-            eventLocation: event.location || undefined,
-            timezone: event.timezone,
-          }).catch(err =>
-            console.warn('[events] RSVP confirmation email failed:', (err as any)?.message || err)
-          );
-        }
+        // Owner "commandments" rule (2026-09-14): "Lets turn rsvp into,
+        // watching... No email for now." No confirmation email is sent for
+        // marking an event as watching.
       } catch (error: any) {
         if (error.message === 'EVENT_AT_CAPACITY') {
           const currentCount = await prisma.eventRsvp.count({ where: { event_id: id } });
