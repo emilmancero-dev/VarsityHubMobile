@@ -1,13 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import {
-  getPostPostingWindowState,
-  isWithinGeofence,
-  DEFAULT_LIVE_WINDOW_HOURS_AFTER_START,
-} from '../lib/geofencing.js';
+import { getPostPostingWindowState, isWithinGeofence } from '../lib/geofencing.js';
 import { resolveFixture, type ProTeamVenue } from '../lib/proSchedule/resolveFixture.js';
-import type { ProFixture } from '../lib/proSchedule/types.js';
+import { LIVE_WINDOW_HOURS_BY_LEAGUE, type ProFixture } from '../lib/proSchedule/types.js';
 
 /**
  * Pro events are ordinary Event rows and must go through the existing posting
@@ -83,11 +79,12 @@ describe('pro event / geofence parity', () => {
     expect(isWithinGeofence(34.5, -118.9, v.latitude!, v.longitude!)).toBe(false);
   });
 
-  it('has no early cutoff before tip and closes the live window on the league bound', () => {
+  it('opens 2h before tip (platform standard) and closes the live window on the league bound', () => {
     const v = resolved();
 
-    // No early cutoff (owner rule 2026-08-28): even long before tip the state is
-    // already 'live' — presence is enforced by the geofence, not by start time.
+    // Owner rule (2026-09-14): the standard window opens 2h before start —
+    // pro events get the same before-start gate school events do. Only the
+    // after-start bound is league-specific.
     const wayEarly = new Date(tipoff.getTime() - 13 * 60 * 60 * 1000);
     const justBefore = new Date(tipoff.getTime() - 30 * 60 * 1000);
     const during = new Date(tipoff.getTime() + 60 * 60 * 1000);
@@ -96,7 +93,7 @@ describe('pro event / geofence parity', () => {
     );
 
     expect(getPostPostingWindowState(v.date, wayEarly, v.live_window_hours_after_start)).toBe(
-      'live'
+      'before_open'
     );
     expect(getPostPostingWindowState(v.date, justBefore, v.live_window_hours_after_start)).toBe(
       'live'
@@ -109,7 +106,13 @@ describe('pro event / geofence parity', () => {
     );
   });
 
-  it('uses the platform default window for basketball, not a bespoke pro rule', () => {
-    expect(resolved().live_window_hours_after_start).toBe(DEFAULT_LIVE_WINDOW_HOURS_AFTER_START);
+  it('uses the league-specific after-start window, not the school-event default', () => {
+    // Pro leagues each carry their own after-start bound in
+    // LIVE_WINDOW_HOURS_BY_LEAGUE (game length varies by sport) — this is a
+    // deliberate bespoke table, independent of the school-event platform
+    // default in geofencing.ts. Basketball's 3h happens to differ from the
+    // school default now that the latter is 6h; assert against the real
+    // source of truth instead of an incidental match.
+    expect(resolved().live_window_hours_after_start).toBe(LIVE_WINDOW_HOURS_BY_LEAGUE.nba);
   });
 });

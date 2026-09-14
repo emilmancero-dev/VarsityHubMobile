@@ -20,23 +20,23 @@ import { serializeLiveWindow } from '../lib/geofencing.js';
 const FEST_DAY1_START = new Date('2026-07-16T17:00:00.000Z');
 
 describe('serializeLiveWindow', () => {
-  it('honors an 18h per-event override and ships a null live_from (no early cutoff)', () => {
-    // live_from is always null (owner rule 2026-08-28 — posting has no early
-    // cutoff); live_until is the 18h after-start override.
+  it('honors an 18h per-event override and ships the 2h-before live_from', () => {
+    // live_from is start − 2h (owner rule 2026-09-14, the standard 8-hour
+    // window shape); live_until is the 18h after-start override.
     expect(serializeLiveWindow(FEST_DAY1_START, 18)).toEqual({
       starts_at: '2026-07-16T17:00:00.000Z',
-      live_from: null,
+      live_from: '2026-07-16T15:00:00.000Z',
       live_until: '2026-07-17T11:00:00.000Z',
     });
   });
 
-  it('falls back to the 3h default when no override is set', () => {
-    expect(serializeLiveWindow(FEST_DAY1_START, null).live_until).toBe('2026-07-16T20:00:00.000Z');
+  it('falls back to the 6h default when no override is set', () => {
+    expect(serializeLiveWindow(FEST_DAY1_START, null).live_until).toBe('2026-07-16T23:00:00.000Z');
     expect(serializeLiveWindow(FEST_DAY1_START, undefined).live_until).toBe(
-      '2026-07-16T20:00:00.000Z'
+      '2026-07-16T23:00:00.000Z'
     );
     // 0 / negative are not a real window — treat as unset, not as "closes at start".
-    expect(serializeLiveWindow(FEST_DAY1_START, 0).live_until).toBe('2026-07-16T20:00:00.000Z');
+    expect(serializeLiveWindow(FEST_DAY1_START, 0).live_until).toBe('2026-07-16T23:00:00.000Z');
   });
 
   it('accepts an ISO string as well as a Date', () => {

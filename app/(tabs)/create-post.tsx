@@ -776,17 +776,19 @@ function CreatePostScreen() {
     // Already posted here within the last week — the server won't re-geofence,
     // so don't warn.
     if (hasPostingUnlock) return null;
-    // Posting window (server rule in server/src/lib/geofencing.ts): there is NO
-    // early cutoff (owner rule 2026-08-28) — posting is open any time up to the
-    // live cutoff, so an early arrival is never warned off. The only time-based
-    // block left is AFTER the cutoff. The server ships the computed bounds on the
-    // payload (`live_from` is always null now).
+    // Posting window (server rule in server/src/lib/geofencing.ts): the
+    // standard shape is 2h before start, 4h during, 2h after (owner rule
+    // 2026-09-14). The server ships the computed bounds on the payload
+    // (starts_at/live_from/live_until).
     const bounds = getLiveBounds(suggestedGame);
     if (!bounds) return null;
 
     const now = Date.now();
     if (now > bounds.liveUntil) {
       return 'This event has ended. If you posted here while it was live you can keep posting for a week from anywhere.';
+    }
+    if (now < bounds.liveFrom) {
+      return 'Posting for this event opens 2 hours before it starts.';
     }
 
     // Check distance (3km = ~1.86 miles) if both user and venue coords are available

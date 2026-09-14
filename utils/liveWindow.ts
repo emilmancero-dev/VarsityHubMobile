@@ -1,9 +1,13 @@
 /**
  * The live posting window is a SERVER rule (server/src/lib/geofencing.ts):
- * posting has NO early cutoff (owner rule 2026-08-28) — it is open any time up
- * to `live_until` (event start + `live_window_hours_after_start`, default 3,
- * per-event override — the Fanatics Fest day events run 18h). A fan who shows up
- * early is never blocked; the 3km venue geofence is the only presence check.
+ * the standard shape is 2h before start, 4h during, 2h after — 8h total
+ * (owner rule 2026-09-14, "VARSITYHUB COMMANDMENTS", supersedes the
+ * 2026-08-28 "no early cutoff" change). Posting opens `live_from` (event
+ * start − `live_window_hours_before_start`, default 2h) and closes
+ * `live_until` (start + `live_window_hours_after_start`, default 6h,
+ * per-event override — the Fanatics Fest day events run 18h, coach all-day
+ * events run 12h). The 3km venue geofence is still the presence check inside
+ * that window.
  *
  * The app used to re-derive this from a game's own `date` with a hardcoded
  * cutoff — 2h in feed.tsx, 3h in create-post.tsx — and had no way to learn
@@ -12,28 +16,29 @@
  * while the server happily accepted posts until 7:00 AM. It also read the
  * game's date, which can disagree with its event's.
  *
- * `GET /games` ships the computed `starts_at`/`live_until` bounds (`live_from`
- * is always null now — there is no lower bound). Use them. Only fall back to a
- * local guess for a payload old enough to lack them.
+ * `GET /games` ships the computed `starts_at`/`live_from`/`live_until` bounds.
+ * Use them. Only fall back to a local guess for a payload old enough to lack
+ * them.
  */
 
 /**
- * Only for payloads predating the server-computed bounds. Mirrors the server's
- * DEFAULT_LIVE_WINDOW_HOURS_AFTER_START (3h) rather than the old 2h feed
- * constant, which matched nothing on the server.
+ * Only for payloads predating the server-computed bounds. Mirrors the
+ * server's DEFAULT_LIVE_WINDOW_HOURS_BEFORE_START (2h) / _AFTER_START (6h).
  */
-const FALLBACK_WINDOW_AFTER_MS = 3 * 60 * 60 * 1000;
+const FALLBACK_WINDOW_BEFORE_MS = 2 * 60 * 60 * 1000;
+const FALLBACK_WINDOW_AFTER_MS = 6 * 60 * 60 * 1000;
 
 export interface LiveWindowFields {
   date?: string | Date | null;
   starts_at?: string | null;
-  /** Always null from the server now — posting has no early cutoff. Ignored. */
+  /** Posting opens here (start − the before-start window). */
   live_from?: string | null;
   live_until?: string | null;
 }
 
 interface Bounds {
   startsAt: number;
+  liveFrom: number;
   liveUntil: number;
 }
 
@@ -48,13 +53,19 @@ export function getLiveBounds(game: LiveWindowFields | null | undefined): Bounds
   const startsAt = parse(game.starts_at);
   const liveUntil = parse(game.live_until);
   if (!Number.isNaN(startsAt) && !Number.isNaN(liveUntil)) {
-    return { startsAt, liveUntil };
+    const liveFrom = parse(game.live_from);
+    return {
+      startsAt,
+      liveFrom: Number.isNaN(liveFrom) ? startsAt - FALLBACK_WINDOW_BEFORE_MS : liveFrom,
+      liveUntil,
+    };
   }
 
   const date = parse(game.date);
   if (Number.isNaN(date)) return null;
   return {
     startsAt: date,
+    liveFrom: date - FALLBACK_WINDOW_BEFORE_MS,
     liveUntil: date + FALLBACK_WINDOW_AFTER_MS,
   };
 }
@@ -67,11 +78,10 @@ export function isGameLive(game: LiveWindowFields | null | undefined, now = Date
 }
 
 /**
- * Geofenced posting is open. There is NO early cutoff (owner rule 2026-08-28):
- * posting is open any time up to the live cutoff, so an early arrival is never
- * blocked. Unlike the LIVE badge, which only lights once the event has started,
- * this is true before the event too. A user at the venue can post during this
- * window; the 3km geofence is the only presence check.
+ * Geofenced posting is open — from `live_from` (2h before start by default)
+ * through `live_until`. Unlike the LIVE badge, which only lights once the
+ * event has started, this is true before the event too. A user at the venue
+ * can post during this window; the 3km geofence is still the presence check.
  */
 export function isPostingWindowOpen(
   game: LiveWindowFields | null | undefined,
@@ -79,7 +89,7 @@ export function isPostingWindowOpen(
 ): boolean {
   const b = getLiveBounds(game);
   if (!b) return false;
-  return now <= b.liveUntil;
+  return now >= b.liveFrom && now <= b.liveUntil;
 }
 
 /** Past its live cutoff — the event is over for posting purposes. */
