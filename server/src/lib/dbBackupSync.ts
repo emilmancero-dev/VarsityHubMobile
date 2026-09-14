@@ -73,6 +73,44 @@ interface BackupSyncResult {
   error?: string;
 }
 
+// Hard wall-clock cap on a single sync. A healthy run is ~25s; if the primary
+// or backup Postgres stalls mid-run, the copy has no per-statement timeout and
+// would otherwise hang FOREVER — which is exactly what silently wedged the
+// db-backup-sync scheduler job (its heartbeat stamps in a `finally` that a hung
+// run never reaches, so /health/scheduler went 503 for ~22h before anyone
+// noticed). Aborting here turns that silent hang into a fast failure result:
+// the job throws, the scheduler stamps an error heartbeat, and /health/scheduler
+// + the freshness check alert within one cycle instead of going dark.
+const BACKUP_SYNC_TIMEOUT_MS = 5 * 60_000;
+
+async function withHardTimeout(
+  work: Promise<BackupSyncResult>,
+  ms: number
+): Promise<BackupSyncResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<BackupSyncResult>(resolve => {
+    timer = setTimeout(
+      () =>
+        resolve({
+          success: false,
+          tablesSync: 0,
+          totalRows: 0,
+          error: `db backup sync exceeded hard timeout of ${Math.round(
+            ms / 1000
+          )}s — aborted so the scheduler alerts instead of hanging silently`,
+        }),
+      ms
+    );
+    // Never keep the process alive just for this watchdog.
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function syncDatabaseBackup(): Promise<BackupSyncResult> {
   const backupUrl = process.env.DATABASE_BACKUP_URL;
   if (!backupUrl) {
@@ -87,7 +125,7 @@ export async function syncDatabaseBackup(): Promise<BackupSyncResult> {
 
   const primaryUrl = process.env.DATABASE_URL || '';
   return withBackupSyncEvidence(primaryUrl, backupUrl, () =>
-    copyDatabaseBackup(primaryUrl, backupUrl)
+    withHardTimeout(copyDatabaseBackup(primaryUrl, backupUrl), BACKUP_SYNC_TIMEOUT_MS)
   );
 }
 

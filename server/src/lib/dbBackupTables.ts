@@ -95,4 +95,24 @@ export const DEFERRED_FK_COLUMNS: Record<string, string[]> = {
 //   - PushTicket: ephemeral Expo push-delivery receipts (expire ~24h), created
 //     out-of-band (not a Prisma model, no schema.prisma entry), worthless to
 //     restore. Never referenced by a backed-up table, so no CASCADE risk.
-export const BACKUP_EXCLUDED_TABLES: ReadonlySet<string> = new Set(['PushTicket']);
+//   - AdPurchaseIntent / AdPurchaseIntentItem / AdPurchaseIntentRevision /
+//     AdPurchaseReceipt / AdSlotHold: a newer ad-purchase flow's raw-SQL tables
+//     (NOT Prisma models). Verified 2026-09-14: all 5 are empty on primary AND
+//     do not yet exist on the backup replica (which never receives
+//     `prisma migrate deploy`). Forcing them into the sync would fail every
+//     INSERT against a missing backup table and flip the whole sync to "failed",
+//     so they are excluded for now to keep the drift alarm meaningful.
+//     FOLLOW-UP (before this flow ships with real financial data): create these
+//     tables on the backup replica, then move them into a parents-first backup
+//     list so AdPurchaseReceipt/Intent history is covered by DR. FK order
+//     (from live information_schema): AdPurchaseIntent -> User/Ad/TransactionLog;
+//     AdPurchaseIntentItem, AdPurchaseIntentRevision -> AdPurchaseIntent;
+//     AdPurchaseReceipt -> AdPurchaseIntentItem; AdSlotHold -> Ad.
+export const BACKUP_EXCLUDED_TABLES: ReadonlySet<string> = new Set([
+  'PushTicket',
+  'AdPurchaseIntent',
+  'AdPurchaseIntentItem',
+  'AdPurchaseIntentRevision',
+  'AdPurchaseReceipt',
+  'AdSlotHold',
+]);

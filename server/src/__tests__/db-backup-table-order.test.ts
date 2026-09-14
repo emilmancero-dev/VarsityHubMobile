@@ -129,5 +129,21 @@ describe('db-backup TABLES_IN_ORDER vs prisma/schema.prisma', () => {
     for (const excluded of BACKUP_EXCLUDED_TABLES) {
       expect(TABLES_IN_ORDER).not.toContain(excluded);
     }
+
+    // The newer ad-purchase flow's raw-SQL tables are excluded on purpose:
+    // verified 2026-09-14 as empty on primary and absent from the backup
+    // replica, so syncing them would fail every INSERT. They are NOT Prisma
+    // models (hence not in TABLES_IN_ORDER). See dbBackupTables.ts for the
+    // "create on backup + replicate before the flow ships" follow-up.
+    for (const t of [
+      'AdPurchaseIntent',
+      'AdPurchaseIntentItem',
+      'AdPurchaseIntentRevision',
+      'AdPurchaseReceipt',
+      'AdSlotHold',
+    ]) {
+      expect([...BACKUP_EXCLUDED_TABLES]).toContain(t);
+      expect(models).not.toContain(t);
+    }
   });
 });
