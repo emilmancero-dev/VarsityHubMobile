@@ -516,6 +516,85 @@ export async function scheduleGameReminders(eventId: string, userId: string): Pr
 }
 
 /**
+ * Schedule the "keep posting" reminder cadence for the 7-day post-event grace
+ * window, keyed off the moment a user earns their EventPostingUnlock. Owner
+ * "commandments" rule (2026-09-14): "They should receive push notifications
+ * the day after, 3 days left. And the last day so they can post on the event
+ * page." Three delayed jobs relative to unlockedAt:
+ *   - +1 day  ("day after")
+ *   - +4 days (3 days remain before the 7-day window closes)
+ *   - +6 days ("last day" — the final day of the window)
+ * Deterministic per-event/user jobIds (mirrors scheduleGameReminders) make
+ * this idempotent — re-granting the same unlock never double-schedules.
+ */
+export async function scheduleEventPostingGraceReminders(
+  eventId: string,
+  userId: string,
+  unlockedAt: Date
+): Promise<void> {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { title: true },
+  });
+  if (!event) {
+    console.error(`Event ${eventId} not found for scheduling posting-grace reminders`);
+    return;
+  }
+
+  const { notificationQueue } = await import('../jobs/queues.js');
+  if (!notificationQueue) {
+    debugLog(
+      `[scheduleEventPostingGraceReminders] No notification queue available — grace reminders dropped for event ${eventId}, user ${userId}`
+    );
+    return;
+  }
+
+  const now = Date.now();
+  const anchor = unlockedAt.getTime();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const stages: Array<{ key: string; delayDays: number; title: string; body: string }> = [
+    {
+      key: 'day-after',
+      delayDays: 1,
+      title: `Keep posting to ${event.title}`,
+      body: 'You can keep adding posts to this event for 6 more days.',
+    },
+    {
+      key: '3-days-left',
+      delayDays: 4,
+      title: `3 days left to post — ${event.title}`,
+      body: 'Your posting window for this event closes in 3 days.',
+    },
+    {
+      key: 'last-day',
+      delayDays: 6,
+      title: `Last day to post — ${event.title}`,
+      body: 'Today is your last day to add posts to this event.',
+    },
+  ];
+
+  for (const stage of stages) {
+    const fireAt = anchor + stage.delayDays * DAY_MS;
+    if (fireAt <= now) continue; // Backfilled/old unlocks — don't fire reminders in the past.
+    const jobId = `posting-grace-${eventId}-${userId}-${stage.key}`;
+    await notificationQueue.add(
+      jobId,
+      {
+        userId,
+        title: stage.title,
+        body: stage.body,
+        data: { type: 'posting_grace_reminder', event_id: eventId, stage: stage.key },
+      },
+      { delay: fireAt - now, jobId }
+    );
+  }
+
+  debugLog(
+    `Scheduled posting-grace reminders for user ${userId} on event ${eventId} (${event.title})`
+  );
+}
+
+/**
  * Cancel scheduled game reminders when RSVP is removed
  */
 export async function cancelGameReminders(eventId: string, userId: string): Promise<void> {

@@ -345,14 +345,21 @@ export async function grantEventPostingUnlock(
   unlockedAt?: Date
 ): Promise<void> {
   try {
+    const anchor = unlockedAt ?? new Date();
     // createMany + skipDuplicates: first write wins, so the original anchor is
     // never refreshed by later uploads (the window must not slide).
-    await prisma.eventPostingUnlock.createMany({
-      data: [
-        { user_id: userId, event_id: eventId, ...(unlockedAt ? { unlocked_at: unlockedAt } : {}) },
-      ],
+    const result = await prisma.eventPostingUnlock.createMany({
+      data: [{ user_id: userId, event_id: eventId, unlocked_at: anchor }],
       skipDuplicates: true,
     });
+    // Only a genuinely NEW unlock (not a skipped duplicate of an existing
+    // row) should schedule the day-after/3-days-left/last-day reminder
+    // cadence (owner "commandments" rule, 2026-09-14) — otherwise every
+    // subsequent upload during the week would re-schedule them.
+    if (result.count > 0) {
+      const { scheduleEventPostingGraceReminders } = await import('./notifications.js');
+      await scheduleEventPostingGraceReminders(eventId, userId, anchor);
+    }
   } catch (error) {
     // Never block a geofence-passed upload on ledger bookkeeping.
     console.warn('[geofencing] Failed to persist posting unlock:', error);

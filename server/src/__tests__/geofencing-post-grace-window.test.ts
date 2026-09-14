@@ -140,7 +140,7 @@ describe('first-post-unlocks-7-days posting rule', () => {
 
       expect(result.allowed).toBe(true);
       expect(mockUnlockCreateMany).toHaveBeenCalledWith({
-        data: [{ user_id: 'user-1', event_id: 'event-1' }],
+        data: [{ user_id: 'user-1', event_id: 'event-1', unlocked_at: expect.any(Date) }],
         skipDuplicates: true,
       });
     });
@@ -473,7 +473,7 @@ describe('first-post-unlocks-7-days posting rule', () => {
       // Posting a story from the venue proves presence, so it still earns the
       // unlock that keeps regular POSTS open for a week.
       expect(mockUnlockCreateMany).toHaveBeenCalledWith({
-        data: [{ user_id: 'user-1', event_id: 'event-1' }],
+        data: [{ user_id: 'user-1', event_id: 'event-1', unlocked_at: expect.any(Date) }],
         skipDuplicates: true,
       });
     });
