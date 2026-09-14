@@ -94,7 +94,32 @@ function venueAddress(venue: SeatGeekEvent['venue']): string | null {
 }
 
 function isSportsEvent(event: SeatGeekEvent, league: SeatGeekLeague): boolean {
-  return event.type ? event.type.toLowerCase() === 'sports' : league !== 'other';
+  const type = event.type?.trim().toLowerCase() ?? '';
+  const title = event.title?.trim().toLowerCase() ?? '';
+  if (!type) return false;
+  if (league === 'ncaa') {
+    return type.includes('college') || type.includes('ncaa') || title.includes('college');
+  }
+  if (league === 'minor') {
+    return (
+      type.includes('minor') ||
+      type.includes('league') ||
+      title.includes('minor league') ||
+      title.includes('triple-a') ||
+      title.includes('double-a') ||
+      title.includes('single-a')
+    );
+  }
+  return (
+    type === 'sports' ||
+    type.includes('college') ||
+    type.includes('minor') ||
+    type.includes('league') ||
+    type.includes('racing') ||
+    type.includes('wrestling') ||
+    type.includes('boxing') ||
+    type.includes('mma')
+  );
 }
 
 export function parseSeatGeekEvents(

@@ -11,6 +11,7 @@ describe('SeatGeek schedule adapter', () => {
         events: [
           {
             id: 123,
+            type: 'college_football',
             datetime_utc: '2026-09-12T19:00:00Z',
             title: 'State University vs. Tech University',
             venue: {
