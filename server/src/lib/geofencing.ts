@@ -38,6 +38,12 @@ const EARTH_RADIUS_MILES = 3959;
 export const DEFAULT_LIVE_WINDOW_HOURS_BEFORE_START = 2;
 export const DEFAULT_LIVE_WINDOW_HOURS_AFTER_START = 6;
 const REGULAR_POST_OPEN_BEFORE_MS = DEFAULT_LIVE_WINDOW_HOURS_BEFORE_START * 60 * 60 * 1000;
+// Owner rule (2026-09-14): coaches may mark an event "all day", extending the
+// after-start side of the window to 12h (instead of the 6h default) via
+// Event.live_window_hours_after_start — the same per-event override column
+// Fanatics Fest uses at 18h. This is the only value the `is_all_day` toggle on
+// POST/PUT /events is allowed to write; the raw hour count is never client-set.
+export const COACH_ALL_DAY_LIVE_WINDOW_HOURS = 12;
 // Product rule (2026-07-14, owner decision, verbatim): "When a user posts to
 // an event while they are there, they can continue to post to the event for
 // up to a week. After that week they no longer can." Applied per user via

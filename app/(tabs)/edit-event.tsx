@@ -29,6 +29,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -65,6 +66,7 @@ export default function EditEventScreen() {
   const [dateStr, setDateStr] = useState('');
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [isAllDay, setIsAllDay] = useState(false);
   const loadEvent = useCallback(async () => {
     if (!id || coachLoading || !canAccessCoachTools) return;
     setLoading(true);
@@ -86,6 +88,7 @@ export default function EditEventScreen() {
       setDescription(data.description || '');
       setLocation(data.location || '');
       setBannerUrl(data.banner_url || data.cover_image_url || null);
+      setIsAllDay(!!data.is_all_day);
       // Format date for editing — show ISO local datetime string
       if (data.date) {
         const d = new Date(data.date);
@@ -261,6 +264,7 @@ export default function EditEventScreen() {
         description: description.trim() || undefined,
         location: location.trim() || undefined,
         banner_url: bannerUrl ?? null,
+        is_all_day: isAllDay,
       };
       // Only include title if it changed — approved events reject title changes from coaches
       if (title.trim() !== originalTitle) {
@@ -493,6 +497,25 @@ export default function EditEventScreen() {
               Format: YYYY-MM-DDTHH:MM (24-hour time)
             </Text>
           </View>
+
+          <View style={[sharedStyles.inputGroup, styles.allDayRow]}>
+            <View style={styles.allDayLabelGroup}>
+              <Text style={[sharedStyles.inputLabel, { color: Colors[colorScheme].text }]}>
+                All-day event
+              </Text>
+              <Text style={[sharedStyles.fieldHint, { color: Colors[colorScheme].mutedText }]}>
+                Extends the geofenced posting window to 12 hours after start (instead of the
+                standard 6).
+              </Text>
+            </View>
+            <Switch
+              value={isAllDay}
+              onValueChange={setIsAllDay}
+              trackColor={{ false: Colors[colorScheme].border, true: Colors[colorScheme].tint }}
+              accessibilityRole="switch"
+              accessibilityLabel="All-day event"
+            />
+          </View>
         </View>
 
         <EditScreenSubmitButton
@@ -509,6 +532,15 @@ export default function EditEventScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  allDayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  allDayLabelGroup: {
     flex: 1,
   },
   formSection: {

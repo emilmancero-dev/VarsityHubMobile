@@ -24,6 +24,7 @@ import { proLeagueToSport } from '../lib/proSchedule/leagueSport.js';
 import { PRO_SCHEDULE_LEAGUES } from '../lib/proSchedule/types.js';
 import { geocodeLocation } from '../lib/geocoding.js';
 import {
+  COACH_ALL_DAY_LIVE_WINDOW_HOURS,
   hasActiveEventPostingUnlock,
   serializeLiveWindow,
   verifyStoryPostingPermission,
@@ -522,6 +523,9 @@ const serializeEvent = (
     pro_league: event.proHomeTeam?.league ?? event.proAwayTeam?.league ?? null,
     venue_photo: venuePhotoFor(event.location),
     ...serializeLiveWindow(event.date, event.live_window_hours_after_start),
+    // Owner rule (2026-09-14): lets the edit form reflect the coach's
+    // all-day toggle without exposing/trusting the raw hour count.
+    is_all_day: event.live_window_hours_after_start === COACH_ALL_DAY_LIVE_WINDOW_HOURS,
   };
   if (typeof opts.rsvpCount === 'number') {
     base.attendees_count = opts.rsvpCount;
@@ -1873,6 +1877,11 @@ const createEventSchema = z.object({
   contact_info: z.string().trim().optional(),
   banner_url: z.string().optional(),
   cover_image_url: z.string().optional(),
+  // Owner rule (2026-09-14): coaches may mark an event "all day" to extend the
+  // geofenced posting window from the 6h default to 12h after start. A
+  // boolean toggle only — the actual hour count is server-derived
+  // (COACH_ALL_DAY_LIVE_WINDOW_HOURS), never client-supplied.
+  is_all_day: z.boolean().optional(),
   game_id: z.string().optional(),
   home_team_id: z.string().optional(),
   team_id: z.string().optional(), // Alias for home_team_id — frontend may send either
@@ -2040,6 +2049,11 @@ eventsRouter.post(
             banner_url: data.banner_url ?? data.cover_image_url,
             game_id: data.game_id,
             team_id: data.home_team_id || null,
+            // Only a real coach/organizer creator (team staff or an org
+            // admin — see creatorRole above) can extend the window; a plain
+            // fan's is_all_day toggle is silently ignored.
+            live_window_hours_after_start:
+              data.is_all_day && creatorRole !== 'fan' ? COACH_ALL_DAY_LIVE_WINDOW_HOURS : null,
             creator_id: userId,
             creator_role: creatorRole,
             approval_status: autoApprove ? 'approved' : 'pending',
@@ -2301,6 +2315,8 @@ const updateEventSchema = z.object({
   opponent: z.string().trim().optional(), // Alias for away_team_name (manual opponent name)
   away_team_id: z.string().trim().nullable().optional(),
   away_team_name: z.string().trim().optional(),
+  // See createEventSchema — same boolean-only, server-derived-hours contract.
+  is_all_day: z.boolean().optional(),
 });
 
 const COACH_EDITABLE_FIELDS = [
@@ -2313,6 +2329,7 @@ const COACH_EDITABLE_FIELDS = [
   'opponent',
   'away_team_id',
   'away_team_name',
+  'is_all_day',
 ];
 
 async function loadEditableEventForAction(params: {
@@ -2456,6 +2473,11 @@ eventsRouter.patch(
     }
     if (data.contact_info !== undefined) updateData.contact_info = data.contact_info;
     if (data.banner_url !== undefined) updateData.banner_url = data.banner_url;
+    if (data.is_all_day !== undefined) {
+      updateData.live_window_hours_after_start = data.is_all_day
+        ? COACH_ALL_DAY_LIVE_WINDOW_HOURS
+        : null;
+    }
 
     const updated = await prisma.event.update({
       where: { id: eventId },

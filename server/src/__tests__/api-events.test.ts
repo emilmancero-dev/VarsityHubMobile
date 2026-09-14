@@ -168,6 +168,61 @@ describe('API Event Endpoints', () => {
       expect(response.body.creator_id).toBe(coachUserId);
     });
 
+    it('honors is_all_day for a coach, extending the posting window to 12h (owner rule 2026-09-14)', async () => {
+      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      const response = await request(app)
+        .post('/events')
+        .set('Authorization', `Bearer ${coachToken}`)
+        .send({
+          title: 'Coach All-Day Event',
+          date: futureDate.toISOString(),
+          location: 'Test Stadium',
+          team_id: testTeamId,
+          event_type: 'fundraiser',
+          is_all_day: true,
+        })
+        .expect(201);
+
+      try {
+        expect(response.body.is_all_day).toBe(true);
+        // live_until should be start + 12h, not the 6h default.
+        expect(Date.parse(response.body.live_until) - futureDate.getTime()).toBe(
+          12 * 60 * 60 * 1000
+        );
+      } finally {
+        // Other tests in this file (e.g. the my-events cursor pagination test)
+        // count events by creator — don't leak a stray row into their totals.
+        await prisma.event.delete({ where: { id: response.body.id } }).catch(() => {});
+      }
+    });
+
+    it('ignores is_all_day from a fan — only real coach/organizer creators can extend the window', async () => {
+      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      const response = await request(app)
+        .post('/events')
+        .set('Authorization', `Bearer ${fanToken}`)
+        .send({
+          title: 'Fan All-Day Attempt',
+          date: futureDate.toISOString(),
+          location: 'Test Location',
+          event_type: 'fundraiser',
+          is_all_day: true,
+        })
+        .expect(201);
+
+      try {
+        expect(response.body.is_all_day).toBe(false);
+        // Falls back to the standard 6h default, not 12h.
+        expect(Date.parse(response.body.live_until) - futureDate.getTime()).toBe(
+          6 * 60 * 60 * 1000
+        );
+      } finally {
+        await prisma.event.delete({ where: { id: response.body.id } }).catch(() => {});
+      }
+    });
+
     it('rejects competitive events created without a linked game record', async () => {
       const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
