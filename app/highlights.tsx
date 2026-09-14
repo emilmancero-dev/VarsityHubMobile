@@ -931,7 +931,7 @@ function HighlightsScreen() {
   return (
     <SafeAreaView
       style={[styles.screen, { backgroundColor: Colors[colorScheme].background }]}
-      edges={['bottom', 'left', 'right']}
+      edges={['left', 'right']}
     >
       <StatusBar
         barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'}

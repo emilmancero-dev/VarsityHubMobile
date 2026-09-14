@@ -1179,7 +1179,11 @@ function CommunityDiscoverScreen() {
       <Calendar
         onDayPress={onCalendarDayPress}
         markedDates={markedCalendarDates}
-        enableSwipeMonths
+        // enableSwipeMonths removed: its horizontal pan responder sits inside
+        // the Discover screen's single scrollable FlatList (ListHeaderComponent)
+        // and can end up holding the touch responder chain, leaving the outer
+        // list unable to scroll back up until the user backs out of the screen.
+        // Month navigation still works via the header arrows.
         theme={
           {
             backgroundColor: colorScheme === 'light' ? '#FFFFFF' : Colors[colorScheme].background,

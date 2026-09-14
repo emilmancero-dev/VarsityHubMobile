@@ -413,7 +413,7 @@ const FeedCard = memo(
             </View>
           ) : post.media_url ? (
             imageSource ? (
-              <FastImage source={imageSource} style={styles.media} resizeMode="contain" />
+              <FastImage source={imageSource} style={styles.media} resizeMode="cover" />
             ) : null
           ) : (
             <View style={[styles.media, styles.textOnlyCard]}>
