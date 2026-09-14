@@ -2350,10 +2350,32 @@ gamesRouter.get(
       });
 
       const result: Record<string, boolean> = {};
+      const foundGameIds = new Set<string>();
       for (const game of games as any[]) {
+        foundGameIds.add(game.id);
         result[game.id] =
           (game._count?.posts ?? 0) > 0 || (game.events?.[0]?._count?.posts ?? 0) > 0;
       }
+
+      // Owner "commandments" parity rule (2026-09-14): a standalone event page
+      // (game_id: null — no linked Game row) must be able to go gold the same
+      // way a game can, so the map pin and the feed border never disagree. Any
+      // id that didn't resolve to a Game is tried as a standalone event id.
+      const missingIds = ids.filter(id => !foundGameIds.has(id));
+      if (missingIds.length > 0) {
+        const events = await prisma.event.findMany({
+          where: { id: { in: missingIds }, game_id: null },
+          select: {
+            id: true,
+            _count: { select: { posts: { where: visiblePostWhere } } },
+          },
+          take: missingIds.length,
+        });
+        for (const event of events as any[]) {
+          result[event.id] = (event._count?.posts ?? 0) > 0;
+        }
+      }
+
       return res.json(result);
     } catch (err) {
       console.error('[games] posts-summary error:', err);

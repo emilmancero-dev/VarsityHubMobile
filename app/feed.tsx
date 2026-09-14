@@ -598,12 +598,16 @@ export default function FeedScreen() {
     }
   }, []);
 
-  // Only live games matter for the gold-border/top-of-feed promotion, so this
-  // stays a small, cheap batch — not every card in the feed.
+  // Only live games/events matter for the gold-border/top-of-feed promotion,
+  // so this stays a small, cheap batch — not every card in the feed. Event-only
+  // pages (source_type === 'event') are included too — /games/posts-summary
+  // falls back to a standalone-event lookup for any id that isn't a Game, so
+  // they can go gold on the feed the same way they already can on the map
+  // (owner "commandments" parity rule, 2026-09-14).
   const preloadPostsActivity = useCallback(async (gameList: GameItem[]) => {
     const now = Date.now();
     const ids = gameList
-      .filter(game => game.source_type !== 'event' && isGameLive(game, now))
+      .filter(game => isGameLive(game, now))
       .map(game => String(game.id))
       .filter(id => id)
       .slice(0, 50);

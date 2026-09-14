@@ -38,6 +38,7 @@ describe('GET /games/posts-summary', () => {
     try {
       await prisma.post.deleteMany({ where: { author_id: userId } });
       await prisma.game.deleteMany({ where: { created_by_id: userId } });
+      await prisma.event.deleteMany({ where: { creator_id: userId } });
       await prisma.user.deleteMany({ where: { id: userId } });
     } catch (error) {
       console.warn('Cleanup error (non-critical):', error);
@@ -81,6 +82,50 @@ describe('GET /games/posts-summary', () => {
 
     expect(res.body?.[posted.id]).toBe(true);
     expect(res.body?.[unposted.id]).toBe(false);
+  });
+
+  it('falls back to a standalone event (no linked game) for ids that are not a Game — feed/map gold-border parity', async () => {
+    // Owner "commandments" rule (2026-09-14): an event-only page must be able
+    // to go gold the same way a game can, so the map pin and the feed border
+    // never disagree.
+    const postedEvent = await prisma.event.create({
+      data: {
+        title: `Posted standalone event ${ts}`,
+        date: new Date(Date.now() + 60 * 60 * 1000),
+        location: 'Venue A',
+        status: 'approved',
+        approval_status: 'approved',
+        creator_id: userId,
+        creator_role: 'fan',
+      },
+    });
+    const unpostedEvent = await prisma.event.create({
+      data: {
+        title: `Unposted standalone event ${ts}`,
+        date: new Date(Date.now() + 60 * 60 * 1000),
+        location: 'Venue B',
+        status: 'approved',
+        approval_status: 'approved',
+        creator_id: userId,
+        creator_role: 'fan',
+      },
+    });
+    await prisma.post.create({
+      data: {
+        author_id: userId,
+        content: `Live event update ${ts}`,
+        type: 'post',
+        event_id: postedEvent.id,
+      },
+    });
+
+    const res = await request(app)
+      .get(`/games/posts-summary?ids=${postedEvent.id},${unpostedEvent.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(res.body?.[postedEvent.id]).toBe(true);
+    expect(res.body?.[unpostedEvent.id]).toBe(false);
   });
 
   it('rejects a request with no ids', async () => {

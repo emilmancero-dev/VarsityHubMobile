@@ -28,8 +28,8 @@ export const PRESENT_AT_VENUE_COLOR = '#0EA5E9'; // sky blue — you're here rig
 export const HAS_POSTS_COLOR = '#D4AF37'; // gold — page has posts (override)
 
 export const LEAGUE_LEVEL_COLORS = {
-  major: '#1E3A8A', // navy — top tier
-  minor: '#DC2626', // red — minor league (owner note, Sep 2026)
+  major: '#DC2626', // red — top tier (owner "commandments" rule, 2026-09-14)
+  minor: '#2563EB', // blue — minor league
   college: '#9CA3AF', // silver — NCAA
   other: '#16A34A', // green — local / high-school / league-less / uncatalogued
 } as const;
