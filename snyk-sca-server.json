@@ -1,0 +1,1126 @@
+{
+  "dependencyCount": 475,
+  "displayTargetFile": "package-lock.json",
+  "filesystemPolicy": false,
+  "filtered": {
+    "ignore": [],
+    "patch": []
+  },
+  "hasUnknownVersions": false,
+  "ignoreSettings": {
+    "adminOnly": false,
+    "autoApproveIgnores": false,
+    "disregardFilesystemIgnores": false,
+    "reasonRequired": false
+  },
+  "isPrivate": true,
+  "licensesPolicy": {
+    "orgLicenseRules": null,
+    "severities": null
+  },
+  "ok": false,
+  "org": "dfde79f6-8240-4d24-ae84-e72931451f3e",
+  "packageManager": "npm",
+  "path": "/home/runner/work/VarsityHubMobile/VarsityHubMobile/server",
+  "policy": "",
+  "projectId": "a0667ce8-966d-43d7-8071-6e2878f17ba0",
+  "projectName": "varsityhub-server",
+  "remediation": {
+    "ignore": null,
+    "pin": {},
+    "unresolved": [
+      {
+        "CVSSv3": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/E:P",
+        "alternativeIds": [],
+        "creationTime": "2023-11-30T12:51:43.483198Z",
+        "credit": [
+          "jkomyno"
+        ],
+        "cvssDetails": [],
+        "cvssScore": 6.2,
+        "cvssSources": [
+          {
+            "assigner": "Snyk",
+            "baseScore": 6.2,
+            "cvssVersion": "3.1",
+            "modificationTime": "2026-05-21T02:01:45.056683Z",
+            "severity": "medium",
+            "type": "primary",
+            "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/E:P"
+          }
+        ],
+        "description": "## Overview\n\nAffected versions of this package are vulnerable to Missing Release of Resource after Effective Lifetime via the `makeres` function due to improperly deleting keys from the `reqs` object after execution of callbacks. This behavior causes the keys to remain in the `reqs` object, which leads to resource exhaustion.\r\n\r\nExploiting this vulnerability results in crashing the `node` process or in the application crash.\r\n\r\n**Note:**\r\nThis library is not maintained, and currently, there is no fix for this issue. To overcome this vulnerability, several dependent packages have eliminated the use of this library.\r\n\r\nTo trigger the memory leak, an attacker would need to have the ability to execute or influence the asynchronous operations that use the inflight module within the application. This typically requires access to the internal workings of the server or application, which is not commonly exposed to remote users. Therefore, “Attack vector” is marked as “Local”.\n## PoC\n```js\r\nconst inflight = require('inflight');\r\n\r\nfunction testInflight() {\r\n  let i = 0;\r\n  function scheduleNext() {\r\n    let key = `key-${i++}`;\r\n    const callback = () => {\r\n    };\r\n    for (let j = 0; j < 1000000; j++) {\r\n      inflight(key, callback);\r\n    }\r\n\r\n    setImmediate(scheduleNext);\r\n  }\r\n\r\n\r\n  if (i % 100 === 0) {\r\n    console.log(process.memoryUsage());\r\n  }\r\n\r\n  scheduleNext();\r\n}\r\n\r\ntestInflight();\r\n```\n## Remediation\nThere is no fixed version for `inflight`.\n## References\n- [GitHub Issue](https://github.com/isaacs/inflight/issues/5)\n- [GitHub PR](https://github.com/logdna/logdna-agent/pull/157)\n",
+        "disclosureTime": "2023-11-28T12:47:27.000000Z",
+        "exploit": "Proof of Concept",
+        "exploitDetails": {
+          "maturityLevels": [
+            {
+              "format": "CVSSv3",
+              "level": "Proof of Concept",
+              "type": "secondary"
+            },
+            {
+              "format": "CVSSv4",
+              "level": "Proof of Concept",
+              "type": "primary"
+            }
+          ],
+          "sources": [
+            "Snyk"
+          ]
+        },
+        "fixedIn": [],
+        "from": [
+          "varsityhub-server@0.1.0",
+          "swagger-jsdoc@6.2.8",
+          "glob@7.1.6",
+          "inflight@1.0.6"
+        ],
+        "functions": [],
+        "functions_new": [],
+        "id": "SNYK-JS-INFLIGHT-6095116",
+        "identifiers": {
+          "CVE": [],
+          "CWE": [
+            "CWE-772"
+          ]
+        },
+        "insights": {
+          "triageAdvice": null
+        },
+        "isDisputed": false,
+        "isPatchable": false,
+        "isUpgradable": false,
+        "language": "js",
+        "malicious": false,
+        "modificationTime": "2026-05-21T02:01:45.056683Z",
+        "moduleName": "inflight",
+        "name": "inflight",
+        "packageManager": "npm",
+        "packageName": "inflight",
+        "patches": [],
+        "proprietary": false,
+        "publicationTime": "2023-11-30T12:52:55.469185Z",
+        "references": [
+          {
+            "title": "GitHub Issue",
+            "url": "https://github.com/isaacs/inflight/issues/5"
+          },
+          {
+            "title": "GitHub PR",
+            "url": "https://github.com/logdna/logdna-agent/pull/157"
+          }
+        ],
+        "semver": {
+          "vulnerable": [
+            "*"
+          ]
+        },
+        "severity": "medium",
+        "severityBasedOn": "CVSS",
+        "severityWithCritical": "medium",
+        "socialTrendAlert": false,
+        "title": "Missing Release of Resource after Effective Lifetime",
+        "upgradePath": [],
+        "version": "1.0.6"
+      }
+    ],
+    "upgrade": {
+      "nodemailer@9.0.1": {
+        "upgradeTo": "nodemailer@9.1.1",
+        "upgrades": [
+          "nodemailer@9.0.1",
+          "nodemailer@9.0.1",
+          "nodemailer@9.0.1",
+          "nodemailer@9.0.1"
+        ],
+        "vulns": [
+          "SNYK-JS-NODEMAILER-19651818",
+          "SNYK-JS-NODEMAILER-19651820",
+          "SNYK-JS-NODEMAILER-19651822",
+          "SNYK-JS-NODEMAILER-19652370"
+        ]
+      },
+      "sanitize-html@2.17.5": {
+        "upgradeTo": "sanitize-html@2.17.7",
+        "upgrades": [
+          "sanitize-html@2.17.5",
+          "sanitize-html@2.17.5"
+        ],
+        "vulns": [
+          "SNYK-JS-SANITIZEHTML-18913500",
+          "SNYK-JS-SANITIZEHTML-19498541"
+        ]
+      },
+      "swagger-jsdoc@6.2.8": {
+        "upgradeTo": "swagger-jsdoc@6.3.0",
+        "upgrades": [
+          "@apidevtools/json-schema-ref-parser@9.1.2"
+        ],
+        "vulns": [
+          "SNYK-JS-APIDEVTOOLSJSONSCHEMAREFPARSER-17937352"
+        ]
+      }
+    }
+  },
+  "summary": "8 vulnerable dependency paths",
+  "targetFile": "",
+  "uniqueCount": 8,
+  "vulnerabilities": [
+    {
+      "CVSSv3": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "alternativeIds": [],
+      "creationTime": "2026-09-09T10:51:26.495054Z",
+      "credit": [
+        "Eric Labrador Sainz"
+      ],
+      "cvssDetails": [],
+      "cvssScore": 8.7,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 8.7,
+          "cvssVersion": "4.0",
+          "modificationTime": "2026-09-09T10:51:26.819605Z",
+          "severity": "high",
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+        },
+        {
+          "assigner": "Snyk",
+          "baseScore": 7.5,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-09-09T10:51:26.819605Z",
+          "severity": "high",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+        }
+      ],
+      "description": "## Overview\n[nodemailer](https://www.npmjs.org/package/nodemailer) is an Easy as cake e-mail sending from your Node.js applications\n\nAffected versions of this package are vulnerable to Inefficient Algorithmic Complexity through the `addressparser` function in `lib/addressparser/index.js`. An attacker can block the Node.js event loop by supplying a crafted comma-separated address list, such as a `To`, `Cc`, `Bcc`, `From`, or `Reply-To` header value, that forces the parser to spend CPU time proportional to the square of the input size. This stalls email processing and delays or freezes every other request handled by the same process.\n## Remediation\nUpgrade `nodemailer` to version 9.1.0 or higher.\n## References\n- [GitHub Commit](https://github.com/nodemailer/nodemailer/commit/7cc38af418ffa6fc7e86085195ca5ca681694b3e)\n- [GitHub Commit](https://github.com/nodemailer/nodemailer/commit/9116da9528c6524cefaed75185602a7e85d20434)\n- [GitHub PR](https://github.com/nodemailer/nodemailer/pull/1848)\n- [Maintainer's Advisory](https://github.com/nodemailer/nodemailer/security/advisories/GHSA-2x7j-588g-ccc2)\n",
+      "disclosureTime": "2026-09-08T21:33:17.000000Z",
+      "exploit": "Not Defined",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Not Defined",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Not Defined",
+            "type": "primary"
+          }
+        ],
+        "sources": []
+      },
+      "fixedIn": [
+        "9.1.0"
+      ],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "nodemailer@9.0.1"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-NODEMAILER-19651822",
+      "identifiers": {
+        "CVE": [],
+        "CWE": [
+          "CWE-407"
+        ],
+        "GHSA": [
+          "GHSA-2x7j-588g-ccc2"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": true,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-09-09T10:51:26.819605Z",
+      "moduleName": "nodemailer",
+      "name": "nodemailer",
+      "packageManager": "npm",
+      "packageName": "nodemailer",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2026-09-09T10:51:26.690919Z",
+      "references": [
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/nodemailer/nodemailer/commit/7cc38af418ffa6fc7e86085195ca5ca681694b3e"
+        },
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/nodemailer/nodemailer/commit/9116da9528c6524cefaed75185602a7e85d20434"
+        },
+        {
+          "title": "GitHub PR",
+          "url": "https://github.com/nodemailer/nodemailer/pull/1848"
+        },
+        {
+          "title": "Maintainer's Advisory",
+          "url": "https://github.com/nodemailer/nodemailer/security/advisories/GHSA-2x7j-588g-ccc2"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          "<9.1.0"
+        ]
+      },
+      "severity": "high",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "high",
+      "socialTrendAlert": false,
+      "title": "Inefficient Algorithmic Complexity",
+      "upgradePath": [
+        false,
+        "nodemailer@9.1.0"
+      ],
+      "version": "9.0.1"
+    },
+    {
+      "CVSSv3": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+      "alternativeIds": [],
+      "creationTime": "2026-09-09T11:21:19.396266Z",
+      "credit": [
+        "Eric Labrador Sainz"
+      ],
+      "cvssDetails": [],
+      "cvssScore": 8.3,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 8.3,
+          "cvssVersion": "4.0",
+          "modificationTime": "2026-09-09T11:21:19.690836Z",
+          "severity": "high",
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N"
+        },
+        {
+          "assigner": "Snyk",
+          "baseScore": 6.5,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-09-09T11:21:19.690836Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N"
+        }
+      ],
+      "description": "## Overview\n[nodemailer](https://www.npmjs.org/package/nodemailer) is an Easy as cake e-mail sending from your Node.js applications\n\nAffected versions of this package are vulnerable to Interpretation Conflict through `_normalizeAddress` in `lib/mime-node/index.js`. An attacker can cause mail to be delivered to an attacker-controlled domain by supplying a recipient address whose domain contains an IDN-mapped or ignored code point, such as an invisible soft hyphen, that a standards-compliant domain check resolves to a trusted domain but Nodemailer encodes to a different `xn--` label. This can make an application approve or display one recipient domain while Nodemailer sends the message to another external domain, exposing the intended email content and breaking domain-based recipient controls.\n## Remediation\nUpgrade `nodemailer` to version 9.1.0 or higher.\n## References\n- [GitHub Commit](https://github.com/nodemailer/nodemailer/commit/259c32d7d266301e3377a212776c3fff993c0148)\n- [GitHub Commit](https://github.com/nodemailer/nodemailer/commit/b212ac4e27bce8182478044fcb8d1642ccdad46e)\n- [GitHub PR](https://github.com/nodemailer/nodemailer/pull/1848)\n- [Maintainer's Advisory](https://github.com/nodemailer/nodemailer/security/advisories/GHSA-wmmp-3585-3rmp)\n",
+      "disclosureTime": "2026-09-08T21:33:32.000000Z",
+      "exploit": "Not Defined",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Not Defined",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Not Defined",
+            "type": "primary"
+          }
+        ],
+        "sources": []
+      },
+      "fixedIn": [
+        "9.1.0"
+      ],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "nodemailer@9.0.1"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-NODEMAILER-19652370",
+      "identifiers": {
+        "CVE": [],
+        "CWE": [
+          "CWE-436"
+        ],
+        "GHSA": [
+          "GHSA-wmmp-3585-3rmp"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": true,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-09-09T11:21:19.690836Z",
+      "moduleName": "nodemailer",
+      "name": "nodemailer",
+      "packageManager": "npm",
+      "packageName": "nodemailer",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2026-09-09T11:21:19.574637Z",
+      "references": [
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/nodemailer/nodemailer/commit/259c32d7d266301e3377a212776c3fff993c0148"
+        },
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/nodemailer/nodemailer/commit/b212ac4e27bce8182478044fcb8d1642ccdad46e"
+        },
+        {
+          "title": "GitHub PR",
+          "url": "https://github.com/nodemailer/nodemailer/pull/1848"
+        },
+        {
+          "title": "Maintainer's Advisory",
+          "url": "https://github.com/nodemailer/nodemailer/security/advisories/GHSA-wmmp-3585-3rmp"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          "<9.1.0"
+        ]
+      },
+      "severity": "high",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "high",
+      "socialTrendAlert": false,
+      "title": "Interpretation Conflict",
+      "upgradePath": [
+        false,
+        "nodemailer@9.1.0"
+      ],
+      "version": "9.0.1"
+    },
+    {
+      "CVSSv3": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:L/A:N",
+      "alternativeIds": [],
+      "creationTime": "2026-09-09T10:46:33.749623Z",
+      "credit": [
+        "Hcamael"
+      ],
+      "cvssDetails": [],
+      "cvssScore": 6,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 6,
+          "cvssVersion": "4.0",
+          "modificationTime": "2026-09-09T10:46:34.094229Z",
+          "severity": "medium",
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N"
+        },
+        {
+          "assigner": "Snyk",
+          "baseScore": 5.9,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-09-09T10:46:34.094229Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:L/A:N"
+        }
+      ],
+      "description": "## Overview\n[nodemailer](https://www.npmjs.org/package/nodemailer) is an Easy as cake e-mail sending from your Node.js applications\n\nAffected versions of this package are vulnerable to Server-side Request Forgery (SSRF) via the `resolveContent()` method in `lib/mailer/mail-message.js`. An attacker can read local files or trigger outbound URL fetches by supplying `html` or attachment content that is resolved through the legacy `mail.resolveContent(data, key, callback)` signature. When a plugin or application calls this API on a message created with `disableFileAccess` or `disableUrlAccess`, the access policy is dropped and the content resolver reaches `fs.createReadStream()` or `nmfetch()`, exposing server files or causing SSRF.\n## Remediation\nUpgrade `nodemailer` to version 9.1.1 or higher.\n## References\n- [GitHub Commit](https://github.com/nodemailer/nodemailer/commit/ab7ef348b9a97b1fd70e7bfbeb56d4ea4a07946b)\n- [GitHub Commit](https://github.com/nodemailer/nodemailer/commit/dc48ed395c4d6c79ee5c95eb6eff17bafe391474)\n- [Maintainer's Advisory](https://github.com/nodemailer/nodemailer/security/advisories/GHSA-8m3c-c648-2xjj)\n",
+      "disclosureTime": "2026-09-08T21:16:00.000000Z",
+      "exploit": "Not Defined",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Not Defined",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Not Defined",
+            "type": "primary"
+          }
+        ],
+        "sources": []
+      },
+      "fixedIn": [
+        "9.1.1"
+      ],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "nodemailer@9.0.1"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-NODEMAILER-19651820",
+      "identifiers": {
+        "CVE": [],
+        "CWE": [
+          "CWE-918",
+          "CWE-73"
+        ],
+        "GHSA": [
+          "GHSA-8m3c-c648-2xjj"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": true,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-09-09T10:46:34.094229Z",
+      "moduleName": "nodemailer",
+      "name": "nodemailer",
+      "packageManager": "npm",
+      "packageName": "nodemailer",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2026-09-09T10:46:33.944300Z",
+      "references": [
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/nodemailer/nodemailer/commit/ab7ef348b9a97b1fd70e7bfbeb56d4ea4a07946b"
+        },
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/nodemailer/nodemailer/commit/dc48ed395c4d6c79ee5c95eb6eff17bafe391474"
+        },
+        {
+          "title": "Maintainer's Advisory",
+          "url": "https://github.com/nodemailer/nodemailer/security/advisories/GHSA-8m3c-c648-2xjj"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          "<9.1.1"
+        ]
+      },
+      "severity": "medium",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "medium",
+      "socialTrendAlert": false,
+      "title": "Server-side Request Forgery (SSRF)",
+      "upgradePath": [
+        false,
+        "nodemailer@9.1.1"
+      ],
+      "version": "9.0.1"
+    },
+    {
+      "CVSSv3": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L/E:P",
+      "alternativeIds": [],
+      "creationTime": "2026-07-10T15:44:39.847819Z",
+      "credit": [
+        "Dremig"
+      ],
+      "cvssDetails": [
+        {
+          "assigner": "NVD",
+          "cvssV3BaseScore": 6.3,
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L",
+          "modificationTime": "2026-07-10T01:28:56.299153Z",
+          "severity": "medium"
+        }
+      ],
+      "cvssScore": 5.3,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 5.3,
+          "cvssVersion": "4.0",
+          "modificationTime": "2026-08-24T14:03:02.550601Z",
+          "severity": "medium",
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N/E:P"
+        },
+        {
+          "assigner": "Snyk",
+          "baseScore": 6.3,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-08-24T14:03:02.550601Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L/E:P"
+        },
+        {
+          "assigner": "NVD",
+          "baseScore": 6.3,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-07-10T01:28:56.299153Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
+        }
+      ],
+      "description": "## Overview\n[@apidevtools/json-schema-ref-parser](https://www.npmjs.org/package/@apidevtools/json-schema-ref-parser) is a Parse, Resolve, and Dereference JSON Schema $ref pointers\n\nAffected versions of this package are vulnerable to Prototype Pollution in the `Pointer.set` process. An attacker can modify object prototype attributes by supplying crafted input to the process remotely.\n\n## Details\n\nPrototype Pollution is a vulnerability affecting JavaScript. Prototype Pollution refers to the ability to inject properties into existing JavaScript language construct prototypes, such as objects. JavaScript allows all Object attributes to be altered, including their magical attributes such as `__proto__`, `constructor` and `prototype`. An attacker manipulates these attributes to overwrite, or pollute, a JavaScript application object prototype of the base object by injecting other values.  Properties on the `Object.prototype` are then inherited by all the JavaScript objects through the prototype chain. When that happens, this leads to either denial of service by triggering JavaScript exceptions, or it tampers with the application source code to force the code path that the attacker injects, thereby leading to remote code execution.\n\nThere are two main ways in which the pollution of prototypes occurs:\n\n-   Unsafe `Object` recursive merge\n    \n-   Property definition by path\n    \n\n### Unsafe Object recursive merge\n\nThe logic of a vulnerable recursive merge function follows the following high-level model:\n```\nmerge (target, source)\n\n  foreach property of source\n\n    if property exists and is an object on both the target and the source\n\n      merge(target[property], source[property])\n\n    else\n\n      target[property] = source[property]\n```\n<br>  \n\nWhen the source object contains a property named `__proto__` defined with `Object.defineProperty()` , the condition that checks if the property exists and is an object on both the target and the source passes and the merge recurses with the target, being the prototype of `Object` and the source of `Object` as defined by the attacker. Properties are then copied on the `Object` prototype.\n\nClone operations are a special sub-class of unsafe recursive merges, which occur when a recursive merge is conducted on an empty object: `merge({},source)`.\n\n`lodash` and `Hoek` are examples of libraries susceptible to recursive merge attacks.\n\n### Property definition by path\n\nThere are a few JavaScript libraries that use an API to define property values on an object based on a given path. The function that is generally affected contains this signature: `theFunction(object, path, value)`\n\nIf the attacker can control the value of “path”, they can set this value to `__proto__.myValue`. `myValue` is then assigned to the prototype of the class of the object.\n\n## Types of attacks\n\nThere are a few methods by which Prototype Pollution can be manipulated:\n\n| Type |Origin  |Short description |\n|--|--|--|\n| **Denial of service (DoS)**|Client  |This is the most likely attack. <br>DoS occurs when `Object` holds generic functions that are implicitly called for various operations (for example, `toString` and `valueOf`). <br> The attacker pollutes `Object.prototype.someattr` and alters its state to an unexpected value such as `Int` or `Object`. In this case, the code fails and is likely to cause a denial of service.  <br>**For example:** if an attacker pollutes `Object.prototype.toString` by defining it as an integer, if the codebase at any point was reliant on `someobject.toString()` it would fail. |\n |**Remote Code Execution**|Client|Remote code execution is generally only possible in cases where the codebase evaluates a specific attribute of an object, and then executes that evaluation.<br>**For example:** `eval(someobject.someattr)`. In this case, if the attacker pollutes `Object.prototype.someattr` they are likely to be able to leverage this in order to execute code.|\n|**Property Injection**|Client|The attacker pollutes properties that the codebase relies on for their informative value, including security properties such as cookies or tokens.<br>  **For example:** if a codebase checks privileges for `someuser.isAdmin`, then when the attacker pollutes `Object.prototype.isAdmin` and sets it to equal `true`, they can then achieve admin privileges.|\n\n## Affected environments\n\nThe following environments are susceptible to a Prototype Pollution attack:\n\n-   Application server\n    \n-   Web server\n\n-   Web browser\n    \n\n## How to prevent\n\n1.  Freeze the prototype— use `Object.freeze (Object.prototype)`.\n    \n2.  Require schema validation of JSON input.\n    \n3.  Avoid using unsafe recursive merge functions.\n    \n4.  Consider using objects without prototypes (for example, `Object.create(null)`), breaking the prototype chain and preventing pollution.\n    \n5.  As a best practice use `Map` instead of `Object`.\n\n### For more information on this vulnerability type:\n\n[Arteau, Olivier. “JavaScript prototype pollution attack in NodeJS application.” GitHub, 26 May 2018](https://github.com/HoLyVieR/prototype-pollution-nsec18/blob/",
+      "disclosureTime": "2026-07-09T20:30:18.758000Z",
+      "epssDetails": {
+        "modelVersion": "v2026.06.15",
+        "percentile": "0.37688",
+        "probability": "0.00457"
+      },
+      "exploit": "Proof of Concept",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Proof of Concept",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Proof of Concept",
+            "type": "primary"
+          }
+        ],
+        "sources": [
+          "Snyk"
+        ]
+      },
+      "fixedIn": [
+        "15.3.6"
+      ],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "swagger-jsdoc@6.2.8",
+        "swagger-parser@10.0.3",
+        "@apidevtools/swagger-parser@10.0.3",
+        "@apidevtools/json-schema-ref-parser@9.1.2"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-APIDEVTOOLSJSONSCHEMAREFPARSER-17937352",
+      "identifiers": {
+        "CVE": [
+          "CVE-2026-15195"
+        ],
+        "CWE": [
+          "CWE-1321"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": true,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-08-24T14:03:02.550601Z",
+      "moduleName": "@apidevtools/json-schema-ref-parser",
+      "name": "@apidevtools/json-schema-ref-parser",
+      "packageManager": "npm",
+      "packageName": "@apidevtools/json-schema-ref-parser",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2026-07-10T15:44:40.038467Z",
+      "references": [
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/APIDevTools/json-schema-ref-parser/commit/a786bc6afc3674f650496472ee93d5cf74c4bd84"
+        },
+        {
+          "title": "GitHub Issue",
+          "url": "https://github.com/APIDevTools/json-schema-ref-parser/issues/421"
+        },
+        {
+          "title": "GitHub Release",
+          "url": "https://github.com/APIDevTools/json-schema-ref-parser/releases/tag/v15.3.6"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          "<15.3.6"
+        ]
+      },
+      "severity": "medium",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "medium",
+      "socialTrendAlert": false,
+      "title": "Prototype Pollution",
+      "upgradePath": [
+        false,
+        "swagger-jsdoc@6.3.0"
+      ],
+      "version": "9.1.2"
+    },
+    {
+      "CVSSv3": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N/E:P",
+      "alternativeIds": [],
+      "creationTime": "2026-08-18T15:37:40.893225Z",
+      "credit": [
+        "Kyo"
+      ],
+      "cvssDetails": [],
+      "cvssScore": 5.1,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 5.1,
+          "cvssVersion": "4.0",
+          "modificationTime": "2026-09-10T14:05:56.686641Z",
+          "severity": "medium",
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:N/VI:L/VA:N/SC:L/SI:L/SA:N/E:P"
+        },
+        {
+          "assigner": "Snyk",
+          "baseScore": 6.1,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-09-10T14:05:56.686641Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N/E:P"
+        }
+      ],
+      "description": "## Overview\n[sanitize-html](https://github.com/punkave/sanitize-html) is a library that allows you to clean up user-submitted HTML, preserving whitelisted elements and whitelisted attributes on a per-element basis\n\nAffected versions of this package are vulnerable to Cross-site Scripting (XSS) in the `sanitizeHtml` function. An attacker can execute arbitrary scripts in the context of the user's browser by injecting specially crafted markup containing a literal solidus after a raw-text end-tag, which bypasses the intended sanitization and is interpreted as executable HTML by browsers.\n## Details\n\nCross-site scripting (or XSS) is a code vulnerability that occurs when an attacker “injects” a malicious script into an otherwise trusted website. The injected script gets downloaded and executed by the end user’s browser when the user interacts with the compromised website.\n\nThis is done by escaping the context of the web application; the web application then delivers that data to its users along with other trusted dynamic content, without validating it. The browser unknowingly executes malicious script on the client side (through client-side languages; usually JavaScript or HTML)  in order to perform actions that are otherwise typically blocked by the browser’s Same Origin Policy.\n\nInjecting malicious code is the most prevalent manner by which XSS is exploited; for this reason, escaping characters in order to prevent this manipulation is the top method for securing code against this vulnerability.\n\nEscaping means that the application is coded to mark key characters, and particularly key characters included in user input, to prevent those characters from being interpreted in a dangerous context. For example, in HTML, `<` can be coded as  `&lt`; and `>` can be coded as `&gt`; in order to be interpreted and displayed as themselves in text, while within the code itself, they are used for HTML tags. If malicious content is injected into an application that escapes special characters and that malicious content uses `<` and `>` as HTML tags, those characters are nonetheless not interpreted as HTML tags by the browser if they’ve been correctly escaped in the application code and in this way the attempted attack is diverted.\n \nThe most prominent use of XSS is to steal cookies (source: OWASP HttpOnly) and hijack user sessions, but XSS exploits have been used to expose sensitive information, enable access to privileged services and functionality and deliver malware. \n\n### Types of attacks\nThere are a few methods by which XSS can be manipulated:\n\n|Type|Origin|Description|\n|--|--|--|\n|**Stored**|Server|The malicious code is inserted in the application (usually as a link) by the attacker. The code is activated every time a user clicks the link.|\n|**Reflected**|Server|The attacker delivers a malicious link externally from the vulnerable web site application to a user. When clicked, malicious code is sent to the vulnerable web site, which reflects the attack back to the user’s browser.| \n|**DOM-based**|Client|The attacker forces the user’s browser to render a malicious page. The data in the page itself delivers the cross-site scripting data.|\n|**Mutated**| |The attacker injects code that appears safe, but is then rewritten and modified by the browser, while parsing the markup. An example is rebalancing unclosed quotation marks or even adding quotation marks to unquoted parameters.|\n\n### Affected environments\nThe following environments are susceptible to an XSS attack:\n\n* Web servers\n* Application servers\n* Web application environments\n\n### How to prevent\nThis section describes the top best practices designed to specifically protect your code: \n\n* Sanitize data input in an HTTP request before reflecting it back, ensuring all data is validated, filtered or escaped before echoing anything back to the user, such as the values of query parameters during searches. \n* Convert special characters such as `?`, `&`, `/`, `<`, `>` and spaces to their respective HTML or URL encoded equivalents. \n* Give users the option to disable client-side scripts.\n* Redirect invalid requests.\n* Detect simultaneous logins, including those from two separate IP addresses, and invalidate those sessions.\n* Use and enforce a Content Security Policy (source: Wikipedia) to disable any features that might be manipulated for an XSS attack.\n* Read the documentation for any of the libraries referenced in your code to understand which elements allow for embedded HTML.\n\n## Remediation\nUpgrade `sanitize-html` to version 2.17.6 or higher.\n## References\n- [GitHub Advisory](https://github.com/apostrophecms/apostrophe/security/advisories/GHSA-jxwj-j7wr-gfrw)\n- [GitHub Commit](https://github.com/apostrophecms/apostrophe/commit/eae1fb2b72ec5d1c27d0977509c6482a0408f725)\n- [GitHub PR](https://github.com/apostrophecms/apostrophe/pull/5501)\n",
+      "disclosureTime": "2026-08-18T00:47:41.348000Z",
+      "epssDetails": {
+        "modelVersion": "v2026.06.15",
+        "percentile": "0.21286",
+        "probability": "0.00289"
+      },
+      "exploit": "Proof of Concept",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Proof of Concept",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Proof of Concept",
+            "type": "primary"
+          }
+        ],
+        "sources": [
+          "Snyk"
+        ]
+      },
+      "fixedIn": [
+        "2.17.6"
+      ],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "sanitize-html@2.17.5"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-SANITIZEHTML-18913500",
+      "identifiers": {
+        "CVE": [
+          "CVE-2026-63670"
+        ],
+        "CWE": [
+          "CWE-79"
+        ],
+        "GHSA": [
+          "GHSA-jxwj-j7wr-gfrw"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": true,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-09-10T14:05:56.686641Z",
+      "moduleName": "sanitize-html",
+      "name": "sanitize-html",
+      "packageManager": "npm",
+      "packageName": "sanitize-html",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2026-08-18T15:37:41.073355Z",
+      "references": [
+        {
+          "title": "GitHub Advisory",
+          "url": "https://github.com/apostrophecms/apostrophe/security/advisories/GHSA-jxwj-j7wr-gfrw"
+        },
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/apostrophecms/apostrophe/commit/eae1fb2b72ec5d1c27d0977509c6482a0408f725"
+        },
+        {
+          "title": "GitHub PR",
+          "url": "https://github.com/apostrophecms/apostrophe/pull/5501"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          "<2.17.6"
+        ]
+      },
+      "severity": "medium",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "medium",
+      "socialTrendAlert": false,
+      "title": "Cross-site Scripting (XSS)",
+      "upgradePath": [
+        false,
+        "sanitize-html@2.17.6"
+      ],
+      "version": "2.17.5"
+    },
+    {
+      "CVSSv3": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+      "alternativeIds": [],
+      "creationTime": "2026-09-02T12:52:53.565053Z",
+      "credit": [
+        "koyokr"
+      ],
+      "cvssDetails": [
+        {
+          "assigner": "Red Hat",
+          "cvssV3BaseScore": 5.4,
+          "cvssV3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+          "modificationTime": "2026-09-03T07:57:17.952130Z",
+          "severity": "medium"
+        }
+      ],
+      "cvssScore": 5.1,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 5.1,
+          "cvssVersion": "4.0",
+          "modificationTime": "2026-09-03T07:57:18.144209Z",
+          "severity": "medium",
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:N/VI:L/VA:N/SC:L/SI:L/SA:N"
+        },
+        {
+          "assigner": "Snyk",
+          "baseScore": 5.4,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-09-03T07:57:18.144209Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N"
+        },
+        {
+          "assigner": "Red Hat",
+          "baseScore": 5.4,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-09-03T07:57:17.952130Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N"
+        }
+      ],
+      "description": "## Overview\n[sanitize-html](https://github.com/punkave/sanitize-html) is a library that allows you to clean up user-submitted HTML, preserving whitelisted elements and whitelisted attributes on a per-element basis\n\nAffected versions of this package are vulnerable to Cross-site Scripting (XSS) via the SVG SMIL animation handling in `packages/sanitize-html/index.js`. An attacker can execute JavaScript in the application’s origin by supplying an allowed `<animate>` or `<set>` element with `attributeName=\"href\"` or `xlink:href\"` and a `values` list such as `#safe;javascript:...`, which bypasses the scheme policy because the sanitizer treats the list as a single flat URL. When a victim clicks the sanitized SVG link, the browser applies the animated `javascript:` destination after sanitization, exposing the application to script execution in user sessions.\n## Details\n\nCross-site scripting (or XSS) is a code vulnerability that occurs when an attacker “injects” a malicious script into an otherwise trusted website. The injected script gets downloaded and executed by the end user’s browser when the user interacts with the compromised website.\n\nThis is done by escaping the context of the web application; the web application then delivers that data to its users along with other trusted dynamic content, without validating it. The browser unknowingly executes malicious script on the client side (through client-side languages; usually JavaScript or HTML)  in order to perform actions that are otherwise typically blocked by the browser’s Same Origin Policy.\n\nInjecting malicious code is the most prevalent manner by which XSS is exploited; for this reason, escaping characters in order to prevent this manipulation is the top method for securing code against this vulnerability.\n\nEscaping means that the application is coded to mark key characters, and particularly key characters included in user input, to prevent those characters from being interpreted in a dangerous context. For example, in HTML, `<` can be coded as  `&lt`; and `>` can be coded as `&gt`; in order to be interpreted and displayed as themselves in text, while within the code itself, they are used for HTML tags. If malicious content is injected into an application that escapes special characters and that malicious content uses `<` and `>` as HTML tags, those characters are nonetheless not interpreted as HTML tags by the browser if they’ve been correctly escaped in the application code and in this way the attempted attack is diverted.\n \nThe most prominent use of XSS is to steal cookies (source: OWASP HttpOnly) and hijack user sessions, but XSS exploits have been used to expose sensitive information, enable access to privileged services and functionality and deliver malware. \n\n### Types of attacks\nThere are a few methods by which XSS can be manipulated:\n\n|Type|Origin|Description|\n|--|--|--|\n|**Stored**|Server|The malicious code is inserted in the application (usually as a link) by the attacker. The code is activated every time a user clicks the link.|\n|**Reflected**|Server|The attacker delivers a malicious link externally from the vulnerable web site application to a user. When clicked, malicious code is sent to the vulnerable web site, which reflects the attack back to the user’s browser.| \n|**DOM-based**|Client|The attacker forces the user’s browser to render a malicious page. The data in the page itself delivers the cross-site scripting data.|\n|**Mutated**| |The attacker injects code that appears safe, but is then rewritten and modified by the browser, while parsing the markup. An example is rebalancing unclosed quotation marks or even adding quotation marks to unquoted parameters.|\n\n### Affected environments\nThe following environments are susceptible to an XSS attack:\n\n* Web servers\n* Application servers\n* Web application environments\n\n### How to prevent\nThis section describes the top best practices designed to specifically protect your code: \n\n* Sanitize data input in an HTTP request before reflecting it back, ensuring all data is validated, filtered or escaped before echoing anything back to the user, such as the values of query parameters during searches. \n* Convert special characters such as `?`, `&`, `/`, `<`, `>` and spaces to their respective HTML or URL encoded equivalents. \n* Give users the option to disable client-side scripts.\n* Redirect invalid requests.\n* Detect simultaneous logins, including those from two separate IP addresses, and invalidate those sessions.\n* Use and enforce a Content Security Policy (source: Wikipedia) to disable any features that might be manipulated for an XSS attack.\n* Read the documentation for any of the libraries referenced in your code to understand which elements allow for embedded HTML.\n\n## Remediation\nUpgrade `sanitize-html` to version 2.17.7 or higher.\n## References\n- [GitHub ChangeLog](https://github.com/apostrophecms/apostrophe/blob/main/packages/sanitize-html/CHANGELOG.md)\n- [GitHub Commit](https://github.com/apostrophecms/apostrophe/commit/1135516a1a4a8f9638641c460488a43d8af20081)\n- [GitHub Commit](https://github.com",
+      "disclosureTime": "2026-09-01T21:20:01.000000Z",
+      "epssDetails": {
+        "modelVersion": "v2026.06.15",
+        "percentile": "0.08177",
+        "probability": "0.00185"
+      },
+      "exploit": "Not Defined",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Not Defined",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Not Defined",
+            "type": "primary"
+          }
+        ],
+        "sources": []
+      },
+      "fixedIn": [
+        "2.17.7"
+      ],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "sanitize-html@2.17.5"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-SANITIZEHTML-19498541",
+      "identifiers": {
+        "CVE": [
+          "CVE-2026-84371"
+        ],
+        "CWE": [
+          "CWE-79"
+        ],
+        "GHSA": [
+          "GHSA-g8qq-57p8-ggw5"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": true,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-09-03T07:57:18.144209Z",
+      "moduleName": "sanitize-html",
+      "name": "sanitize-html",
+      "packageManager": "npm",
+      "packageName": "sanitize-html",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2026-09-02T12:52:53.765234Z",
+      "references": [
+        {
+          "title": "GitHub ChangeLog",
+          "url": "https://github.com/apostrophecms/apostrophe/blob/main/packages/sanitize-html/CHANGELOG.md"
+        },
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/apostrophecms/apostrophe/commit/1135516a1a4a8f9638641c460488a43d8af20081"
+        },
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/apostrophecms/apostrophe/commit/38ff1106c8176b16c2da9872acd9b449adcbb949"
+        },
+        {
+          "title": "GitHub PR",
+          "url": "https://github.com/apostrophecms/apostrophe/pull/5552"
+        },
+        {
+          "title": "Maintainer's Advisory",
+          "url": "https://github.com/apostrophecms/apostrophe/security/advisories/GHSA-g8qq-57p8-ggw5"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          ">=1.9.0 <2.17.7"
+        ]
+      },
+      "severity": "medium",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "medium",
+      "socialTrendAlert": false,
+      "title": "Cross-site Scripting (XSS)",
+      "upgradePath": [
+        false,
+        "sanitize-html@2.17.7"
+      ],
+      "version": "2.17.5"
+    },
+    {
+      "CVSSv3": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/E:P",
+      "alternativeIds": [],
+      "creationTime": "2023-11-30T12:51:43.483198Z",
+      "credit": [
+        "jkomyno"
+      ],
+      "cvssDetails": [],
+      "cvssScore": 6.2,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 6.2,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-05-21T02:01:45.056683Z",
+          "severity": "medium",
+          "type": "primary",
+          "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/E:P"
+        }
+      ],
+      "description": "## Overview\n\nAffected versions of this package are vulnerable to Missing Release of Resource after Effective Lifetime via the `makeres` function due to improperly deleting keys from the `reqs` object after execution of callbacks. This behavior causes the keys to remain in the `reqs` object, which leads to resource exhaustion.\r\n\r\nExploiting this vulnerability results in crashing the `node` process or in the application crash.\r\n\r\n**Note:**\r\nThis library is not maintained, and currently, there is no fix for this issue. To overcome this vulnerability, several dependent packages have eliminated the use of this library.\r\n\r\nTo trigger the memory leak, an attacker would need to have the ability to execute or influence the asynchronous operations that use the inflight module within the application. This typically requires access to the internal workings of the server or application, which is not commonly exposed to remote users. Therefore, “Attack vector” is marked as “Local”.\n## PoC\n```js\r\nconst inflight = require('inflight');\r\n\r\nfunction testInflight() {\r\n  let i = 0;\r\n  function scheduleNext() {\r\n    let key = `key-${i++}`;\r\n    const callback = () => {\r\n    };\r\n    for (let j = 0; j < 1000000; j++) {\r\n      inflight(key, callback);\r\n    }\r\n\r\n    setImmediate(scheduleNext);\r\n  }\r\n\r\n\r\n  if (i % 100 === 0) {\r\n    console.log(process.memoryUsage());\r\n  }\r\n\r\n  scheduleNext();\r\n}\r\n\r\ntestInflight();\r\n```\n## Remediation\nThere is no fixed version for `inflight`.\n## References\n- [GitHub Issue](https://github.com/isaacs/inflight/issues/5)\n- [GitHub PR](https://github.com/logdna/logdna-agent/pull/157)\n",
+      "disclosureTime": "2023-11-28T12:47:27.000000Z",
+      "exploit": "Proof of Concept",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Proof of Concept",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Proof of Concept",
+            "type": "primary"
+          }
+        ],
+        "sources": [
+          "Snyk"
+        ]
+      },
+      "fixedIn": [],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "swagger-jsdoc@6.2.8",
+        "glob@7.1.6",
+        "inflight@1.0.6"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-INFLIGHT-6095116",
+      "identifiers": {
+        "CVE": [],
+        "CWE": [
+          "CWE-772"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": false,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-05-21T02:01:45.056683Z",
+      "moduleName": "inflight",
+      "name": "inflight",
+      "packageManager": "npm",
+      "packageName": "inflight",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2023-11-30T12:52:55.469185Z",
+      "references": [
+        {
+          "title": "GitHub Issue",
+          "url": "https://github.com/isaacs/inflight/issues/5"
+        },
+        {
+          "title": "GitHub PR",
+          "url": "https://github.com/logdna/logdna-agent/pull/157"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          "*"
+        ]
+      },
+      "severity": "medium",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "medium",
+      "socialTrendAlert": false,
+      "title": "Missing Release of Resource after Effective Lifetime",
+      "upgradePath": [],
+      "version": "1.0.6"
+    },
+    {
+      "CVSSv3": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+      "alternativeIds": [],
+      "creationTime": "2026-09-09T10:44:01.502805Z",
+      "credit": [
+        "Eric Labrador Sainz"
+      ],
+      "cvssDetails": [],
+      "cvssScore": 8.3,
+      "cvssSources": [
+        {
+          "assigner": "Snyk",
+          "baseScore": 8.3,
+          "cvssVersion": "4.0",
+          "modificationTime": "2026-09-09T10:44:01.810074Z",
+          "severity": "high",
+          "type": "primary",
+          "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N"
+        },
+        {
+          "assigner": "Snyk",
+          "baseScore": 6.5,
+          "cvssVersion": "3.1",
+          "modificationTime": "2026-09-09T10:44:01.810074Z",
+          "severity": "medium",
+          "type": "secondary",
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N"
+        }
+      ],
+      "description": "## Overview\n[nodemailer](https://www.npmjs.org/package/nodemailer) is an Easy as cake e-mail sending from your Node.js applications\n\nAffected versions of this package are vulnerable to Interpretation Conflict via RFC 5322 comment mis-parsing in `lib/addressparser/index.js`. An attacker can make mail be delivered to an attacker-controlled domain by supplying a recipient such as `user@good-corp.com(x)evil.com`, which the parser glues into `good-corp.comevil.com` instead of treating the comment as folding whitespace. Applications that approve recipients by parsing or matching the domain separately can be tricked into sending mail to a domain they never intended to allow, exposing messages to the attacker-controlled recipient.\n## Remediation\nUpgrade `nodemailer` to version 9.1.0 or higher.\n## References\n- [GitHub Commit](https://github.com/nodemailer/nodemailer/commit/902b63e935435c30f4025901c0902dce64cd8880)\n- [GitHub PR](https://github.com/nodemailer/nodemailer/pull/1848)\n- [Maintainer's Advisory](https://github.com/nodemailer/nodemailer/security/advisories/GHSA-cc9r-2j5m-2m83)\n",
+      "disclosureTime": "2026-09-08T21:32:51.000000Z",
+      "exploit": "Not Defined",
+      "exploitDetails": {
+        "maturityLevels": [
+          {
+            "format": "CVSSv3",
+            "level": "Not Defined",
+            "type": "secondary"
+          },
+          {
+            "format": "CVSSv4",
+            "level": "Not Defined",
+            "type": "primary"
+          }
+        ],
+        "sources": []
+      },
+      "fixedIn": [
+        "9.1.0"
+      ],
+      "from": [
+        "varsityhub-server@0.1.0",
+        "nodemailer@9.0.1"
+      ],
+      "functions": [],
+      "functions_new": [],
+      "id": "SNYK-JS-NODEMAILER-19651818",
+      "identifiers": {
+        "CVE": [],
+        "CWE": [
+          "CWE-436"
+        ],
+        "GHSA": [
+          "GHSA-cc9r-2j5m-2m83"
+        ]
+      },
+      "insights": {
+        "triageAdvice": null
+      },
+      "isDisputed": false,
+      "isPatchable": false,
+      "isUpgradable": true,
+      "language": "js",
+      "malicious": false,
+      "modificationTime": "2026-09-09T10:44:01.810074Z",
+      "moduleName": "nodemailer",
+      "name": "nodemailer",
+      "packageManager": "npm",
+      "packageName": "nodemailer",
+      "patches": [],
+      "proprietary": false,
+      "publicationTime": "2026-09-09T10:44:01.675299Z",
+      "references": [
+        {
+          "title": "GitHub Commit",
+          "url": "https://github.com/nodemailer/nodemailer/commit/902b63e935435c30f4025901c0902dce64cd8880"
+        },
+        {
+          "title": "GitHub PR",
+          "url": "https://github.com/nodemailer/nodemailer/pull/1848"
+        },
+        {
+          "title": "Maintainer's Advisory",
+          "url": "https://github.com/nodemailer/nodemailer/security/advisories/GHSA-cc9r-2j5m-2m83"
+        }
+      ],
+      "semver": {
+        "vulnerable": [
+          ">=6.9.16 <9.1.0"
+        ]
+      },
+      "severity": "high",
+      "severityBasedOn": "CVSS",
+      "severityWithCritical": "high",
+      "socialTrendAlert": false,
+      "title": "Interpretation Conflict",
+      "upgradePath": [
+        false,
+        "nodemailer@9.1.0"
+      ],
+      "version": "9.0.1"
+    }
+  ]
+}
