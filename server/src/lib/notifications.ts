@@ -66,6 +66,54 @@ export async function notifyNewMessage(
 }
 
 /**
+ * Push-notify every OTHER member of a group chat about a new message —
+ * mirrors notifyNewMessage's per-category preference check above so group
+ * chats get the same push behavior 1:1 DMs already have (owner "commandments"
+ * audit, 2026-09-14: "Audit messaging... it should work as well as with push
+ * notifications"). Callers must fire-and-forget (.catch(...)) — this never
+ * throws itself, but a caller awaiting it would add push latency to the
+ * message response.
+ */
+export async function notifyGroupChatMessage(
+  chatId: string,
+  chatName: string,
+  senderId: string,
+  senderName: string,
+  content: string
+): Promise<void> {
+  const recipients = await prisma.groupChatMember.findMany({
+    where: { chat_id: chatId, user_id: { not: senderId } },
+    select: { user_id: true },
+  });
+  if (!recipients.length) return;
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: recipients.map(r => r.user_id) } },
+    select: { id: true, preferences: true },
+  });
+
+  await Promise.all(
+    users.map(async user => {
+      const prefs = user.preferences as any;
+      if (prefs?.notifications?.messages_notifications === false) return;
+      try {
+        await sendPushNotification(user.id, `${senderName} in ${chatName}`, content.slice(0, 100), {
+          type: 'new_group_message',
+          screen: 'group-chat',
+          chat_id: chatId,
+          sender_id: senderId,
+        });
+      } catch (e) {
+        captureException(e instanceof Error ? e : new Error(String(e)), {
+          context: 'group_message_notification',
+          extra: { chat_id: chatId, recipient_id: user.id, sender_id: senderId },
+        });
+      }
+    })
+  );
+}
+
+/**
  * Notify when someone interacts with user's post
  */
 export async function notifyPostInteraction(

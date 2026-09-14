@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { captureMessage } from '../lib/sentry.js';
+import { captureException, captureMessage } from '../lib/sentry.js';
+import { notifyGroupChatMessage } from '../lib/notifications.js';
 import { canManageTeam as canManageTeamScoped } from '../lib/teamAuthorization.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import type { AuthedRequest } from '../middleware/auth.js';
@@ -215,21 +216,38 @@ groupChatsRouter.post(
       return res.status(403).json({ error: 'Not a member of this chat' });
     }
 
-    const message = await prisma.groupChatMessage.create({
-      data: {
-        chat_id: chatId,
-        sender_id: req.user.id,
-        content: stripHtml(content.trim()),
-      },
-      include: {
-        sender: {
-          select: {
-            id: true,
-            display_name: true,
-            avatar_url: true,
+    const [message, chat] = await Promise.all([
+      prisma.groupChatMessage.create({
+        data: {
+          chat_id: chatId,
+          sender_id: req.user.id,
+          content: stripHtml(content.trim()),
+        },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              display_name: true,
+              avatar_url: true,
+            },
           },
         },
-      },
+      }),
+      prisma.groupChat.findUnique({ where: { id: chatId }, select: { name: true } }),
+    ]);
+
+    // Fire-and-forget — a push failure must not block the message response.
+    notifyGroupChatMessage(
+      chatId,
+      chat?.name || 'your team chat',
+      req.user.id,
+      message.sender?.display_name || 'Someone',
+      message.content
+    ).catch(e => {
+      captureException(e instanceof Error ? e : new Error(String(e)), {
+        context: 'group_message_notification_dispatch',
+        extra: { chat_id: chatId, sender_id: req.user!.id },
+      });
     });
 
     return res.status(201).json(message);
