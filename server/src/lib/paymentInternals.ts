@@ -2,6 +2,8 @@ import { AppError } from './errors/AppError.js';
 import type { AdStatus, Prisma } from '@prisma/client';
 import type { Stripe } from 'stripe';
 import { debugLog } from './debugLog.js';
+import { AD_GEOFENCE_RADIUS_MILES, getAdBoundingBoxDegrees } from './adGeofencing.js';
+import { getZipCoordinates, haversineDistance } from './geoUtils.js';
 import {
   SERVER_ROOKIE_PROGRAM_LIMIT,
   SERVER_ROOKIE_TEAM_LIMIT,
@@ -14,6 +16,12 @@ import { buildBillingStateColumns, mergeBillingStateIntoPreferences } from './us
 import { invalidateMeCacheForUser } from './userCache.js';
 import { WEEKDAY_BLOCK_PRICE_CENTS, WEEKEND_BLOCK_PRICE_CENTS } from '../utils/adPricing.js';
 const MAX_AD_SLOTS = 2;
+// Two ads' 9km geofence circles "touch" when their zip centroids are within
+// 2x the radius of each other. Owner "commandments" rule (2026-09-14): "make
+// sure they aren't touching neighboring radiuses for fairness" — the 2-slot
+// cap must span any zip whose ad radius would overlap this one's, not just
+// an exact zip-code match.
+const NEIGHBORING_RADIUS_TOUCH_MILES = AD_GEOFENCE_RADIUS_MILES * 2;
 const isJestRuntime = process.env.JEST_WORKER_ID != null;
 
 /**
@@ -591,7 +599,7 @@ export async function getFullAdSlotDates(
 ): Promise<string[]> {
   if (!params.targetZipCode) return [];
 
-  const competingAds = await db.ad.findMany({
+  const sameZipAds = await db.ad.findMany({
     where: {
       target_zip_code: params.targetZipCode,
       payment_status: { in: ['paid', 'hold', 'pending_approval'] },
@@ -600,6 +608,36 @@ export async function getFullAdSlotDates(
     select: { id: true },
     take: 100,
   });
+
+  // Fairness rule: two ads in DIFFERENT zip codes still compete for the same
+  // 2-slot cap if their 9km ad-radius circles would overlap. Pre-filter with
+  // a bounding box (cheap, indexable) around the target zip's centroid, then
+  // confirm with the real great-circle distance.
+  let nearbyZipAds: { id: string }[] = [];
+  const targetCoords = getZipCoordinates(params.targetZipCode);
+  if (targetCoords) {
+    const box = getAdBoundingBoxDegrees(targetCoords.lat, 2.15);
+    const candidates = await db.ad.findMany({
+      where: {
+        target_zip_code: { not: params.targetZipCode },
+        payment_status: { in: ['paid', 'hold', 'pending_approval'] },
+        NOT: { id: params.adId },
+        target_lat: { gte: targetCoords.lat - box.lat, lte: targetCoords.lat + box.lat },
+        target_lng: { gte: targetCoords.lon - box.lng, lte: targetCoords.lon + box.lng },
+      },
+      select: { id: true, target_lat: true, target_lng: true },
+      take: 100,
+    });
+    nearbyZipAds = candidates.filter(
+      ad =>
+        ad.target_lat != null &&
+        ad.target_lng != null &&
+        haversineDistance(targetCoords.lat, targetCoords.lon, ad.target_lat, ad.target_lng) <
+          NEIGHBORING_RADIUS_TOUCH_MILES
+    );
+  }
+
+  const competingAds = [...sameZipAds, ...nearbyZipAds];
   if (competingAds.length === 0) return [];
 
   const dateObjects = params.isoDates.map(s => new Date(s + 'T00:00:00.000Z'));
