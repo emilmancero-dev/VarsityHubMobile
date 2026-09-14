@@ -1544,6 +1544,59 @@ export async function autoExpireStaleEvents(prisma: PrismaClient): Promise<numbe
 }
 
 /**
+ * Owner "commandments" rule (2026-09-14): "If an event page doesn't get post
+ * after the 8 hours, it can be removed from the database. But should still
+ * be live window on feed and map until the 8 hours expire." Once an
+ * event's geofenced live window (server/src/lib/geofencing.ts — the same
+ * bounds that drive the feed LIVE badge and map pin, so it stays visible for
+ * the full window before this ever runs) has closed with zero posts and
+ * zero stories, the page never became a "real" event page and is purged.
+ *
+ * Scoped to standalone event pages only (game_id: null) — a linked Game
+ * carries its own historical value (final score, stats) independent of
+ * whether anyone posted, so competitive games are never touched here.
+ * Cascades (EventRsvp, EventPostingUnlock, EventDesignatedPoster, poll
+ * votes, stories) clean up automatically; Post.event_id is SET NULL, moot
+ * here since the query already requires zero posts.
+ */
+export async function purgeUnpostedEventPages(prisma: PrismaClient): Promise<number> {
+  const { getPostPostingWindowBounds } = await import('./geofencing.js');
+  const now = new Date();
+
+  const candidates = await prisma.event.findMany({
+    where: {
+      game_id: null,
+      approval_status: 'approved',
+      // Cheap DB-level floor: an event that hasn't even started yet can never
+      // have a closed window. The exact per-event cutoff (which varies with
+      // live_window_hours_after_start) is checked precisely below.
+      date: { lt: now },
+      posts: { none: {} },
+      stories: { none: {} },
+    },
+    select: { id: true, date: true, live_window_hours_after_start: true },
+    take: 200,
+  });
+
+  const toDelete = candidates.filter(event => {
+    const { liveCutoff } = getPostPostingWindowBounds(event.date, event.live_window_hours_after_start);
+    return now > liveCutoff;
+  });
+
+  if (toDelete.length === 0) return 0;
+
+  const result = await prisma.event.deleteMany({
+    where: { id: { in: toDelete.map(e => e.id) } },
+  });
+
+  if (result.count > 0) {
+    console.log(`[purge-unposted-events] Removed ${result.count} unposted event page(s)`);
+  }
+
+  return result.count;
+}
+
+/**
  * Reconcile ads stranded in payment_status:'refund_pending' — a rejected paid
  * ad whose refund didn't confirm (Stripe error, missing payment_intent, or a DB
  * write that failed after Stripe succeeded). Re-issues the refund idempotently

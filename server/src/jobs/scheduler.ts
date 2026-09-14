@@ -337,6 +337,22 @@ const SCHEDULED_JOBS: ScheduledJob[] = [
     },
   },
   {
+    name: 'purge-unposted-event-pages',
+    cron: '35 3 * * *', // Every day at 3:35 AM — after stale-event-auto-reject
+    description:
+      'Remove standalone event pages whose geofenced live window closed with zero posts/stories (owner "commandments" rule, 2026-09-14)',
+    handler: async () => {
+      try {
+        const { prisma } = await import('../lib/prisma.js');
+        const { purgeUnpostedEventPages } = await import('../lib/approvalService.js');
+        await purgeUnpostedEventPages(prisma);
+      } catch (error) {
+        console.error('[Scheduler] Purge unposted event pages failed:', error);
+        throw error;
+      }
+    },
+  },
+  {
     name: 'ad-refund-reconcile',
     cron: '20 * * * *', // Hourly at :20 — recover stranded ad refunds
     description:
