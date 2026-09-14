@@ -10,6 +10,8 @@ export interface EventMapData {
   type?: 'game' | 'event' | 'post';
   /** Canonical sport slug (see constants/sports.ts) — drives the map sport filter. */
   sport?: string | null;
+  /** Map league tier used by the Major/Minor/NCAA/Other filter. */
+  league_level?: 'major' | 'minor' | 'college' | 'other' | null;
 }
 
 export interface EventMapProps {

@@ -9,7 +9,16 @@ import { shouldShowEventOnMap } from '@/utils/mapEventFilters';
 import SportFilterBar from '@/components/SportFilterBar';
 import { normalizeSportSlug } from '@/constants/sports';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 // SafeAreaView removed — native header handles safe area
 // @ts-ignore
 import { Game } from '@/api/entities';
@@ -23,6 +32,28 @@ function GameMapScreen() {
   const [events, setEvents] = useState<EventMapData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedSport, setSelectedSport] = useState<string | null>(null);
+  const [selectedLevel, setSelectedLevel] = useState<string | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [pickerDate, setPickerDate] = useState(() => new Date());
+  const [showPicker, setShowPicker] = useState(false);
+
+  const toDateKey = (value: string | Date) => {
+    const date = typeof value === 'string' ? new Date(value) : value;
+    if (Number.isNaN(date.getTime())) return '';
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${month}-${day}`;
+  };
+
+  const leagueLevel = (item: any): EventMapData['league_level'] => {
+    const value = String(item.league_level ?? item.pro_league ?? '').toLowerCase();
+    if (value === 'ncaa' || value === 'college') return 'college';
+    if (value === 'minor') return 'minor';
+    if (value === 'major' || ['nfl', 'mlb', 'nba', 'wnba', 'nhl', 'wwe'].includes(value))
+      return 'major';
+    return 'other';
+  };
 
   const loadGames = useCallback(async () => {
     setLoading(true);
@@ -118,6 +149,7 @@ function GameMapScreen() {
             longitude: coords.longitude,
             type: 'game' as const,
             sport: normalizeSportSlug(game.sport),
+            league_level: leagueLevel(game),
           };
         });
 
@@ -142,6 +174,7 @@ function GameMapScreen() {
             longitude: coords.longitude,
             type: 'event' as const,
             sport: normalizeSportSlug(event.sport),
+            league_level: leagueLevel(event),
           };
         });
 
@@ -193,9 +226,26 @@ function GameMapScreen() {
   // Client-side filter — no refetch. A stale selection (sport no longer present)
   // simply yields an empty map until cleared, which is self-explanatory.
   const visibleEvents = useMemo(
-    () => (selectedSport ? events.filter(e => e.sport === selectedSport) : events),
-    [events, selectedSport]
+    () =>
+      events.filter(event => {
+        if (selectedDate && toDateKey(event.date) !== selectedDate) return false;
+        if (selectedLevel && event.league_level !== selectedLevel) return false;
+        if (selectedSport && event.sport !== selectedSport) return false;
+        return true;
+      }),
+    [events, selectedDate, selectedLevel, selectedSport]
   );
+
+  const availableDates = useMemo(
+    () => Array.from(new Set(events.map(event => toDateKey(event.date)).filter(Boolean))).sort(),
+    [events]
+  );
+
+  const clearFilters = () => {
+    setSelectedDate(null);
+    setSelectedLevel(null);
+    setSelectedSport(null);
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: Colors[colorScheme].background }]}>
@@ -232,7 +282,70 @@ function GameMapScreen() {
           onRefresh={!loading && !error ? loadGames : undefined}
         />
 
-        {/* Discreet sport filter — sits on the count-badge row, right of it. */}
+        {!loading && !error && (
+          <View style={styles.controls} pointerEvents="box-none">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {[
+                { label: 'All', value: null },
+                { label: 'Major', value: 'major' },
+                { label: 'Minor', value: 'minor' },
+                { label: 'NCAA', value: 'college' },
+                { label: 'Other', value: 'other' },
+              ].map(option => {
+                const active = selectedLevel === option.value;
+                return (
+                  <Pressable
+                    key={option.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${option.label} leagues`}
+                    accessibilityState={{ selected: active }}
+                    onPress={() => {
+                      setSelectedLevel(active ? null : option.value);
+                      setSelectedSport(null);
+                    }}
+                    style={[styles.filterChip, active && styles.activeFilterChip]}
+                  >
+                    <Text style={[styles.filterChipText, active && styles.activeFilterChipText]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open map calendar"
+                onPress={() => setCalendarOpen(open => !open)}
+                style={[
+                  styles.filterChip,
+                  (calendarOpen || selectedDate) && styles.activeFilterChip,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    (calendarOpen || selectedDate) && styles.activeFilterChipText,
+                  ]}
+                >
+                  {selectedDate ?? 'Calendar'}
+                </Text>
+              </Pressable>
+              {(selectedDate || selectedLevel || selectedSport) && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={clearFilters}
+                  style={styles.clearChip}
+                >
+                  <Text style={styles.clearChipText}>Clear</Text>
+                </Pressable>
+              )}
+            </ScrollView>
+          </View>
+        )}
+
+        {/*
+         * The sport picker remains separate from the league tier controls so
+         * users can combine NCAA/minor/other with a specific sport.
+         */}
         {!loading && !error && presentSports.length > 1 && (
           <View style={styles.sportFilter} pointerEvents="box-none">
             <SportFilterBar
@@ -240,6 +353,51 @@ function GameMapScreen() {
               selected={selectedSport}
               onSelect={setSelectedSport}
             />
+          </View>
+        )}
+
+        {!loading && !error && calendarOpen && (
+          <View style={styles.datePanel} pointerEvents="box-none">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {availableDates.map(date => {
+                const active = selectedDate === date;
+                return (
+                  <Pressable
+                    key={date}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Show games on ${date}`}
+                    onPress={() => setSelectedDate(active ? null : date)}
+                    style={[styles.dateChip, active && styles.activeDateChip]}
+                  >
+                    <Text style={[styles.dateChipText, active && styles.activeDateChipText]}>
+                      {date}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Pick a map date"
+                onPress={() => setShowPicker(true)}
+                style={styles.dateChip}
+              >
+                <Text style={styles.dateChipText}>Pick date</Text>
+              </Pressable>
+            </ScrollView>
+            {showPicker && (
+              <DateTimePicker
+                value={pickerDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={(_, date) => {
+                  if (Platform.OS !== 'ios') setShowPicker(false);
+                  if (date) {
+                    setPickerDate(date);
+                    setSelectedDate(toDateKey(date));
+                  }
+                }}
+              />
+            )}
           </View>
         )}
 
@@ -302,6 +460,54 @@ const styles = StyleSheet.create({
     height: 34,
     justifyContent: 'center',
   },
+  controls: {
+    position: 'absolute',
+    top: 112,
+    left: 12,
+    right: 12,
+    height: 42,
+    justifyContent: 'center',
+  },
+  filterChip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#CBD5E1',
+  },
+  activeFilterChip: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  filterChipText: { color: '#1F2937', fontSize: 13, fontWeight: '700' },
+  activeFilterChipText: { color: '#FFFFFF' },
+  clearChip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+  },
+  clearChipText: { color: '#B91C1C', fontSize: 13, fontWeight: '700' },
+  datePanel: {
+    position: 'absolute',
+    top: 158,
+    left: 12,
+    right: 12,
+    height: 44,
+    justifyContent: 'center',
+  },
+  dateChip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#CBD5E1',
+  },
+  activeDateChip: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  dateChipText: { color: '#1F2937', fontSize: 12, fontWeight: '600' },
+  activeDateChipText: { color: '#FFFFFF' },
   loadingOverlay: {
     position: 'absolute',
     top: 0,
