@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import {
   TABLES_IN_ORDER,
+  RAW_SQL_BACKUP_TABLES,
   DEFERRED_FK_COLUMNS,
   BACKUP_EXCLUDED_TABLES,
 } from '../lib/dbBackupTables.js';
@@ -121,29 +122,53 @@ describe('db-backup TABLES_IN_ORDER vs prisma/schema.prisma', () => {
     expect(DEFERRED_FK_COLUMNS['Comment']).toContain('parent_id');
   });
 
-  it('intentionally-excluded tables are never also in the backup order (no contradiction)', () => {
+  it('intentionally-excluded tables are never also in a backup list (no contradiction)', () => {
     // A table must not be both "back this up" and "deliberately skip" — that would
     // be self-contradictory and hide the drift alarm. PushTicket is the ephemeral,
     // non-Prisma push-receipt table the runtime alarm flagged (2026-07-09).
     expect([...BACKUP_EXCLUDED_TABLES]).toContain('PushTicket');
     for (const excluded of BACKUP_EXCLUDED_TABLES) {
       expect(TABLES_IN_ORDER).not.toContain(excluded);
+      expect([...RAW_SQL_BACKUP_TABLES]).not.toContain(excluded);
     }
+  });
 
-    // The newer ad-purchase flow's raw-SQL tables are excluded on purpose:
-    // verified 2026-09-14 as empty on primary and absent from the backup
-    // replica, so syncing them would fail every INSERT. They are NOT Prisma
-    // models (hence not in TABLES_IN_ORDER). See dbBackupTables.ts for the
-    // "create on backup + replicate before the flow ships" follow-up.
-    for (const t of [
+  describe('RAW_SQL_BACKUP_TABLES (non-Prisma ad-purchase tables)', () => {
+    const AD_PURCHASE_TABLES = [
       'AdPurchaseIntent',
       'AdPurchaseIntentItem',
       'AdPurchaseIntentRevision',
       'AdPurchaseReceipt',
       'AdSlotHold',
-    ]) {
-      expect([...BACKUP_EXCLUDED_TABLES]).toContain(t);
-      expect(models).not.toContain(t);
-    }
+    ];
+
+    it('holds exactly the five raw-SQL ad-purchase tables', () => {
+      expect([...RAW_SQL_BACKUP_TABLES].sort()).toEqual([...AD_PURCHASE_TABLES].sort());
+      expect(new Set(RAW_SQL_BACKUP_TABLES).size).toBe(RAW_SQL_BACKUP_TABLES.length);
+    });
+
+    it('are NOT Prisma models (they are raw SQL — cannot go in TABLES_IN_ORDER)', () => {
+      // This is why they need a separate list: the bijection test above would
+      // fail if a non-model appeared in TABLES_IN_ORDER. Their DDL lives in
+      // prisma/raw-sql/ad-purchase-tables.sql, applied by start.sh.
+      for (const t of RAW_SQL_BACKUP_TABLES) {
+        expect(models).not.toContain(t);
+        expect(TABLES_IN_ORDER).not.toContain(t);
+        expect([...BACKUP_EXCLUDED_TABLES]).not.toContain(t);
+      }
+    });
+
+    it('lists ad-purchase parents strictly before their ad-purchase children', () => {
+      // FK graph among the raw tables (verified from live information_schema):
+      //   AdPurchaseIntentItem, AdPurchaseIntentRevision -> AdPurchaseIntent
+      //   AdPurchaseReceipt -> AdPurchaseIntentItem
+      // (AdSlotHold -> Ad only, a Prisma model, so it has no intra-list parent.)
+      const order = RAW_SQL_BACKUP_TABLES as readonly string[];
+      const before = (parent: string, child: string) =>
+        order.indexOf(parent) < order.indexOf(child);
+      expect(before('AdPurchaseIntent', 'AdPurchaseIntentItem')).toBe(true);
+      expect(before('AdPurchaseIntent', 'AdPurchaseIntentRevision')).toBe(true);
+      expect(before('AdPurchaseIntentItem', 'AdPurchaseReceipt')).toBe(true);
+    });
   });
 });

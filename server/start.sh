@@ -134,6 +134,38 @@ if [ -n "${DATABASE_BACKUP_URL:-}" ]; then
   fi
 fi
 
+# Ensure the raw-SQL ad-purchase tables exist. These five (AdPurchaseIntent,
+# AdPurchaseIntentItem, AdPurchaseIntentRevision, AdPurchaseReceipt, AdSlotHold)
+# are NOT Prisma models — they have no schema.prisma / migrations entry, so
+# neither `migrate deploy` (primary) nor `db push` (backup) creates them. Worse,
+# the backup `db push --accept-data-loss` above actively DROPS them (verified
+# 2026-09-14), so this reconciliation MUST run AFTER it. The DDL
+# (prisma/raw-sql/ad-purchase-tables.sql) is fully idempotent (CREATE ... IF NOT
+# EXISTS) and is the only version-controlled definition of these tables.
+#   - primary: no-op today (tables already present); guarantees a
+#     rebuilt-from-migrations primary still gets them.
+#   - backup: gives the ad-purchase financial history DR coverage — once the
+#     tables exist, the 6-hourly db-backup-sync replicates their rows
+#     (RAW_SQL_BACKUP_TABLES in src/lib/dbBackupTables.ts).
+# Non-fatal: a raw-SQL apply failure must never block API startup.
+RAW_SQL_FILE="prisma/raw-sql/ad-purchase-tables.sql"
+if [ -f "$RAW_SQL_FILE" ]; then
+  echo "[startup] Ensuring raw-SQL ad-purchase tables on primary..."
+  if timeout 120 ./node_modules/.bin/prisma db execute --url "$DATABASE_URL" --file "$RAW_SQL_FILE"; then
+    echo "[startup] ✓ Raw-SQL ad-purchase tables ensured on primary"
+  else
+    echo "[startup] ⚠️  Raw-SQL apply to primary failed/timed out (non-fatal)"
+  fi
+  if [ -n "${DATABASE_BACKUP_URL:-}" ]; then
+    echo "[startup] Ensuring raw-SQL ad-purchase tables on backup replica..."
+    if timeout 120 ./node_modules/.bin/prisma db execute --url "$DATABASE_BACKUP_URL" --file "$RAW_SQL_FILE"; then
+      echo "[startup] ✓ Raw-SQL ad-purchase tables ensured on backup replica"
+    else
+      echo "[startup] ⚠️  Raw-SQL apply to backup failed/timed out (non-fatal); db-backup-sync will surface per-table failures"
+    fi
+  fi
+fi
+
 stop_startup_placeholder
 echo "[startup] 🚀 Starting API server..."
 exec node dist/index.js

@@ -88,31 +88,41 @@ export const DEFERRED_FK_COLUMNS: Record<string, string[]> = {
   Comment: ['parent_id'],
 };
 
-// Primary-DB tables that are INTENTIONALLY not replicated to the DR backup.
-// The sync alarms on any public table missing from TABLES_IN_ORDER (live schema
-// drift guard). These are deliberately absent — excluded from that alarm so the
-// signal stays meaningful:
-//   - PushTicket: ephemeral Expo push-delivery receipts (expire ~24h), created
-//     out-of-band (not a Prisma model, no schema.prisma entry), worthless to
-//     restore. Never referenced by a backed-up table, so no CASCADE risk.
-//   - AdPurchaseIntent / AdPurchaseIntentItem / AdPurchaseIntentRevision /
-//     AdPurchaseReceipt / AdSlotHold: a newer ad-purchase flow's raw-SQL tables
-//     (NOT Prisma models). Verified 2026-09-14: all 5 are empty on primary AND
-//     do not yet exist on the backup replica (which never receives
-//     `prisma migrate deploy`). Forcing them into the sync would fail every
-//     INSERT against a missing backup table and flip the whole sync to "failed",
-//     so they are excluded for now to keep the drift alarm meaningful.
-//     FOLLOW-UP (before this flow ships with real financial data): create these
-//     tables on the backup replica, then move them into a parents-first backup
-//     list so AdPurchaseReceipt/Intent history is covered by DR. FK order
-//     (from live information_schema): AdPurchaseIntent -> User/Ad/TransactionLog;
-//     AdPurchaseIntentItem, AdPurchaseIntentRevision -> AdPurchaseIntent;
-//     AdPurchaseReceipt -> AdPurchaseIntentItem; AdSlotHold -> Ad.
-export const BACKUP_EXCLUDED_TABLES: ReadonlySet<string> = new Set([
-  'PushTicket',
+// Raw-SQL tables (NOT Prisma models) that ARE replicated to the DR backup.
+//
+// These five belong to the ad-purchase flow and were created out-of-band with
+// raw SQL on the primary — they have no entry in prisma/schema.prisma or
+// prisma/migrations, so they cannot go in TABLES_IN_ORDER (the order test
+// enforces a strict Prisma-model bijection). Their authoritative DDL lives in
+// prisma/raw-sql/ad-purchase-tables.sql, which start.sh applies (idempotently)
+// to BOTH primary and the backup replica on every deploy — the backup's
+// `prisma db push` only knows Prisma models and, worse, actively DROPS these
+// non-Prisma tables with --accept-data-loss (verified 2026-09-14), so the raw
+// DDL step MUST run after db push and does.
+//
+// Listed here in parents-first order (mirrors the SQL file and the FK graph
+// verified from live information_schema):
+//   AdPurchaseIntent      -> User / Ad / TransactionLog (Prisma models)
+//   AdPurchaseIntentItem  -> AdPurchaseIntent
+//   AdPurchaseIntentRevision -> AdPurchaseIntent
+//   AdPurchaseReceipt     -> AdPurchaseIntentItem (composite FK intent_id, sku)
+//   AdSlotHold            -> Ad
+// The backup sync appends this list after TABLES_IN_ORDER, so their Prisma
+// parents (User/Ad/TransactionLog) are always inserted first, and it is folded
+// into the "unlisted table" drift filter so these no longer false-alarm.
+export const RAW_SQL_BACKUP_TABLES = [
   'AdPurchaseIntent',
   'AdPurchaseIntentItem',
   'AdPurchaseIntentRevision',
   'AdPurchaseReceipt',
   'AdSlotHold',
-]);
+] as const;
+
+// Primary-DB tables that are INTENTIONALLY not replicated to the DR backup.
+// The sync alarms on any public table missing from the backup set (live schema
+// drift guard). These are deliberately absent — excluded from that alarm so the
+// signal stays meaningful:
+//   - PushTicket: ephemeral Expo push-delivery receipts (expire ~24h), created
+//     out-of-band (not a Prisma model, no schema.prisma entry), worthless to
+//     restore. Never referenced by a backed-up table, so no CASCADE risk.
+export const BACKUP_EXCLUDED_TABLES: ReadonlySet<string> = new Set(['PushTicket']);

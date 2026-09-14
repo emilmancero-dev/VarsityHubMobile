@@ -12,7 +12,12 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { debugLog } from './debugLog.js';
 import { captureException } from './sentry.js';
 import { buildRowValuesClause, enumCastTypeName } from './dbBackupSql.js';
-import { TABLES_IN_ORDER, DEFERRED_FK_COLUMNS, BACKUP_EXCLUDED_TABLES } from './dbBackupTables.js';
+import {
+  TABLES_IN_ORDER,
+  RAW_SQL_BACKUP_TABLES,
+  DEFERRED_FK_COLUMNS,
+  BACKUP_EXCLUDED_TABLES,
+} from './dbBackupTables.js';
 import { withBackupSyncEvidence } from './backupSyncEvidence.js';
 
 /**
@@ -239,7 +244,12 @@ async function copyDatabaseBackup(
     // below) — alarm instead of skipping silently. New models are caught in
     // CI by db-backup-table-order.test.ts; this guards live schema drift.
     const unlistedTables = [...existingTables]
-      .filter(t => !TABLES_IN_ORDER.includes(t) && !BACKUP_EXCLUDED_TABLES.has(t))
+      .filter(
+        t =>
+          !TABLES_IN_ORDER.includes(t) &&
+          !RAW_SQL_BACKUP_TABLES.includes(t as (typeof RAW_SQL_BACKUP_TABLES)[number]) &&
+          !BACKUP_EXCLUDED_TABLES.has(t)
+      )
       .sort();
     if (unlistedTables.length > 0) {
       const msg = `DB backup sync: ${unlistedTables.length} primary table(s) not in TABLES_IN_ORDER, not backed up: ${unlistedTables.join(', ')}`;
@@ -247,7 +257,13 @@ async function copyDatabaseBackup(
       captureException(new Error(msg), { extra: { unlistedTables } });
     }
 
-    const syncableTables = TABLES_IN_ORDER.filter(t => existingTables.has(t));
+    // Prisma models first (already parents-first), then the raw-SQL ad-purchase
+    // tables. Appending keeps every raw table after its Prisma FK parents
+    // (User/Ad/TransactionLog) and preserves parents-first order among the raw
+    // tables themselves (see RAW_SQL_BACKUP_TABLES).
+    const syncableTables = [...TABLES_IN_ORDER, ...RAW_SQL_BACKUP_TABLES].filter(t =>
+      existingTables.has(t)
+    );
 
     // Empty ALL tables in one statement before inserting anything. The old
     // per-table `TRUNCATE "<table>" CASCADE` was the root cause of the
