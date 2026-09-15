@@ -672,6 +672,34 @@ describeDb('Posts API Endpoints', () => {
       }
     });
 
+    it('accepts a batch of up to 5 media items via media_urls, mirroring the first onto media_url', async () => {
+      const urls = [1, 2, 3].map(
+        n => `https://varsityhub.app/uploads/batch-${n}-${Date.now()}.jpg`
+      );
+      const createRes = await request(app)
+        .post('/posts')
+        .set('Authorization', `Bearer ${testUserToken}`)
+        .send({ content: 'Batch media post', media_urls: urls });
+
+      expect(createRes.statusCode).toBe(201);
+      expect(createRes.body.media_url).toBe(urls[0]);
+      expect(createRes.body.media_urls).toEqual(urls);
+
+      await prisma.post.delete({ where: { id: createRes.body.id } }).catch(() => {});
+    });
+
+    it('rejects more than 5 media items in a single post', async () => {
+      const urls = [1, 2, 3, 4, 5, 6].map(
+        n => `https://varsityhub.app/uploads/toomany-${n}-${Date.now()}.jpg`
+      );
+      const createRes = await request(app)
+        .post('/posts')
+        .set('Authorization', `Bearer ${testUserToken}`)
+        .send({ content: 'Too many media items', media_urls: urls });
+
+      expect(createRes.statusCode).toBe(400);
+    });
+
     it('should reject game-linked event posts when venue coordinates are missing', async () => {
       const game = await prisma.game.create({
         data: {

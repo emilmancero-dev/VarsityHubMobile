@@ -709,6 +709,13 @@ const createPostSchema = z
     content: z.string().max(4000).optional(),
     type: z.string().max(50).optional(),
     media_url: z.string().trim().min(1).refine(isAllowedPostMediaUrl, mediaUrlMessage).optional(),
+    // Batch media (PDF commandments: "up to 5 items per post"). When present,
+    // this is the full ordered list including the first item — media_url is
+    // still accepted alone for backward compat with older clients/replays.
+    media_urls: z
+      .array(z.string().trim().min(1).refine(isAllowedPostMediaUrl, mediaUrlMessage))
+      .max(5)
+      .optional(),
     // Media metadata captured client-side from the upload response. Bounded to
     // sane ranges so a malformed client can't persist absurd values. All
     // optional/additive — older clients simply omit them.
@@ -733,11 +740,13 @@ const createPostSchema = z
     event_id: z.string().optional(), // For event-specific posts
     location: locationSchema,
   })
-  // Require at least content or media_url
+  // Require at least content or media (single media_url or a batch media_urls)
   .refine(
     d =>
       Boolean(
-        (d.content && d.content.trim().length > 0) || (d.media_url && d.media_url.trim().length > 0)
+        (d.content && d.content.trim().length > 0) ||
+        (d.media_url && d.media_url.trim().length > 0) ||
+        (d.media_urls && d.media_urls.length > 0)
       ),
     {
       message: 'Either content or media_url is required',
@@ -747,6 +756,7 @@ const createPostSchema = z
 
 import { geocodeZip, getCountryFromReqOrPrefs, reverseGeocode } from '../lib/geo.js';
 import { verifyEventPostingPermission } from '../lib/geofencing.js';
+import { emitToEventRoom } from '../realtime/socketServer.js';
 import { notifyMentions } from '../lib/mentionNotifications.js';
 import { notifyCommentReply, notifyPostInteraction } from '../lib/notifications.js';
 import { stripHtml } from '../lib/sanitizeHtml.js';
@@ -808,9 +818,26 @@ postsRouter.post(
       return true;
     };
     if (await replayPost()) return;
+    // Normalize batch media: media_urls (new) takes precedence when present,
+    // media_url (legacy single-item clients) is the fallback. The canonical
+    // list is capped at 5 (PDF commandments: "up to 5 items per post"); the
+    // first item stays mirrored onto media_url for old clients/replays.
+    const normalizedMediaUrls = (
+      data.media_urls?.length ? data.media_urls : data.media_url ? [data.media_url] : []
+    ).slice(0, 5);
     let verifiedMedia;
     try {
-      verifiedMedia = await assertReadyMediaForOwner(req.user!.id, data.media_url, data.poster_url);
+      // The first item carries the shared metadata fields (width/height/duration/
+      // bytes/poster) exactly as before; additional items only need the same
+      // ownership+readiness check, not a second set of metadata columns.
+      verifiedMedia = await assertReadyMediaForOwner(
+        req.user!.id,
+        normalizedMediaUrls[0],
+        data.poster_url
+      );
+      for (const extraUrl of normalizedMediaUrls.slice(1)) {
+        await assertReadyMediaForOwner(req.user!.id, extraUrl);
+      }
     } catch (error: any) {
       if (error?.status !== 422) throw error;
       return sendError(res, 422, 'This media is not ready. Please upload it again.', {
@@ -823,6 +850,9 @@ postsRouter.post(
       data.media_bytes = verifiedMedia.bytes;
       data.media_duration_s = verifiedMedia.duration;
       data.poster_url = verifiedMedia.poster_url;
+    }
+    if (normalizedMediaUrls.length) {
+      data.media_url = normalizedMediaUrls[0];
     }
 
     // Dedup guard: reject if identical post submitted within 30s window
@@ -1081,6 +1111,7 @@ postsRouter.post(
           content: data.content ? stripHtml(data.content.trim()) : null,
           type: safeType,
           media_url: data.media_url,
+          media_urls: normalizedMediaUrls,
           poster_url: data.poster_url,
           media_width: data.media_width,
           media_height: data.media_height,
@@ -1122,12 +1153,18 @@ postsRouter.post(
         .catch(e => console.error('[notif] post mention actor lookup failed', e));
     }
 
-    res.status(201).json({
+    const responseBody = {
       ...post,
       title: stripSampleGameTitle(post.title),
       preview_url: resolvePreviewUrl(post),
       location: { lat, lng, place_name, country_code },
-    });
+    };
+    res.status(201).json(responseBody);
+
+    // Realtime: fan out to whichever event-page room(s) this post belongs to.
+    // Fire-and-forget, best-effort — never blocks or affects the HTTP response.
+    if (finalGameId) emitToEventRoom('game', finalGameId, 'new_post', responseBody);
+    if (finalEventId) emitToEventRoom('event', finalEventId, 'new_post', responseBody);
   })
 );
 
@@ -1733,6 +1770,8 @@ postsRouter.post(
           id: true,
           author_id: true,
           team_id: true,
+          game_id: true,
+          event_id: true,
           game: { select: { home_team_id: true, away_team_id: true } },
         },
       });
@@ -1768,6 +1807,13 @@ postsRouter.post(
         },
         { isolationLevel: 'Serializable' }
       );
+
+      // Realtime: fan out the new count to anyone viewing this post's event page.
+      const reactedPayload = { post_id: postId, reaction_count: result.upvotes_count };
+      if (postExists.game_id)
+        emitToEventRoom('game', postExists.game_id, 'post_reacted', reactedPayload);
+      if (postExists.event_id)
+        emitToEventRoom('event', postExists.event_id, 'post_reacted', reactedPayload);
 
       if (!result.has_upvoted) {
         return res.json({
@@ -1969,6 +2015,7 @@ postsRouter.delete(
           author_id: true,
           team_id: true,
           game_id: true,
+          event_id: true,
           media_url: true,
           poster_url: true,
         },
@@ -2018,6 +2065,11 @@ postsRouter.delete(
       // not gate or share fate with the user-visible delete.
       const deletedAt = new Date();
       await prisma.post.update({ where: { id: postId }, data: { deleted_at: deletedAt } });
+
+      // Realtime: fan out the deletion to anyone viewing this post's event page.
+      const deletedPayload = { post_id: postId };
+      if (post.game_id) emitToEventRoom('game', post.game_id, 'post_deleted', deletedPayload);
+      if (post.event_id) emitToEventRoom('event', post.event_id, 'post_deleted', deletedPayload);
 
       // Best-effort cleanup: remove notifications pointing at the deleted post and
       // its comments. A failure here leaves only stale notifications (their taps

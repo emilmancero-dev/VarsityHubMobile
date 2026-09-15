@@ -160,6 +160,11 @@ function CreatePostScreen() {
     /** Picked-asset duration in seconds (ImagePicker reports ms) — drives the 90s cap. */
     durationS?: number;
   } | null>(null);
+  // Additional images beyond the primary `picked` item (PDF commandments: "up
+  // to 5 items per post" — batch-select from the photo library). Images only:
+  // `picked` stays the single source of truth for video (its recovery/trim/
+  // compress pipeline is unchanged). Max 4 extras + 1 primary = 5 total.
+  const [extraPicked, setExtraPicked] = useState<Array<{ uri: string; mime: string }>>([]);
   const [mediaDimensions, setMediaDimensions] = useState<{ width: number; height: number } | null>(
     null
   );
@@ -222,6 +227,7 @@ function CreatePostScreen() {
     setSuccessInfo(null);
     setContent('');
     setPicked(null);
+    setExtraPicked([]);
     setError(null);
     safeGoBack(router, '/(tabs)/feed');
   }, [router]);
@@ -263,6 +269,7 @@ function CreatePostScreen() {
         setPostSuccess(false);
         setContent('');
         setPicked(null);
+        setExtraPicked([]);
         setError(null);
         setSubmitting(false);
         setPreviewVisible(false);
@@ -582,52 +589,69 @@ function CreatePostScreen() {
         quality: media === 'image' ? 1 : undefined,
         exif: false,
         videoExportPreset: VIDEO_CAPTURE_PRESET,
+        // Batch photo selection (PDF commandments: "up to 5 items per post" —
+        // "allow them to select multiple when they are in the photo library").
+        // Video stays single-select — its trim/compress/recovery pipeline is
+        // built around exactly one item.
+        ...(media === 'image' ? { allowsMultipleSelection: true, selectionLimit: 5 } : {}),
       } as any);
       if (!r.canceled && r.assets && r.assets[0]) {
-        const a = {
-          ...r.assets[0],
-          uri: await persistPreparedMedia(await materializeICloudAssetIfNeeded(r.assets[0].uri)),
-        };
+        const rawAssets = media === 'image' ? r.assets.slice(0, 5) : [r.assets[0]];
+        const prepared: Array<{ uri: string; mime: string; durationS?: number }> = [];
+        for (const rawAsset of rawAssets) {
+          const a = {
+            ...rawAsset,
+            uri: await persistPreparedMedia(await materializeICloudAssetIfNeeded(rawAsset.uri)),
+          };
 
-        // Validate file type
-        const mimeType = a.mimeType || (media === 'image' ? 'image/jpeg' : 'video/mp4');
-        if (!validateMediaType(mimeType, media)) {
-          Alert.alert(
-            'Invalid File Type',
-            media === 'image'
-              ? 'Please select a valid image file (JPG, PNG, GIF, WebP, or HEIC).'
-              : 'Please select a valid video file (MP4, MOV, or WebM).'
-          );
-          return;
+          // Validate file type
+          const mimeType = a.mimeType || (media === 'image' ? 'image/jpeg' : 'video/mp4');
+          if (!validateMediaType(mimeType, media)) {
+            Alert.alert(
+              'Invalid File Type',
+              media === 'image'
+                ? 'Please select a valid image file (JPG, PNG, GIF, WebP, or HEIC).'
+                : 'Please select a valid video file (MP4, MOV, or WebM).'
+            );
+            return;
+          }
+
+          // Validate file size. Videos are gated against the pick-time SANITY
+          // ceiling, not the 150MB upload cap — the picked file is pre-compression
+          // bytes and the cap applies to post-compression bytes. Gating the pick
+          // on MAX_VIDEO_SIZE_BYTES rejected 90s highlights (a 1080p export runs
+          // ~14-16 Mbps → ~160-180MB) that compress to ~68MB and upload fine.
+          // prepareVideoForUpload re-checks the real cap on the real bytes.
+          const fileSize = await getFileSizeFromUri(a.uri);
+          const maxSize = media === 'image' ? MAX_IMAGE_SIZE : MAX_PICKED_VIDEO_SIZE_BYTES;
+          const maxSizeMB = media === 'image' ? 10 : MAX_PICKED_VIDEO_SIZE_MB;
+
+          if (fileSize > maxSize) {
+            Alert.alert(
+              'File Too Large',
+              media === 'video'
+                ? `This video is ${Math.round(fileSize / (1024 * 1024))}MB, which is too big to process on your phone. Trim it shorter or record at a lower resolution and try again.`
+                : `The selected ${media} is too large. Maximum size is ${maxSizeMB}MB.`
+            );
+            return;
+          }
+
+          const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
+          prepared.push({
+            uri,
+            mime: mimeType,
+            durationS: typeof a.duration === 'number' ? a.duration / 1000 : undefined,
+          });
         }
 
-        // Validate file size. Videos are gated against the pick-time SANITY
-        // ceiling, not the 150MB upload cap — the picked file is pre-compression
-        // bytes and the cap applies to post-compression bytes. Gating the pick
-        // on MAX_VIDEO_SIZE_BYTES rejected 90s highlights (a 1080p export runs
-        // ~14-16 Mbps → ~160-180MB) that compress to ~68MB and upload fine.
-        // prepareVideoForUpload re-checks the real cap on the real bytes.
-        const fileSize = await getFileSizeFromUri(a.uri);
-        const maxSize = media === 'image' ? MAX_IMAGE_SIZE : MAX_PICKED_VIDEO_SIZE_BYTES;
-        const maxSizeMB = media === 'image' ? 10 : MAX_PICKED_VIDEO_SIZE_MB;
-
-        if (fileSize > maxSize) {
-          Alert.alert(
-            'File Too Large',
-            media === 'video'
-              ? `This video is ${Math.round(fileSize / (1024 * 1024))}MB, which is too big to process on your phone. Trim it shorter or record at a lower resolution and try again.`
-              : `The selected ${media} is too large. Maximum size is ${maxSizeMB}MB.`
-          );
-          return;
-        }
-
-        const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
+        const [primary, ...extras] = prepared;
         setPicked({
-          uri,
+          uri: primary.uri,
           type: media,
-          mime: mimeType,
-          durationS: typeof a.duration === 'number' ? a.duration / 1000 : undefined,
+          mime: primary.mime,
+          durationS: primary.durationS,
         });
+        setExtraPicked(extras.map(e => ({ uri: e.uri, mime: e.mime })));
       }
     } catch (error: any) {
       if (__DEV__) console.error('[CreatePost] Image picker error:', error);
@@ -1103,6 +1127,27 @@ function CreatePostScreen() {
           upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
         });
       }
+
+      // Batch photos (PDF commandments: "up to 5 items per post"). These are
+      // NOT part of the resumable-recovery state above — a rare crash/retry
+      // mid-submit re-uses the recovered primary item but not extras, which
+      // is an acceptable corner case (the primary succeeded; extras are cheap
+      // to re-pick). All-or-nothing: any failed extra fails the whole submit,
+      // matching how a failed primary upload behaves.
+      const extraMediaUrls: string[] = [];
+      if (extraPicked.length > 0 && finalMediaUrl) {
+        const { getApiBaseUrl } = await import('@/api/http');
+        const base = getApiBaseUrl();
+        for (const extra of extraPicked) {
+          const extraRes = await uploadFile(base, extra.uri, 'image.jpg', extra.mime, {
+            signal: uploadController.signal,
+          });
+          if (!extraRes?.url) {
+            throw new Error('One of the additional photos failed to upload. Please try again.');
+          }
+          extraMediaUrls.push(extraRes.url);
+        }
+      }
       const trimmedContent = sanitizeText(content);
 
       const locationPayload =
@@ -1114,6 +1159,7 @@ function CreatePostScreen() {
         media_url: finalMediaUrl || undefined,
         ...(finalMediaUrl ? mediaMeta : {}),
         ...(finalMediaUrl && finalPosterUrl ? { poster_url: finalPosterUrl } : {}),
+        ...(extraMediaUrls.length ? { media_urls: [finalMediaUrl, ...extraMediaUrls] } : {}),
         type: postType,
         location: locationPayload,
       };
@@ -1484,6 +1530,14 @@ function CreatePostScreen() {
             <Text style={[styles.helper, { color: Colors[colorScheme].mutedText }]}>
               Use # to tag teams and @ to mention players
             </Text>
+            {content.length > 800 ? (
+              <Text
+                testID="create-post-long-content-warning"
+                style={[styles.helper, { color: '#B8860B' }]}
+              >
+                {content.length}/4000 — posts over 800 characters may be truncated in some views.
+              </Text>
+            ) : null}
           </View>
 
           {/* Media Actions */}
@@ -1595,12 +1649,33 @@ function CreatePostScreen() {
                 <Pressable
                   testID="create-post-remove-media-button"
                   style={styles.removeButton}
-                  onPress={() => setPicked(null)}
+                  onPress={() => {
+                    setPicked(null);
+                    setExtraPicked([]);
+                  }}
                   accessibilityLabel="Remove media"
                 >
                   <Ionicons name="close" size={16} color="#FFFFFF" />
                 </Pressable>
               </View>
+              {/* Batch photo strip (PDF commandments: "up to 5 items per post") —
+                  images only; primary item above is item 1 of up to 5. */}
+              {picked.type === 'image' && extraPicked.length > 0 ? (
+                <View style={styles.extraPhotoStrip} testID="create-post-extra-photo-strip">
+                  {extraPicked.map((item, index) => (
+                    <View key={item.uri} style={styles.extraPhotoThumbWrap}>
+                      <RNImage source={{ uri: item.uri }} style={styles.extraPhotoThumb} />
+                      <Pressable
+                        style={styles.extraPhotoRemove}
+                        accessibilityLabel={`Remove photo ${index + 2}`}
+                        onPress={() => setExtraPicked(prev => prev.filter((_, i) => i !== index))}
+                      >
+                        <Ionicons name="close" size={12} color="#FFFFFF" />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -2102,6 +2177,7 @@ function CreatePostScreen() {
                       onPress={() => {
                         setPreviewVisible(false);
                         setPicked(null);
+                        setExtraPicked([]);
                         Alert.alert('Replace Media', 'Choose how you want to replace your media:', [
                           { text: 'Camera', onPress: () => captureWithCamera() },
                           {
@@ -2709,6 +2785,34 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
     marginBottom: 2,
+  },
+  extraPhotoStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  extraPhotoThumbWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  extraPhotoThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  extraPhotoRemove: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // Game/Event Section
   gameSection: {

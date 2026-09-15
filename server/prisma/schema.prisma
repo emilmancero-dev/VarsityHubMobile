@@ -570,6 +570,13 @@ model Post {
   content       String? @db.VarChar(4000)
   type          String? @db.VarChar(50) // consider enum later
   media_url     String?
+  // Batch media (PDF commandments: "up to 5 items per post"). media_url stays
+  // the first/primary item for backward compat with existing rows and older
+  // clients that only ever send a single media_url; media_urls additionally
+  // holds the full ordered list (including the first) when a post has more
+  // than one item. Empty for text-only or single-media posts created before
+  // this field existed — always read media_url as the fallback single item.
+  media_urls    String[] @default([])
   upvotes_count Int     @default(0)
 
   // Media metadata captured at upload (from the Cloudinary response today; from
@@ -1078,6 +1085,7 @@ model Ad {
   banner_url                 String?                   @db.VarChar(2048)
   banner_fit_mode            String?                   @default("fill") // cover | contain | fill (CSS object-fit)
   target_url                 String?                   @db.VarChar(2048) // URL to open when ad is clicked
+  cta_text                   String?                   @db.VarChar(50) // Advertiser-chosen CTA button label, e.g. "Learn More"
   target_zip_code            String?                   @db.VarChar(12)
   target_lat                 Float? // Latitude of target_zip_code (populated on create/update)
   target_lng                 Float? // Longitude of target_zip_code (populated on create/update)
