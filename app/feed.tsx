@@ -2112,6 +2112,7 @@ export default function FeedScreen() {
                   bannerUrl={adData.banner_url}
                   fitMode={adData.banner_fit_mode || 'contain'}
                   targetUrl={adData.target_url}
+                  ctaText={adData.cta_text}
                   businessName={adData.business_name}
                   description={adData.description}
                   // Pre-load placeholder ratio only — a 'contain' ad snaps to

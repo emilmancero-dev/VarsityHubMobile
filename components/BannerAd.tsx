@@ -18,6 +18,7 @@ interface BannerAdProps {
   adId?: string | null;
   bannerUrl?: string | null;
   targetUrl?: string | null;
+  ctaText?: string | null;
   businessName?: string;
   description?: string;
   fitMode?: 'cover' | 'contain' | 'fill' | 'rotate' | 'stretch' | 'letterbox' | `rotate:${number}`;
@@ -29,6 +30,7 @@ export function BannerAd({
   adId,
   bannerUrl,
   targetUrl,
+  ctaText,
   businessName,
   description,
   // Default to 'contain' so an ad image is never distorted — it shows at its
@@ -245,10 +247,12 @@ export function BannerAd({
         }}
       />
 
-      {/* "Tap to visit" overlay — top-left */}
+      {/* Advertiser-chosen CTA overlay — top-left (PDF: "Banner must include
+          business name + CTA button"). Falls back to a generic label when the
+          advertiser didn't set one — never crashes on missing data. */}
       {targetUrl && (
         <View style={styles.linkIndicator}>
-          <Text style={styles.linkIndicatorText}>Tap to visit</Text>
+          <Text style={styles.linkIndicatorText}>{ctaText?.trim() || 'Learn More'}</Text>
         </View>
       )}
     </Pressable>

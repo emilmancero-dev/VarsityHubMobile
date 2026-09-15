@@ -32,6 +32,7 @@ type DraftAd = {
   banner_url?: string;
   banner_fit_mode?: BannerFitValue;
   target_url?: string;
+  cta_text?: string;
   zip_code: string;
   description?: string;
   created_at: string;
@@ -62,6 +63,7 @@ export function SubmitAdScreenBase({
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [bannerFitMode, setBannerFitMode] = useState<BannerFitValue>('fill');
   const [targetUrl, setTargetUrl] = useState('');
+  const [ctaText, setCtaText] = useState('');
   const [desc, setDesc] = useState('');
   const [busy, setBusy] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -124,6 +126,7 @@ export function SubmitAdScreenBase({
           banner_url: bannerUrl || undefined,
           banner_fit_mode: normalizeBannerFitMode(bannerFitMode),
           target_url: normalizeUrl(targetUrl) || undefined,
+          cta_text: sanitizeText(ctaText) || undefined,
           target_zip_code: zip.trim(),
           radius: AD_GEOFENCE_RADIUS_KM,
           description: sanitizeText(desc) || undefined,
@@ -188,6 +191,7 @@ export function SubmitAdScreenBase({
           banner_url: bannerUrl || undefined,
           banner_fit_mode: bannerFitMode,
           target_url: normalizeUrl(targetUrl) || undefined,
+          cta_text: ctaText.trim() || undefined,
           zip_code: zip.trim(),
           description: desc.trim() || undefined,
           created_at: new Date().toISOString(),
@@ -363,6 +367,22 @@ export function SubmitAdScreenBase({
               🔗 Users can tap your ad to visit this website
             </Text>
           ) : null}
+
+          <Text style={[sharedStyles.label, { color: theme.text }]}>Button Text (Optional)</Text>
+          <TextInput
+            value={ctaText}
+            onChangeText={setCtaText}
+            placeholder="Learn More"
+            style={[
+              sharedStyles.input,
+              { backgroundColor: theme.card, borderColor: theme.border, color: theme.text },
+            ]}
+            placeholderTextColor={theme.mutedText}
+            maxLength={50}
+          />
+          <Text style={[sharedStyles.helperText, { color: theme.mutedText }]}>
+            Shown on your ad's button, e.g. "Learn More" or "Visit Us"
+          </Text>
 
           <Text style={[sharedStyles.label, { color: theme.text }]}>Description (Optional)</Text>
           <TextInput

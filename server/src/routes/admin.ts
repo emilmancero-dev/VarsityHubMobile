@@ -18,6 +18,7 @@ import {
   verifyReviewToken,
 } from '../lib/reviewTokens.js';
 import {
+  getAdRevenueReport,
   getAllTransactions,
   getTransactionBySession,
   getTransactionSummary,
@@ -764,6 +765,55 @@ adminRouter.get(
       dateRange: {
         start: start?.toISOString(),
         end: end?.toISOString(),
+      },
+    });
+  })
+);
+
+/**
+ * GET /admin/ads/revenue-report
+ * Ad revenue aggregate report — VARSITYHUB COMMANDMENTS: "Revenue tracking by:
+ * zip code (revenue by area), time window (M-Th vs F-Su), business (total ad
+ * spend per customer), impressions and clicks per ad."
+ * Query params:
+ * - startDate/endDate: optional ISO date range (defaults to all-time)
+ */
+adminRouter.get(
+  '/ads/revenue-report',
+  requireVerified as any,
+  requireAdminMiddleware as any,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { startDate, endDate } = req.query;
+
+    const dateParam = z
+      .string()
+      .optional()
+      .transform((value, ctx) => {
+        if (!value) return undefined;
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid ISO date' });
+          return z.NEVER;
+        }
+        return parsed;
+      });
+    const dateParsed = z
+      .object({ startDate: dateParam, endDate: dateParam })
+      .safeParse({ startDate, endDate });
+    if (!dateParsed.success) {
+      return res
+        .status(400)
+        .json({ error: 'Invalid date format. Use ISO date strings for startDate and endDate.' });
+    }
+
+    const report = await getAdRevenueReport(dateParsed.data.startDate, dateParsed.data.endDate);
+
+    return res.json({
+      ok: true,
+      report,
+      dateRange: {
+        start: dateParsed.data.startDate?.toISOString(),
+        end: dateParsed.data.endDate?.toISOString(),
       },
     });
   })

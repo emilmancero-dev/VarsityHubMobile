@@ -64,6 +64,7 @@ const adCreateSchema = z.object({
     .max(2048)
     .refine(url => /^https:\/\//i.test(url), { message: 'target_url must use https protocol' })
     .nullish(),
+  cta_text: z.string().max(50).nullish(),
   target_zip_code: z
     .string()
     .min(2)
@@ -85,6 +86,7 @@ const adUpdateSchema = z.object({
     .max(2048)
     .refine(url => /^https:\/\//i.test(url), { message: 'target_url must use https protocol' })
     .nullish(),
+  cta_text: z.string().max(50).nullish(),
   target_zip_code: z
     .string()
     .min(2)
@@ -215,12 +217,14 @@ adsRouter.post(
       banner_url,
       banner_fit_mode,
       target_url,
+      cta_text,
       target_zip_code,
       description,
     } = parsed.data;
 
     const safeContactName = stripHtml(contact_name);
     const safeBusinessName = stripHtml(business_name);
+    const safeCtaText = cta_text != null ? stripHtml(cta_text) : cta_text;
     const safeDescription = description != null ? stripHtml(description) : description;
 
     const zipCoords = await getZipCoordinatesWithFallback(target_zip_code);
@@ -234,6 +238,7 @@ adsRouter.post(
         banner_url: banner_url ?? null,
         banner_fit_mode: banner_fit_mode ?? null,
         target_url: target_url ?? null,
+        cta_text: safeCtaText ?? null,
         target_zip_code,
         target_lat: zipCoords?.lat ?? null,
         target_lng: zipCoords?.lon ?? null,
@@ -525,6 +530,7 @@ adsRouter.get(
         banner_url: true,
         banner_fit_mode: true,
         target_url: true,
+        cta_text: true,
         target_zip_code: true,
         target_lat: true,
         target_lng: true,
@@ -729,6 +735,7 @@ adsRouter.put(
     // Sanitize user-visible text fields to prevent stored XSS
     if (typeof data.contact_name === 'string') data.contact_name = stripHtml(data.contact_name);
     if (typeof data.business_name === 'string') data.business_name = stripHtml(data.business_name);
+    if (typeof data.cta_text === 'string') data.cta_text = stripHtml(data.cta_text);
     if (typeof data.description === 'string') data.description = stripHtml(data.description);
 
     const businessNameChanged = 'business_name' in data && data.business_name !== ad.business_name;

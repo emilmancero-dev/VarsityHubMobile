@@ -66,6 +66,7 @@ export function EditAdScreenBase({
   const [zip, setZip] = useState('');
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [targetUrl, setTargetUrl] = useState('');
+  const [ctaText, setCtaText] = useState('');
   const [desc, setDesc] = useState('');
   const [status, setStatus] = useState<AdStatus>('draft');
   const [payment, setPayment] = useState<PaymentStatus>('unpaid');
@@ -107,6 +108,7 @@ export function EditAdScreenBase({
         setZip(ad?.target_zip_code || '');
         setBannerUrl(ad?.banner_url || null);
         setTargetUrl(ad?.target_url || '');
+        setCtaText(ad?.cta_text || '');
         setDesc(ad?.description || '');
         setStatus((ad?.status || 'draft') as AdStatus);
         setPayment((ad?.payment_status || 'unpaid') as PaymentStatus);
@@ -206,6 +208,7 @@ export function EditAdScreenBase({
             ? targetUrl.trim()
             : 'https://' + targetUrl.trim()
           : undefined,
+        cta_text: sanitizeText(ctaText) || undefined,
         target_zip_code: zip.trim(),
         description: sanitizeText(desc) || undefined,
       });
@@ -391,6 +394,19 @@ export function EditAdScreenBase({
                 Users can tap your ad to visit this website
               </Text>
             ) : null}
+
+            <Text style={[sharedStyles.label, { color: theme.text }]}>Button Text (Optional)</Text>
+            <TextInput
+              style={[
+                sharedStyles.input,
+                { backgroundColor: theme.card, borderColor: theme.border, color: theme.text },
+              ]}
+              value={ctaText}
+              onChangeText={setCtaText}
+              placeholder="Learn More"
+              placeholderTextColor={theme.mutedText}
+              maxLength={50}
+            />
 
             <Text style={[sharedStyles.label, { color: theme.text }]}>Description</Text>
             <TextInput

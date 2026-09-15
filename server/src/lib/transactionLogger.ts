@@ -341,6 +341,99 @@ export async function getTransactionBreakdownByType(startDate?: Date, endDate?: 
 }
 
 /**
+ * Ad revenue aggregate report — VARSITYHUB COMMANDMENTS: "Revenue tracking by:
+ * zip code, time window (M-Th vs F-Su), business, impressions and clicks per ad."
+ * `Ad` has no `price_cents`/`zip_code` columns of its own — the real money record
+ * is the completed AD_PURCHASE `TransactionLog` row (`order_id` = ad id,
+ * `total_cents`), joined here to the `Ad` row for zip/business, and to
+ * `AdReservation` dates (via the existing weekday/weekend block pricing model)
+ * for the M-Th vs F-Su split, since one purchase can span both blocks.
+ */
+export async function getAdRevenueReport(startDate?: Date, endDate?: Date) {
+  const { calculateAdPriceCents, WEEKDAY_BLOCK_PRICE_CENTS, WEEKEND_BLOCK_PRICE_CENTS } =
+    await import('../utils/adPricing.js');
+
+  const where: any = { transaction_type: 'AD_PURCHASE', status: 'COMPLETED' };
+  if (startDate || endDate) {
+    where.created_at = {};
+    if (startDate) where.created_at.gte = startDate;
+    if (endDate) where.created_at.lte = endDate;
+  }
+
+  const transactions = await prisma.transactionLog.findMany({
+    where,
+    select: { order_id: true, total_cents: true, user_id: true, user_email: true },
+    take: 5000,
+  });
+
+  const adIds = [...new Set(transactions.map(t => t.order_id).filter(Boolean))] as string[];
+  const ads = adIds.length
+    ? await prisma.ad.findMany({
+        where: { id: { in: adIds } },
+        select: {
+          id: true,
+          target_zip_code: true,
+          business_name: true,
+          impression_count: true,
+          click_count: true,
+        },
+      })
+    : [];
+  const adById = new Map(ads.map(a => [a.id, a]));
+
+  const byZipCode = new Map<string, number>();
+  const byBusiness = new Map<string, number>();
+  let totalRevenueCents = 0;
+
+  for (const t of transactions) {
+    const cents = t.total_cents || 0;
+    totalRevenueCents += cents;
+    const ad = t.order_id ? adById.get(t.order_id) : undefined;
+    const zipKey = ad?.target_zip_code || 'unknown';
+    byZipCode.set(zipKey, (byZipCode.get(zipKey) || 0) + cents);
+    const businessKey = ad?.business_name || t.user_email || 'unknown';
+    byBusiness.set(businessKey, (byBusiness.get(businessKey) || 0) + cents);
+  }
+
+  // Time-window split from actual reserved dates, not the transaction total —
+  // a single purchase can cover both a Mon-Thu block and a Fri-Sun block.
+  const reservations = adIds.length
+    ? await prisma.adReservation.findMany({
+        where: { ad_id: { in: adIds } },
+        select: { ad_id: true, date: true },
+        take: 20000,
+      })
+    : [];
+  const datesByAd = new Map<string, string[]>();
+  for (const r of reservations) {
+    const iso = r.date.toISOString().slice(0, 10);
+    const arr = datesByAd.get(r.ad_id) || [];
+    arr.push(iso);
+    datesByAd.set(r.ad_id, arr);
+  }
+  let monThuCents = 0;
+  let friSunCents = 0;
+  for (const adId of adIds) {
+    const { weekdayBlocks, weekendBlocks } = calculateAdPriceCents(datesByAd.get(adId) || []);
+    monThuCents += weekdayBlocks * WEEKDAY_BLOCK_PRICE_CENTS;
+    friSunCents += weekendBlocks * WEEKEND_BLOCK_PRICE_CENTS;
+  }
+
+  const totalImpressions = ads.reduce((sum, a) => sum + (a.impression_count || 0), 0);
+  const totalClicks = ads.reduce((sum, a) => sum + (a.click_count || 0), 0);
+
+  return {
+    totalRevenueCents,
+    adCount: adIds.length,
+    byZipCode: Object.fromEntries(byZipCode),
+    byBusiness: Object.fromEntries(byBusiness),
+    byTimeWindow: { mon_thu_cents: monThuCents, fri_sun_cents: friSunCents },
+    totalImpressions,
+    totalClicks,
+  };
+}
+
+/**
  * Get end-of-day transaction report
  */
 export async function getEndOfDayReport(date?: Date) {
