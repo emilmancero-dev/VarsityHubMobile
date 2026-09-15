@@ -33,7 +33,12 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // @ts-ignore
 import { Post as PostApi, Report, User } from '@/api/entities';
@@ -189,6 +194,44 @@ export default function PostDetailScreen() {
   const imageAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: imageScale.value }],
   }));
+
+  // Fullscreen media is a single-image modal that used to trap the user on
+  // whichever post they zoomed in from — swiping the outer pager only works
+  // once the modal is dismissed. The PDF asks for the same left/right swipe
+  // between posts to keep working while the media is expanded fullscreen.
+  const goToPostOffset = useCallback(
+    (delta: number) => {
+      const nextIndex = currentPostIndex + delta;
+      if (nextIndex < 0 || nextIndex >= postIdsArray.length) return;
+      resetFullscreen();
+      setCurrentPostIndex(nextIndex);
+      // Keep the underlying swipe pager in sync so closing fullscreen lands
+      // on the same post the user swiped to, not the one they opened from.
+      requestAnimationFrame(() => {
+        try {
+          flatListRef.current?.scrollToIndex({ index: nextIndex, animated: false });
+        } catch {
+          /* scrollToIndex may fail before layout */
+        }
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentPostIndex, postIdsArray.length]
+  );
+
+  const fullscreenSwipeGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-15, 15])
+    .onEnd(e => {
+      if (postIdsArray.length <= 1) return;
+      if (e.translationX <= -60 || e.velocityX <= -600) {
+        runOnJS(goToPostOffset)(1);
+      } else if (e.translationX >= 60 || e.velocityX >= 600) {
+        runOnJS(goToPostOffset)(-1);
+      }
+    });
+
+  const fullscreenGesture = Gesture.Simultaneous(pinchGesture, fullscreenSwipeGesture);
 
   // Skeleton loading component
   const SkeletonLoader = () => (
@@ -1896,9 +1939,17 @@ export default function PostDetailScreen() {
             <Ionicons name="close" size={32} color="#fff" />
           </Pressable>
 
+          {hasMultiplePosts && (
+            <View style={styles.fullscreenPageIndicator} pointerEvents="none">
+              <Text style={styles.fullscreenPageIndicatorText}>
+                {currentPostIndex + 1} of {postIdsArray.length}
+              </Text>
+            </View>
+          )}
+
           {currentIsImage && post.media_url && (
             <>
-              <GestureDetector gesture={pinchGesture}>
+              <GestureDetector gesture={fullscreenGesture}>
                 <Animated.View style={[styles.fullscreenImageWrapper, imageAnimatedStyle]}>
                   <ExpoImage
                     source={{
@@ -2646,6 +2697,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     padding: 8,
     borderRadius: 24,
+  },
+  fullscreenPageIndicator: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 66 : 46,
+    alignSelf: 'center',
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  fullscreenPageIndicatorText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   fullscreenImageWrapper: {
     width: '100%',
