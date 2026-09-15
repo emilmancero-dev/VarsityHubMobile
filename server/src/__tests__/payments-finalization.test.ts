@@ -347,6 +347,11 @@ describeDb('Checkout session finalization', () => {
     expect(prefs.apple_expires_date).toBe(expiresAtIso);
     expect(tx?.status).toBe('COMPLETED');
     expect((tx?.metadata as any)?.source).toBe('apple_iap_reconciliation');
+    // Apple IAP subscriptions must not log $0 revenue (admin revenue reports
+    // read total_cents) — regression guard for the finalize path.
+    expect(tx?.total_cents).toBeGreaterThan(0);
+    expect(tx?.subtotal_cents).toBe(tx?.total_cents);
+    expect(tx?.net_cents).toBe(tx?.total_cents);
   });
 
   it('finalizes ad checkout and marks ad transaction completed', async () => {
@@ -635,6 +640,11 @@ describeDb('Checkout session finalization', () => {
     expect(tx).toBeTruthy();
     expect(tx?.apple_transaction_id).toBeNull();
     expect((tx?.metadata as any)?.apple_transaction_ids).toEqual(appleTransactionIds);
+    // Apple IAP ad purchases must not log $0 revenue (admin ads revenue report
+    // sums total_cents) — regression guard for the finalize path.
+    expect(tx?.total_cents).toBeGreaterThan(0);
+    expect(tx?.subtotal_cents).toBe(tx?.total_cents);
+    expect(tx?.net_cents).toBe(tx?.total_cents);
 
     const second = await finalizeAppleAdPurchase({
       userId: user.id,

@@ -14,7 +14,12 @@ import { prisma } from './prisma.js';
 import { captureException, captureMessage } from './sentry.js';
 import { buildBillingStateColumns, mergeBillingStateIntoPreferences } from './userBillingState.js';
 import { invalidateMeCacheForUser } from './userCache.js';
-import { WEEKDAY_BLOCK_PRICE_CENTS, WEEKEND_BLOCK_PRICE_CENTS } from '../utils/adPricing.js';
+import {
+  WEEKDAY_BLOCK_PRICE_CENTS,
+  WEEKEND_BLOCK_PRICE_CENTS,
+  calculateAdPriceCents,
+} from '../utils/adPricing.js';
+import { SERVER_VETERAN_PRICE_CENTS, SERVER_LEGEND_PRICE_CENTS } from './planDefinitions.js';
 const MAX_AD_SLOTS = 2;
 // Two ads' 9km geofence circles "touch" when their zip centroids are within
 // 2x the radius of each other. Owner "commandments" rule (2026-09-14): "make
@@ -786,6 +791,11 @@ export async function finalizeAppleSubscriptionPurchase(params: {
     (error as any).statusCode = 400;
     throw error;
   }
+  // Revenue tracking reads TransactionLog.total_cents — an Apple IAP subscription
+  // purchase must not log as $0 the way ad purchases did before this fix. This is
+  // the flat per-unit IAP price (no per-team metering on the Apple/Google rail).
+  const subscriptionPriceCents =
+    plan === 'legend' ? SERVER_LEGEND_PRICE_CENTS : SERVER_VETERAN_PRICE_CENTS;
 
   const existingCompleted = await prisma.transactionLog.findFirst({
     where: {
@@ -874,6 +884,9 @@ export async function finalizeAppleSubscriptionPurchase(params: {
           data: {
             status: 'COMPLETED',
             user_email: params.userEmail ?? undefined,
+            subtotal_cents: subscriptionPriceCents,
+            total_cents: subscriptionPriceCents,
+            net_cents: subscriptionPriceCents,
             apple_transaction_id: String(params.appleTransactionId || '').trim() || undefined,
             metadata: metadata as any,
           } as any,
@@ -882,6 +895,9 @@ export async function finalizeAppleSubscriptionPurchase(params: {
         await tx.transactionLog.create({
           data: {
             transaction_type: 'SUBSCRIPTION_PURCHASE',
+            subtotal_cents: subscriptionPriceCents,
+            total_cents: subscriptionPriceCents,
+            net_cents: subscriptionPriceCents,
             status: 'COMPLETED',
             user_id: params.userId,
             user_email: params.userEmail ?? undefined,
@@ -1030,6 +1046,10 @@ export async function finalizeAppleAdPurchase(params: {
   appleTransactionIds: string[];
   receiptsCount: number;
 }) {
+  // Revenue tracking (admin ads revenue report) reads TransactionLog.total_cents.
+  // Derive it from the same single-source-of-truth pricing Stripe uses, so an
+  // Apple IAP ad purchase is never logged as $0 revenue.
+  const adPriceCents = calculateAdPriceCents(params.dates).totalCents;
   return prisma.$transaction(
     async tx => {
       const orderId = String(params.adId);
@@ -1093,6 +1113,9 @@ export async function finalizeAppleAdPurchase(params: {
             data: {
               status: 'COMPLETED',
               user_email: params.userEmail ?? undefined,
+              subtotal_cents: adPriceCents,
+              total_cents: adPriceCents,
+              net_cents: adPriceCents,
               apple_transaction_id:
                 claimResult.appleTransactionIds.length === 1
                   ? claimResult.appleTransactionIds[0]
@@ -1108,6 +1131,9 @@ export async function finalizeAppleAdPurchase(params: {
               user_id: params.userId,
               user_email: params.userEmail ?? undefined,
               order_id: orderId,
+              subtotal_cents: adPriceCents,
+              total_cents: adPriceCents,
+              net_cents: adPriceCents,
               apple_transaction_id:
                 claimResult.appleTransactionIds.length === 1
                   ? claimResult.appleTransactionIds[0]
