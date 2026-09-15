@@ -214,6 +214,13 @@ const GameDetailsScreen = () => {
   const [vm, setVm] = useState<GameVM | null>(null);
   const [bannerPreviewOpen, setBannerPreviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Posts arrive via a deferred fetch that resolves after the initial `vm` is
+  // set (see loadGameById), so `postsCount === 0` is briefly true for every
+  // event page regardless of whether it actually has posts. Rendering the
+  // "Be the first to post" empty state during that window is what caused the
+  // reported flash — this gate holds off on that specific copy/skeleton until
+  // the deferred posts fetch has actually settled for the current game.
+  const [postsHydrated, setPostsHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [teams, setTeams] = useState<TeamInfo[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -302,6 +309,7 @@ const GameDetailsScreen = () => {
   const showTopFabRef = useRef(false);
   const currentUserIdRef = useRef<string | null>(null);
   const hasCompletedInitialLoadRef = useRef(false);
+  const postsHydrationGameIdRef = useRef<string | null>(null);
   const headerTranslateY = useMemo(
     () =>
       feedY.interpolate({
@@ -569,7 +577,9 @@ const GameDetailsScreen = () => {
   const postsCount = Array.isArray(vm?.posts) ? vm.posts.length : 0;
   const postsSubtitle = postsCount
     ? `${postsCount} highlight${postsCount === 1 ? '' : 's'}`
-    : 'No highlights yet';
+    : postsHydrated
+      ? 'No highlights yet'
+      : 'Loading…';
 
   // Scrapbook preview: a stable-shuffled mix of 2-across and 3-across rows,
   // capped at 12 (the rest are behind "View All Posts"). The seed is per
@@ -621,6 +631,8 @@ const GameDetailsScreen = () => {
   };
 
   const loadGameById = useCallback(async (gameIdValue: string) => {
+    setPostsHydrated(false);
+    postsHydrationGameIdRef.current = gameIdValue;
     // NOTE (2026-07-09): this used to short-circuit `sample-` ids into a fully
     // FABRICATED game — "Team A vs Team B" + hardcoded Unsplash stock photos as
     // fake stories, with NO __DEV__ gate, so a crafted deep link rendered fake
@@ -985,6 +997,7 @@ const GameDetailsScreen = () => {
       }
       if (deferredPostsPromise) {
         void deferredPostsPromise.then((postsResult: any) => {
+          if (postsHydrationGameIdRef.current === gameIdValue) setPostsHydrated(true);
           if (!postsResult) return;
           const nextPosts = Array.isArray(postsResult) ? postsResult : postsResult?.items;
           if (!Array.isArray(nextPosts)) return;
@@ -993,6 +1006,8 @@ const GameDetailsScreen = () => {
             return { ...prev, posts: nextPosts };
           });
         });
+      } else {
+        setPostsHydrated(true);
       }
       if (deferredMediaPromise) {
         void deferredMediaPromise.then((mediaResult: any) => {
@@ -1019,6 +1034,8 @@ const GameDetailsScreen = () => {
 
   const loadVirtualFromEvent = useCallback(
     async (eventIdValue: string) => {
+      setPostsHydrated(false);
+      postsHydrationGameIdRef.current = `event-${eventIdValue}`;
       const event = await Event.get(eventIdValue);
       if (event?.game_id) {
         replaceToCanonicalGame(String(event.game_id));
@@ -1090,6 +1107,7 @@ const GameDetailsScreen = () => {
         maxDelayMs: 4000,
       })
         .then((postsResult: any) => {
+          if (postsHydrationGameIdRef.current === `event-${eventIdValue}`) setPostsHydrated(true);
           const items = Array.isArray(postsResult)
             ? postsResult
             : Array.isArray(postsResult?.items)
@@ -1102,6 +1120,7 @@ const GameDetailsScreen = () => {
           });
         })
         .catch(error => {
+          if (postsHydrationGameIdRef.current === `event-${eventIdValue}`) setPostsHydrated(true);
           if (__DEV__) console.warn('[GameDetails] event posts hydration failed:', error);
         });
 
@@ -2905,7 +2924,7 @@ const GameDetailsScreen = () => {
                 ) : (
                   <View>
                     <Text style={[styles.muted, styles.sectionHelper]}>
-                      Be the first to post about this game.
+                      {postsHydrated ? 'Be the first to post about this game.' : 'Loading posts…'}
                     </Text>
                     <View style={styles.postsMasonryGrid}>
                       <View style={styles.masonryColumn}>
