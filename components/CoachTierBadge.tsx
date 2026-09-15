@@ -6,8 +6,10 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Platform, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { Colors } from '@/constants/Colors';
+import { METALLIC_GRADIENTS } from '@/constants/metallic';
 import {
   LEGEND_YEARLY_PRICE_LABEL,
   PLAN_DEFINITIONS,
@@ -30,11 +32,19 @@ export function CoachTierBadge({ tier, size = 'medium', showLabel = true }: Coac
   const config = getTierConfig(tier, colorScheme);
   const sizeStyles = getSizeStyles(size);
 
+  const metallic = METALLIC_GRADIENTS[config.metallicTier];
+
   return (
     <View style={[styles.container, sizeStyles.container]}>
-      <View style={[styles.badge, { backgroundColor: config.backgroundColor }]}>
+      <LinearGradient
+        colors={metallic.colors}
+        locations={metallic.locations}
+        start={{ x: 0.15, y: 0 }}
+        end={{ x: 0.85, y: 1 }}
+        style={styles.badge}
+      >
         <Ionicons name={config.icon} size={sizeStyles.iconSize} color={config.iconColor} />
-      </View>
+      </LinearGradient>
       {showLabel && (
         <Text style={[styles.label, { color: config.textColor }, sizeStyles.text]}>
           {config.label}
@@ -57,7 +67,8 @@ function getTierConfig(tier: CoachTier, colorScheme: keyof typeof Colors) {
       return {
         label: 'Legend',
         icon: 'trophy' as const,
-        backgroundColor: '#FCD34D', // Gold
+        metallicTier: 'gold' as const,
+        backgroundColor: METALLIC_GRADIENTS.gold.colors[1], // base gold, for non-gradient consumers (e.g. icon tint)
         iconColor: Colors.light.text, // dark icon on gold
         textColor: Colors[colorScheme].text,
       };
@@ -65,7 +76,8 @@ function getTierConfig(tier: CoachTier, colorScheme: keyof typeof Colors) {
       return {
         label: 'Veteran',
         icon: 'shield-checkmark' as const,
-        backgroundColor: '#C0C0C0', // Silver
+        metallicTier: 'silver' as const,
+        backgroundColor: METALLIC_GRADIENTS.silver.colors[1], // base silver, for non-gradient consumers
         iconColor: Colors.light.text, // dark icon on silver (was theme-aware → white-on-silver in dark)
         textColor: Colors[colorScheme].text,
       };
@@ -74,7 +86,8 @@ function getTierConfig(tier: CoachTier, colorScheme: keyof typeof Colors) {
       return {
         label: 'Rookie',
         icon: 'medal' as const,
-        backgroundColor: '#CD7F32', // Bronze
+        metallicTier: 'bronze' as const,
+        backgroundColor: METALLIC_GRADIENTS.bronze.colors[1], // base bronze, for non-gradient consumers
         iconColor: Colors.dark.text, // light icon on bronze
         textColor: Colors[colorScheme].text,
       };

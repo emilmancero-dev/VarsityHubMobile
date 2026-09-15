@@ -39,6 +39,8 @@ import SwipeBackContainer from '@/components/SwipeBackContainer';
 import VideoPlayer from '@/components/VideoPlayer';
 import VideoTrimmer from '@/components/VideoTrimmer';
 import { Colors } from '@/constants/Colors';
+import { METALLIC_GRADIENTS } from '@/constants/metallic';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   isNativeVideoTrimSupported,
   MAX_IMAGE_SIZE_BYTES,
@@ -1492,30 +1494,54 @@ function CreatePostScreen() {
             <View style={styles.tilesRow}>
               <Pressable
                 testID="create-post-photo-picker"
-                style={[styles.tile, styles.photoTile]}
+                style={styles.tileShadowWrap}
                 onPress={() => pickFromLibrary('image')}
                 accessibilityLabel="Photo Gallery"
               >
-                <Ionicons name="image-outline" size={24} color="#FFFFFF" />
-                <Text style={[styles.tileLabel, styles.lightTileLabel]}>Photo</Text>
+                <LinearGradient
+                  colors={METALLIC_GRADIENTS.bronze.colors}
+                  locations={METALLIC_GRADIENTS.bronze.locations}
+                  start={{ x: 0.15, y: 0 }}
+                  end={{ x: 0.85, y: 1 }}
+                  style={styles.tileGradient}
+                >
+                  <Ionicons name="image-outline" size={24} color="#FFFFFF" />
+                  <Text style={[styles.tileLabel, styles.lightTileLabel]}>Photo</Text>
+                </LinearGradient>
               </Pressable>
               <Pressable
                 testID="create-post-camera-picker"
-                style={[styles.tile, styles.cameraTile]}
+                style={styles.tileShadowWrap}
                 onPress={() => captureWithCamera()}
                 accessibilityLabel="Camera"
               >
-                <Ionicons name="camera-outline" size={24} color="#1B2430" />
-                <Text style={[styles.tileLabel, styles.darkTileLabel]}>Camera</Text>
+                <LinearGradient
+                  colors={METALLIC_GRADIENTS.silver.colors}
+                  locations={METALLIC_GRADIENTS.silver.locations}
+                  start={{ x: 0.15, y: 0 }}
+                  end={{ x: 0.85, y: 1 }}
+                  style={styles.tileGradient}
+                >
+                  <Ionicons name="camera-outline" size={24} color="#1B2430" />
+                  <Text style={[styles.tileLabel, styles.darkTileLabel]}>Camera</Text>
+                </LinearGradient>
               </Pressable>
               <Pressable
                 testID="create-post-video-picker"
-                style={[styles.tile, styles.videoTile]}
+                style={styles.tileShadowWrap}
                 onPress={() => pickFromLibrary('video')}
                 accessibilityLabel="Video Gallery"
               >
-                <Ionicons name="videocam-outline" size={24} color="#1B2430" />
-                <Text style={[styles.tileLabel, styles.darkTileLabel]}>Video</Text>
+                <LinearGradient
+                  colors={METALLIC_GRADIENTS.gold.colors}
+                  locations={METALLIC_GRADIENTS.gold.locations}
+                  start={{ x: 0.15, y: 0 }}
+                  end={{ x: 0.85, y: 1 }}
+                  style={styles.tileGradient}
+                >
+                  <Ionicons name="videocam-outline" size={24} color="#1B2430" />
+                  <Text style={[styles.tileLabel, styles.darkTileLabel]}>Video</Text>
+                </LinearGradient>
               </Pressable>
             </View>
           </View>
@@ -2536,14 +2562,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 20,
   },
-  tile: {
+  // Owner note (Sep 2026): the three Add Media tiles are color-coded by medium —
+  // Photo = bronze, Camera = silver, Video = gold — and rendered as a metallic
+  // gradient (constants/metallic.ts), not a flat swatch, per the commandments
+  // rule that every bronze/silver/gold surface in the app reads as polished
+  // metal. tileShadowWrap carries the drop shadow (must NOT clip, so no
+  // overflow/borderRadius here); tileGradient carries the metal sheen + corner
+  // radius + a light rim highlight for contrast against the shadow wrap.
+  tileShadowWrap: {
     width: 100,
     height: 100,
     borderRadius: 20,
-    // backgroundColor & borderColor: Uses dynamic colors in JSX
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
     ...(Platform.OS === 'web'
       ? { boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)' }
       : {
@@ -2554,21 +2583,14 @@ const styles = StyleSheet.create({
         }),
     elevation: 3,
   },
-  // Owner note (Sep 2026): the three Add Media tiles are color-coded by medium —
-  // Photo = bronze, Camera = silver, Video = gold. Each carries a foreground
-  // color that stays legible on its background (white on bronze; dark ink on the
-  // lighter silver/gold).
-  photoTile: {
-    backgroundColor: '#A0662E',
-    borderColor: '#A0662E',
-  },
-  cameraTile: {
-    backgroundColor: '#AEB2B8',
-    borderColor: '#AEB2B8',
-  },
-  videoTile: {
-    backgroundColor: '#C9A227',
-    borderColor: '#C9A227',
+  tileGradient: {
+    flex: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
   },
   tileLabel: {
     fontSize: 12,
