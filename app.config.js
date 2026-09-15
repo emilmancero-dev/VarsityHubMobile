@@ -19,11 +19,18 @@ module.exports = ({ config }) => {
   const packageVersion = require('./package.json').version;
   const appVersion = process.env.APP_VERSION_OVERRIDE || packageVersion;
   const runtimeVersion = process.env.RUNTIME_VERSION_OVERRIDE || appVersion;
-  // This bundle requires the native media picker introduced in 1.0.6.
-  // Refuse an old-runtime OTA override instead of shipping it to incompatible binaries.
-  if (appVersion !== packageVersion || runtimeVersion !== packageVersion) {
+  // The library-video path degrades gracefully to expo-image-picker when the
+  // VarsityMediaPicker native module is absent (see utils/pickMedia.ts), so this
+  // bundle is safe to run on the previous runtime's binary. appVersion must still
+  // match package.json, and an intentional legacy-runtime OTA must set
+  // ALLOW_LEGACY_RUNTIME_OTA=1 so accidental runtime drift still fails loudly.
+  const legacyRuntimeOtaAcknowledged = process.env.ALLOW_LEGACY_RUNTIME_OTA === '1';
+  if (appVersion !== packageVersion) {
+    throw new Error('appVersion must match package.json.');
+  }
+  if (runtimeVersion !== packageVersion && !legacyRuntimeOtaAcknowledged) {
     throw new Error(
-      'App and runtime versions must match package.json; native media releases require a matching build.'
+      'Runtime override requires ALLOW_LEGACY_RUNTIME_OTA=1; the bundle must degrade gracefully on the older binary.'
     );
   }
   const sentryAutoUploadEnabled = process.env.SENTRY_DISABLE_AUTO_UPLOAD !== 'true';

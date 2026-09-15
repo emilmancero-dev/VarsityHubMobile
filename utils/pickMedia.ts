@@ -20,12 +20,12 @@ export async function launchMediaLibraryAsync(
     ): Promise<ImagePicker.ImagePickerResult>;
   }>('VarsityMediaPicker');
   if (!native) {
-    throw Object.assign(
-      new Error(
-        'Video selection requires the latest app build. Please update VarsityHub and try again.'
-      ),
-      { code: 'MEDIA_PICKER_UPDATE_REQUIRED' }
-    );
+    // Older binaries (pre-1.0.6) don't ship the VarsityMediaPicker native module.
+    // Fall back to expo-image-picker's library picker — it's present in every
+    // binary and does a full-video export (slower, and less iCloud-friendly than
+    // the module's provider-acquisition fast path) but is fully functional, so
+    // 1.0.5 users can still select and upload video instead of hitting a wall.
+    return ImagePicker.launchImageLibraryAsync(options);
   }
   const includeImages =
     mediaTypes === ImagePicker.MediaTypeOptions.All ||
