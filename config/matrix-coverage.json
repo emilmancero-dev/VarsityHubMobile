@@ -10874,6 +10874,50 @@
     "server/src/routes/users.ts#endpoint:804591f81057": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/create-post.tsx#action:21793f18f6df": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/create-post.tsx#action:3cd9552f2b76": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/create-post.tsx#action:505440544d8f": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/edit-event.tsx#action:ec506b0863cd": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/edit-event.tsx#api-call:2eeb9957b57d": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "components/EditAdScreenBase.tsx#action:e8b41c7d94f9": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "components/EditAdScreenBase.tsx#api-call:42f4c2945238": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "components/SubmitAdScreenBase.tsx#action:9cb332fffbeb": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "components/SubmitAdScreenBase.tsx#api-call:c7e2a91a681d": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "server/src/routes/admin.ts#endpoint:89eca6371948": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "server/src/routes/events.ts#endpoint:5cc1063d1ada": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
     }
   }
 }
