@@ -44,6 +44,13 @@ const REGULAR_POST_OPEN_BEFORE_MS = DEFAULT_LIVE_WINDOW_HOURS_BEFORE_START * 60 
 // Fanatics Fest uses at 18h. This is the only value the `is_all_day` toggle on
 // POST/PUT /events is allowed to write; the raw hour count is never client-set.
 export const COACH_ALL_DAY_LIVE_WINDOW_HOURS = 12;
+// Owner rule (VARSITYHUB COMMANDMENTS, Workflow 2): a coach running an all-day
+// tournament/festival may unlock a one-time 6-hour extension on top of the
+// standard 12h all-day window, for 18h total — "if needed... costs nothing."
+// This is a hard ceiling, not a per-call increment: POST /events/:id/extend-window
+// only succeeds once, from exactly COACH_ALL_DAY_LIVE_WINDOW_HOURS, and is a
+// no-op (not an error) if already at this value.
+export const COACH_ALL_DAY_EXTENDED_LIVE_WINDOW_HOURS = 18;
 // Product rule (2026-07-14, owner decision, verbatim): "When a user posts to
 // an event while they are there, they can continue to post to the event for
 // up to a week. After that week they no longer can." Applied per user via
@@ -230,6 +237,28 @@ export function getPostPostingWindowState(
   // regardless of posting history.
   if (now <= new Date(liveCutoff.getTime() + REGULAR_POST_GRACE_WINDOW_MS)) return 'grace';
   return 'closed';
+}
+
+export type EventLiveStatus = 'scheduled' | 'in_progress' | 'finished';
+
+/**
+ * Map the posting-window state onto the coarse scheduled/in_progress/finished
+ * vocabulary the PDF commandments' realtime `event_status_changed` message
+ * uses. 'grace' still reads as 'finished' — the event itself is over even
+ * though a subset of users retain posting rights.
+ */
+export function deriveEventLiveStatus(
+  eventDate: Date | string | null | undefined,
+  liveWindowHoursAfterStart?: number | null,
+  now: Date = new Date()
+): EventLiveStatus | null {
+  if (!eventDate) return null;
+  const parsed = eventDate instanceof Date ? eventDate : new Date(eventDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const state = getPostPostingWindowState(parsed, now, liveWindowHoursAfterStart);
+  if (state === 'before_open') return 'scheduled';
+  if (state === 'live') return 'in_progress';
+  return 'finished';
 }
 
 /**

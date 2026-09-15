@@ -625,6 +625,7 @@ export const Event = {
   reject: (id: string, reason?: string) =>
     httpPut(`/events/${encodeURIComponent(id)}/reject`, reason ? { reason } : {}),
   cancel: (id: string) => httpPatch('/events/' + encodeURIComponent(id) + '/cancel'),
+  extendWindow: (id: string) => httpPost(`/events/${encodeURIComponent(id)}/extend-window`, {}),
   rsvpStatus: (id: string) => httpGet(`/events/${encodeURIComponent(id)}/rsvp`),
   rsvpSummaryBatch: (ids: string[]): Promise<Record<string, { going: boolean; count: number }>> => {
     if (ids.length === 0) return Promise.resolve({});

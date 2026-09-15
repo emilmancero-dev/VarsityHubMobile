@@ -67,6 +67,8 @@ export default function EditEventScreen() {
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [isAllDay, setIsAllDay] = useState(false);
+  const [windowExtended, setWindowExtended] = useState(false);
+  const [extendingWindow, setExtendingWindow] = useState(false);
   const loadEvent = useCallback(async () => {
     if (!id || coachLoading || !canAccessCoachTools) return;
     setLoading(true);
@@ -89,6 +91,7 @@ export default function EditEventScreen() {
       setLocation(data.location || '');
       setBannerUrl(data.banner_url || data.cover_image_url || null);
       setIsAllDay(!!data.is_all_day);
+      setWindowExtended(!!data.window_extended);
       // Format date for editing — show ISO local datetime string
       if (data.date) {
         const d = new Date(data.date);
@@ -288,6 +291,38 @@ export default function EditEventScreen() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const onExtendWindow = () => {
+    Alert.alert(
+      'Extend live window?',
+      'This adds 6 more hours to the geofenced posting window (12h -> 18h total). This can only be done once.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Extend',
+          onPress: async () => {
+            setExtendingWindow(true);
+            try {
+              const result: any = await Event.extendWindow(String(id));
+              setWindowExtended(!!result?.window_extended);
+              setIsAllDay(!!result?.is_all_day);
+              Alert.alert(
+                result?.extended === false ? 'Already extended' : 'Extended',
+                result?.message || 'Live window updated.'
+              );
+            } catch (e: any) {
+              if (handleCoachAccessError(router, e, 'extending the event window', user)) {
+                return;
+              }
+              Alert.alert('Error', toUserMessage(e, 'Failed to extend the live window.'));
+            } finally {
+              setExtendingWindow(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -516,6 +551,34 @@ export default function EditEventScreen() {
               accessibilityLabel="All-day event"
             />
           </View>
+
+          {isAllDay && (
+            <View style={sharedStyles.inputGroup}>
+              <Pressable
+                onPress={onExtendWindow}
+                disabled={windowExtended || extendingWindow || submitting}
+                style={[
+                  styles.extendButton,
+                  {
+                    borderColor: Colors[colorScheme].border,
+                    opacity: windowExtended || extendingWindow ? 0.5 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Extend live window by 6 hours"
+              >
+                {extendingWindow ? (
+                  <ActivityIndicator size="small" color={Colors[colorScheme].tint} />
+                ) : (
+                  <Text style={{ color: Colors[colorScheme].tint, fontWeight: '600' }}>
+                    {windowExtended
+                      ? 'Live window already extended (18h)'
+                      : 'Extend window +6h (18h total)'}
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          )}
         </View>
 
         <EditScreenSubmitButton
@@ -542,6 +605,13 @@ const styles = StyleSheet.create({
   },
   allDayLabelGroup: {
     flex: 1,
+  },
+  extendButton: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   formSection: {
     marginBottom: 24,

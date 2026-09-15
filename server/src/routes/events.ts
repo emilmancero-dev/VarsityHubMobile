@@ -23,12 +23,15 @@ import { proLeagueToSport } from '../lib/proSchedule/leagueSport.js';
 import { PRO_SCHEDULE_LEAGUES } from '../lib/proSchedule/types.js';
 import { geocodeLocation } from '../lib/geocoding.js';
 import {
+  COACH_ALL_DAY_EXTENDED_LIVE_WINDOW_HOURS,
   COACH_ALL_DAY_LIVE_WINDOW_HOURS,
+  deriveEventLiveStatus,
   hasActiveEventPostingUnlock,
   serializeLiveWindow,
   verifyStoryPostingPermission,
   viewerHasPostedOnEntity,
 } from '../lib/geofencing.js';
+import { checkAndEmitEventStatusChange } from '../realtime/socketServer.js';
 // Reuse the story helpers from the games router so event-page stories serialize,
 // validate, and lazy-generate posters IDENTICALLY to game stories — one code
 // path, no duplication. See server/src/routes/games.ts.
@@ -523,8 +526,14 @@ const serializeEvent = (
     venue_photo: venuePhotoFor(event.location),
     ...serializeLiveWindow(event.date, event.live_window_hours_after_start),
     // Owner rule (2026-09-14): lets the edit form reflect the coach's
-    // all-day toggle without exposing/trusting the raw hour count.
-    is_all_day: event.live_window_hours_after_start === COACH_ALL_DAY_LIVE_WINDOW_HOURS,
+    // all-day toggle without exposing/trusting the raw hour count. >= (not
+    // ===) so a window extended to 18h (either via extend-window or a
+    // Fanatics Fest override) still reads as "all day", not reset to false.
+    is_all_day: (event.live_window_hours_after_start ?? 0) >= COACH_ALL_DAY_LIVE_WINDOW_HOURS,
+    // Whether this event has already reached the 18h extension ceiling —
+    // lets the edit form hide/disable the "extend window" action.
+    window_extended:
+      (event.live_window_hours_after_start ?? 0) >= COACH_ALL_DAY_EXTENDED_LIVE_WINDOW_HOURS,
   };
   if (typeof opts.rsvpCount === 'number') {
     base.attendees_count = opts.rsvpCount;
@@ -1298,6 +1307,16 @@ eventsRouter.get(
         !!event.exclusive_poster_id && event.exclusive_poster_id === req.user.id;
       (payload as any).can_upload_story = activeUnlock || isExclusivePoster;
     }
+
+    // Realtime: see the matching hook in games.ts `/:id/summary` for rationale
+    // (fires only on an actual status flip, no new polling loop).
+    const liveStatus = deriveEventLiveStatus(
+      event.date,
+      (event as any).live_window_hours_after_start
+    );
+    checkAndEmitEventStatusChange('event', event.id, liveStatus);
+    if (event.game_id) checkAndEmitEventStatusChange('game', event.game_id, liveStatus);
+
     return res.json(payload);
   })
 );
@@ -2572,6 +2591,56 @@ eventsRouter.patch(
     return res.json({
       ...serializeEvent(updated),
       message: 'Event updated successfully.',
+    });
+  })
+);
+
+// Coach-only: unlock a one-time 6h extension on an all-day event's live
+// window (12h -> 18h total). PDF Workflow 2, step 3: "Coach can extend
+// window by 6 more hours (18 total) if needed... costs nothing." Hard
+// ceiling — succeeds once, then no-ops forever after (never re-extends,
+// never exceeds 18h even if an event already carries 18h from elsewhere,
+// e.g. a Fanatics Fest override).
+eventsRouter.post(
+  '/:id/extend-window',
+  requireAuth as any,
+  requireVerified as any,
+  requireOnboarded as any,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const editable = await loadEditableEventForAction({
+      req,
+      cancelledError: 'Cannot extend a cancelled event',
+      permissionMessage:
+        'Only the event creator, team staff, or a league admin can extend this event window.',
+    });
+    if (!editable.ok) return res.status(editable.status).json(editable.body);
+    const { eventId, event } = editable;
+
+    const currentHours = event.live_window_hours_after_start ?? 0;
+    if (currentHours >= COACH_ALL_DAY_EXTENDED_LIVE_WINDOW_HOURS) {
+      return res.json({
+        ...serializeEvent(event),
+        extended: false,
+        message: 'This event is already at its maximum live window.',
+      });
+    }
+    if (currentHours !== COACH_ALL_DAY_LIVE_WINDOW_HOURS) {
+      return sendError(
+        res,
+        400,
+        'Only all-day events can be extended. Mark this event "all day" first.'
+      );
+    }
+
+    const updated = await prisma.event.update({
+      where: { id: eventId },
+      data: { live_window_hours_after_start: COACH_ALL_DAY_EXTENDED_LIVE_WINDOW_HOURS },
+    });
+
+    return res.json({
+      ...serializeEvent(updated),
+      extended: true,
+      message: 'Live window extended by 6 hours.',
     });
   })
 );
