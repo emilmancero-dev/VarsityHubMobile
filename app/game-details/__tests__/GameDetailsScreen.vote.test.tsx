@@ -153,6 +153,10 @@ jest.mock('@/hooks/useShareLink', () => ({
   useShareLink: () => ({ share: jest.fn() }),
 }));
 
+jest.mock('@/hooks/useEventRealtime', () => ({
+  useEventRealtime: jest.fn(),
+}));
+
 jest.mock('@/hooks/useThemeColor', () => ({
   useThemeColor: () => '#111111',
 }));

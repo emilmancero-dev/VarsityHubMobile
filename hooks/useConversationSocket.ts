@@ -16,7 +16,7 @@ import { getApiBaseUrl, getAccessTokenForRequest } from '@/api/http';
 let socket: Socket | null = null;
 let connectPromise: Promise<Socket> | null = null;
 
-async function getSocket(): Promise<Socket> {
+export async function getSocket(): Promise<Socket> {
   if (socket?.connected) return socket;
   if (connectPromise) return connectPromise;
   connectPromise = (async () => {

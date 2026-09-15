@@ -55,10 +55,12 @@ import {
   voteLimiter,
 } from '../middleware/rateLimiters.js';
 import {
+  deriveEventLiveStatus,
   serializeLiveWindow,
   verifyStoryPostingPermission,
   viewerHasPostedOnEntity,
 } from '../lib/geofencing.js';
+import { checkAndEmitEventStatusChange } from '../realtime/socketServer.js';
 import { getZipCoordinates } from '../lib/geoUtils.js';
 import { geocodeLocation } from '../lib/geocoding.js';
 import { getIsAdmin, isVerifiedAdminUser, requireAdmin } from '../middleware/requireAdmin.js';
@@ -2564,6 +2566,16 @@ gamesRouter.get(
         gameData.venue_lng || gameData.longitude,
         gameData.venue_place_id
       );
+
+      // Realtime: fire event_status_changed on this game's room (and its linked
+      // event room, if any) only when the derived status actually flipped since
+      // the last time this replica served this id — see socketServer.ts.
+      const liveStatus = deriveEventLiveStatus(
+        event?.date ?? gameData.date,
+        event?.live_window_hours_after_start
+      );
+      checkAndEmitEventStatusChange('game', id, liveStatus);
+      if (event?.id) checkAndEmitEventStatusChange('event', event.id, liveStatus);
 
       return res.json({
         id: gameData.id,

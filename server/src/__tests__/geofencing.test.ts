@@ -5,7 +5,12 @@
  */
 
 import { describe, expect, it, jest } from '@jest/globals';
-import { calculateDistance, isWithinGeofence, isPostingWindowOpen } from '../lib/geofencing.js';
+import {
+  calculateDistance,
+  isWithinGeofence,
+  isPostingWindowOpen,
+  deriveEventLiveStatus,
+} from '../lib/geofencing.js';
 
 describe('Geofencing Utilities', () => {
   describe('calculateDistance', () => {
@@ -189,6 +194,36 @@ describe('Geofencing Utilities', () => {
 
       // Past events: windowOpenTime was in the past, so now >= past = true
       expect(isOpen).toBe(true);
+    });
+  });
+
+  describe('deriveEventLiveStatus', () => {
+    it('returns null for a missing or invalid date', () => {
+      expect(deriveEventLiveStatus(null)).toBeNull();
+      expect(deriveEventLiveStatus('not-a-date')).toBeNull();
+    });
+
+    it('returns scheduled before the live window opens', () => {
+      const eventDate = new Date(Date.now() + 6 * 60 * 60 * 1000); // 6h out, window opens at 2h
+      expect(deriveEventLiveStatus(eventDate)).toBe('scheduled');
+    });
+
+    it('returns in_progress inside the live window', () => {
+      const eventDate = new Date(Date.now() - 1 * 60 * 60 * 1000); // started 1h ago
+      expect(deriveEventLiveStatus(eventDate)).toBe('in_progress');
+    });
+
+    it('returns finished once the live window (and grace) has closed', () => {
+      const eventDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // a month ago
+      expect(deriveEventLiveStatus(eventDate)).toBe('finished');
+    });
+
+    it('respects a per-event live_window_hours_after_start override', () => {
+      // 10h after start, default window would already be closed (6h after start)
+      // but an 18h override (e.g. an all-day coach event) keeps it in_progress.
+      const eventDate = new Date(Date.now() - 10 * 60 * 60 * 1000);
+      expect(deriveEventLiveStatus(eventDate, 6)).toBe('finished');
+      expect(deriveEventLiveStatus(eventDate, 18)).toBe('in_progress');
     });
   });
 });

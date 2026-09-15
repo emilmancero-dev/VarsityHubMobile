@@ -22,6 +22,7 @@ import {
 } from '@/utils/compressVideo';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDeviceLocation } from '@/hooks/useDeviceLocation';
+import { useEventRealtime } from '@/hooks/useEventRealtime';
 import { useShareLink } from '@/hooks/useShareLink';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import {
@@ -1638,6 +1639,33 @@ const GameDetailsScreen = () => {
       }
     },
     [eventId, id, loadGameById, loadVirtualFromEvent]
+  );
+
+  // Real-time event-page updates (PDF commandments: new_post/post_reacted/
+  // post_deleted/event_status_changed). Debounced soft-refresh through the
+  // same load(true) path pull-to-refresh already uses — additive on top of
+  // whatever polling this screen already does, not a replacement for it.
+  const realtimeRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (realtimeRefreshTimer.current) clearTimeout(realtimeRefreshTimer.current);
+    realtimeRefreshTimer.current = setTimeout(() => {
+      void load(true);
+    }, 400);
+  }, [load]);
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimer.current) clearTimeout(realtimeRefreshTimer.current);
+    },
+    []
+  );
+  useEventRealtime(
+    { gameId: vm?.gameId ?? null, eventId: vm?.eventId ?? null },
+    {
+      onNewPost: scheduleRealtimeRefresh,
+      onPostReacted: scheduleRealtimeRefresh,
+      onPostDeleted: scheduleRealtimeRefresh,
+      onEventStatusChanged: scheduleRealtimeRefresh,
+    }
   );
 
   useEffect(() => {
