@@ -186,6 +186,11 @@ export const User = {
     const qs = q.length ? '?' + q.join('&') : '';
     return httpGet(`/users/${encodeURIComponent(id)}/interactions` + qs);
   },
+  eventPagesForProfile: (id: string) => {
+    if (!id || id === 'undefined' || id === 'null')
+      throw new Error('[User.eventPagesForProfile] Invalid user ID');
+    return httpGet(`/users/${encodeURIComponent(id)}/event-pages`);
+  },
   // Password reset helpers (delegates to auth)
   requestPasswordReset: (email: string) => auth.requestPasswordReset(email),
   resetPassword: (email: string, code: string, password: string) =>

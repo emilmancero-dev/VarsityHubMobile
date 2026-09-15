@@ -1,6 +1,8 @@
 import { Organization, Team, User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
+import { GameCard } from '@/components/ui/GameCard';
 import { Colors } from '@/constants/Colors';
+import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { useAuth } from '@/context/AuthProvider';
 import { useCustomColorScheme } from '@/hooks/useCustomColorScheme';
 import { calculateContrastRatio } from '@/utils/accessibility';
@@ -15,7 +17,7 @@ import { getCoachAccessState } from '@/utils/roleChecks';
 import { getGradientForColor } from '@/utils/theme';
 import { queryClient } from '@/lib/queryClient';
 import { sanitizeTitle } from '@/lib/sanitizeTitle';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
@@ -165,7 +167,7 @@ export default function ProfileScreen() {
   const meRef = useRef<CurrentUser | null>(null);
   const lastResolvedProfileKeyRef = useRef<string | null>(null);
   const profileLoadIdRef = useRef(0);
-  const [activeTab, setActiveTab] = useState<'posts' | 'replies' | 'upvotes'>(() => {
+  const [activeTab, setActiveTab] = useState<'posts' | 'replies' | 'upvotes' | 'events'>(() => {
     try {
       return (globalThis?.localStorage?.getItem('profile.activeTab') as any) || 'posts';
     } catch (error) {
@@ -294,9 +296,24 @@ export default function ProfileScreen() {
       ? String(me.id)
       : null;
 
+  // Distinct event/game pages this user has posted to — a single bounded
+  // fetch (not paginated), used both to render the Events tab and to decide
+  // whether that tab shows at all (PDF: only once the user has posted to an
+  // event page).
+  const eventPagesQuery = useQuery({
+    queryKey: ['profile-event-pages', profileUserId],
+    enabled: !!profileUserId,
+    queryFn: () => User.eventPagesForProfile(profileUserId as string),
+  });
+  const eventPages: any[] = eventPagesQuery.data?.items ?? [];
+  const hasEventPages = eventPages.length > 0;
+  // A previously-persisted 'events' selection must not strand the user on a
+  // hidden tab if this profile turns out to have no event-page posts.
+  const resolvedActiveTab = activeTab === 'events' && !hasEventPages ? 'posts' : activeTab;
+
   const postsQuery = useInfiniteQuery({
     queryKey: ['profile-posts', profileUserId, sort],
-    enabled: !!profileUserId && activeTab === 'posts',
+    enabled: !!profileUserId && resolvedActiveTab === 'posts',
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       User.postsForProfile(profileUserId as string, {
@@ -308,7 +325,7 @@ export default function ProfileScreen() {
   });
   const repliesQuery = useInfiniteQuery({
     queryKey: ['profile-replies', profileUserId, sort],
-    enabled: !!profileUserId && activeTab === 'replies',
+    enabled: !!profileUserId && resolvedActiveTab === 'replies',
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       User.interactionsForProfile(profileUserId as string, {
@@ -321,7 +338,7 @@ export default function ProfileScreen() {
   });
   const upvotesQuery = useInfiniteQuery({
     queryKey: ['profile-upvotes', profileUserId, sort],
-    enabled: !!profileUserId && activeTab === 'upvotes',
+    enabled: !!profileUserId && resolvedActiveTab === 'upvotes',
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       User.interactionsForProfile(profileUserId as string, {
@@ -521,7 +538,13 @@ export default function ProfileScreen() {
   // Silent refresh on focus - NEVER show skeleton after first load.
   // Deferred so the return transition isn't competing with the refetch.
   const activeTabQuery =
-    activeTab === 'posts' ? postsQuery : activeTab === 'replies' ? repliesQuery : upvotesQuery;
+    resolvedActiveTab === 'posts'
+      ? postsQuery
+      : resolvedActiveTab === 'replies'
+        ? repliesQuery
+        : resolvedActiveTab === 'events'
+          ? eventPagesQuery
+          : upvotesQuery;
   const refetchActiveTab = activeTabQuery.refetch;
   const activeTabHasData = activeTabQuery.data !== undefined;
 
@@ -1217,6 +1240,38 @@ export default function ProfileScreen() {
             Upvotes
           </Text>
         </Pressable>
+        {hasEventPages && (
+          <Pressable
+            testID="profile-events-tab"
+            onPress={() => {
+              setActiveTab('events');
+              try {
+                globalThis?.localStorage?.setItem('profile.activeTab', 'events');
+              } catch (error) {
+                if (__DEV__) console.warn('[profile] localStorage error:', error);
+              }
+            }}
+            style={[
+              styles.tab,
+              resolvedActiveTab === 'events' && {
+                borderBottomWidth: 2,
+                borderBottomColor: theme.tint,
+              },
+            ]}
+            accessibilityRole="tab"
+            accessibilityLabel="Events"
+            accessibilityState={{ selected: resolvedActiveTab === 'events' }}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                { color: resolvedActiveTab === 'events' ? theme.tint : theme.mutedText },
+              ]}
+            >
+              Events
+            </Text>
+          </Pressable>
+        )}
       </View>
     </>
   );
@@ -1274,6 +1329,46 @@ export default function ProfileScreen() {
         {isRestrictedProfile ? 'Private profile' : 'No upvotes yet'}
       </Text>
     </View>
+  );
+
+  // Events tab: the event/game pages this user has posted to, rendered as
+  // the same GameCard used elsewhere in the app rather than the post-grid
+  // viewer (these are event pages, not individual posts).
+  const renderEventPagesList = () => (
+    <FlatList
+      key="events"
+      data={eventPages}
+      keyExtractor={item => String(item.id)}
+      contentContainerStyle={
+        eventPages.length === 0 ? { flexGrow: 1, justifyContent: 'center' } : { padding: 12 }
+      }
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />
+      }
+      ListEmptyComponent={
+        eventPagesQuery.isLoading ? null : (
+          <View style={styles.emptyContainer}>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>No event pages yet</Text>
+          </View>
+        )
+      }
+      renderItem={({ item }) => (
+        <GameCard
+          game={{
+            id: item.id,
+            title: item.title,
+            scheduled_date: item.date,
+            banner_url: item.banner_url,
+            cover_image_url: item.cover_image_url,
+            homeTeam: item.home_team,
+            awayTeam: item.away_team,
+            event_type: item.event_type,
+          }}
+          onPress={() => router.push(buildEventDetailRoute(item.event_id || item.id, item.game_id))}
+          style={{ marginBottom: 12 }}
+        />
+      )}
+    />
   );
 
   // fetchNextPage has a built-in in-flight guard; hasNextPage replaces the
@@ -1606,19 +1701,19 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <Stack.Screen options={{ title: 'Profile' }} />
-      {activeTab === 'posts'
+      {resolvedActiveTab === 'posts'
         ? renderPostGridList({
             data: posts,
-            keyPrefix: activeTab,
+            keyPrefix: resolvedActiveTab,
             keyExtractor: item => item.id,
             emptyComponent: renderEmptyPosts,
             onEndReached: onEndReachedPosts,
             loading: postsLoading,
           })
-        : activeTab === 'replies'
+        : resolvedActiveTab === 'replies'
           ? renderPostGridList({
               data: replies,
-              keyPrefix: activeTab,
+              keyPrefix: resolvedActiveTab,
               keyExtractor: (item, index) => {
                 const postItem = unwrapPostGridItem(item);
                 return postItem?.id ?? item?.id ?? `reply-${index}`;
@@ -1628,18 +1723,20 @@ export default function ProfileScreen() {
               loading: repliesLoading,
               unwrapItems: true,
             })
-          : renderPostGridList({
-              data: upvotes,
-              keyPrefix: activeTab,
-              keyExtractor: (item, index) => {
-                const postItem = unwrapPostGridItem(item);
-                return postItem?.id ?? item?.id ?? `upvote-${index}`;
-              },
-              emptyComponent: renderEmptyUpvotes,
-              onEndReached: onEndReachedUpvotes,
-              loading: upvotesLoading,
-              unwrapItems: true,
-            })}
+          : resolvedActiveTab === 'events'
+            ? renderEventPagesList()
+            : renderPostGridList({
+                data: upvotes,
+                keyPrefix: resolvedActiveTab,
+                keyExtractor: (item, index) => {
+                  const postItem = unwrapPostGridItem(item);
+                  return postItem?.id ?? item?.id ?? `upvote-${index}`;
+                },
+                emptyComponent: renderEmptyUpvotes,
+                onEndReached: onEndReachedUpvotes,
+                loading: upvotesLoading,
+                unwrapItems: true,
+              })}
 
       {/* Avatar Viewer — full-screen enlarged profile picture */}
       <Modal

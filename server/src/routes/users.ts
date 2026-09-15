@@ -927,6 +927,145 @@ usersRouter.get(
   })
 );
 
+// GET /users/:id/event-pages — distinct event/game pages this user has
+// posted to. Owner "VARSITYHUB COMMANDMENTS" PDF: profile Events tab, shown
+// only once a user has posted to at least one event page. Single bounded
+// page, no cursor — a fan realistically posts to a handful of event pages
+// (not thousands), which keeps the dedup logic below simple and correct.
+usersRouter.get(
+  '/:id/event-pages',
+  asyncHandler(async (req: AuthedRequest, res) => {
+    try {
+      const { id, currentUserId, hidden } = await readProfileContentRequest(req);
+      if (hidden) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const isAdmin = currentUserId ? await getIsAdmin(req as any) : false;
+      const excludedTeamIds = isAdmin ? [] : await getExcludedPrivateTeamIds(currentUserId);
+      const privateTeamPostWhere = buildPrivateTeamPostVisibilityWhere(excludedTeamIds);
+
+      // Not distinct at the DB level — the same event page can have posts
+      // with event_id set on some rows and null on others (e.g. a game whose
+      // linked event was attached after the first post). Over-fetch raw rows
+      // and dedupe by page key in application code, most-recent-post first.
+      const rows = await prisma.post.findMany({
+        where: {
+          author_id: id,
+          deleted_at: null,
+          OR: [{ game_id: { not: null } }, { event_id: { not: null } }],
+          ...(privateTeamPostWhere ? { AND: [privateTeamPostWhere] } : {}),
+        },
+        select: { game_id: true, event_id: true, created_at: true },
+        orderBy: { created_at: 'desc' },
+        take: 300,
+      });
+
+      const pageOrder: string[] = [];
+      const pageKind: Record<string, 'game' | 'event'> = {};
+      for (const row of rows) {
+        const key = row.game_id || row.event_id;
+        if (!key || pageKind[key]) continue;
+        pageKind[key] = row.game_id ? 'game' : 'event';
+        pageOrder.push(key);
+        if (pageOrder.length >= 50) break;
+      }
+
+      const gameIds = pageOrder.filter(k => pageKind[k] === 'game');
+      const eventIds = pageOrder.filter(k => pageKind[k] === 'event');
+
+      const [games, events] = await Promise.all([
+        gameIds.length
+          ? prisma.game.findMany({
+              where: { id: { in: gameIds } },
+              select: {
+                id: true,
+                title: true,
+                date: true,
+                banner_url: true,
+                cover_image_url: true,
+                event_type: true,
+                home_team_id: true,
+                away_team_id: true,
+                home_team: true,
+                away_team: true,
+              },
+              take: gameIds.length,
+            })
+          : Promise.resolve([]),
+        eventIds.length
+          ? prisma.event.findMany({
+              where: { id: { in: eventIds } },
+              select: { id: true, title: true, date: true, banner_url: true, event_type: true },
+              take: eventIds.length,
+            })
+          : Promise.resolve([]),
+      ]);
+
+      // A fan's own post to a game whose team later went private shouldn't
+      // resurrect that team's page on their public profile.
+      const visibleGames = isAdmin
+        ? games
+        : (
+            await Promise.all(
+              games.map(async g => {
+                const [homeHidden, awayHidden] = await Promise.all([
+                  g.home_team_id ? isTeamHiddenFromViewer(g.home_team_id, currentUserId) : false,
+                  g.away_team_id ? isTeamHiddenFromViewer(g.away_team_id, currentUserId) : false,
+                ]);
+                return homeHidden || awayHidden ? null : g;
+              })
+            )
+          ).filter((g): g is (typeof games)[number] => g !== null);
+
+      const gameById = new Map(visibleGames.map(g => [g.id, g]));
+      const eventById = new Map(events.map(e => [e.id, e]));
+
+      const items = pageOrder
+        .map(key => {
+          if (pageKind[key] === 'game') {
+            const g = gameById.get(key);
+            if (!g) return null;
+            return {
+              id: g.id,
+              game_id: g.id,
+              event_id: null,
+              type: 'game' as const,
+              title: g.title,
+              date: g.date instanceof Date ? g.date.toISOString() : g.date,
+              banner_url: g.banner_url,
+              cover_image_url: g.cover_image_url,
+              event_type: g.event_type,
+              home_team: g.home_team,
+              away_team: g.away_team,
+            };
+          }
+          const e = eventById.get(key);
+          if (!e) return null;
+          return {
+            id: e.id,
+            game_id: null,
+            event_id: e.id,
+            type: 'event' as const,
+            title: e.title,
+            date: e.date instanceof Date ? e.date.toISOString() : e.date,
+            banner_url: e.banner_url,
+            cover_image_url: null,
+            event_type: e.event_type,
+            home_team: null,
+            away_team: null,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+      return res.json({ items, count: items.length });
+    } catch (err) {
+      console.error('[users] GET /:id/event-pages error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  })
+);
+
 // GET /users/:id/teams - Teams the user is a member of (for athlete profile)
 usersRouter.get(
   '/:id/teams',
