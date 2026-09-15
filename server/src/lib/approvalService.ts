@@ -1579,7 +1579,10 @@ export async function purgeUnpostedEventPages(prisma: PrismaClient): Promise<num
   });
 
   const toDelete = candidates.filter(event => {
-    const { liveCutoff } = getPostPostingWindowBounds(event.date, event.live_window_hours_after_start);
+    const { liveCutoff } = getPostPostingWindowBounds(
+      event.date,
+      event.live_window_hours_after_start
+    );
     return now > liveCutoff;
   });
 
