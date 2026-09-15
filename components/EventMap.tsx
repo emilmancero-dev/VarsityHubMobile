@@ -517,7 +517,8 @@ export default function EventMap({
           are colored by league TIER (Major / Minor / NCAA / Other), with a gold
           override for pages that have posts. Every swatch is resolved through the
           SAME resolveMarkerColor used for the pins, so the key can never drift
-          from what's on the map. "Multiple" is the cluster pin (app tint). */}
+          from what's on the map. "You're here" and the cluster pin are dropped
+          from the key — self-explanatory on-map, per owner note. */}
       {eventsWithCoordinates.length > 0 && (
         <View style={[styles.legend, { backgroundColor: Colors[colorScheme].background }]}>
           {(
@@ -527,7 +528,6 @@ export default function EventMap({
               { label: 'NCAA', event: { league_level: 'college' } },
               { label: 'Other', event: { league_level: null } },
               { label: 'Has posts', event: { has_posts: true } },
-              { label: "You're here", event: {}, isPresent: true },
             ] as {
               label: string;
               event: Parameters<typeof resolveMarkerColor>[0];
@@ -546,12 +546,6 @@ export default function EventMap({
               </Text>
             </View>
           ))}
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: Colors[colorScheme].tint }]} />
-            <Text style={[styles.legendLabel, { color: Colors[colorScheme].text }]}>
-              Multiple — tap to choose
-            </Text>
-          </View>
         </View>
       )}
 
