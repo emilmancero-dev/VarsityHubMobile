@@ -527,7 +527,7 @@ function MessagesScreen() {
         <>
           {/* Enhanced header with gradient and safe area */}
           <LinearGradient
-            colors={colorScheme === 'dark' ? ['#1e293b', '#0f172a'] : ['#ffffff', '#f8fafc']}
+            colors={colorScheme === 'dark' ? ['#1E1E1E', '#121212'] : ['#ffffff', '#f8fafc']}
             style={[styles.headerGradient, { paddingTop: insets.top + 12 }]}
           >
             <View style={styles.headerRow}>

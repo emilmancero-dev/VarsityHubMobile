@@ -1445,7 +1445,7 @@ function CommunityDiscoverScreen() {
                       />
                     ) : (
                       <LinearGradient
-                        colors={['#1e293b', '#0f172a']}
+                        colors={['#1E1E1E', '#121212']}
                         style={styles.searchResultAvatar}
                       />
                     )}
@@ -1565,7 +1565,7 @@ function CommunityDiscoverScreen() {
                       />
                     ) : (
                       <LinearGradient
-                        colors={['#1e293b', '#0f172a']}
+                        colors={['#1E1E1E', '#121212']}
                         style={styles.searchResultAvatar}
                       />
                     )}
@@ -1685,7 +1685,7 @@ function CommunityDiscoverScreen() {
                 >
                   <View style={styles.searchResultLeft}>
                     <LinearGradient
-                      colors={['#1e293b', '#0f172a']}
+                      colors={['#1E1E1E', '#121212']}
                       style={[styles.searchResultAvatar, { borderRadius: 8 }]}
                     />
                     <View>
@@ -1802,7 +1802,7 @@ function CommunityDiscoverScreen() {
                       />
                     ) : (
                       <LinearGradient
-                        colors={['#1e293b', '#0f172a']}
+                        colors={['#1E1E1E', '#121212']}
                         style={[styles.searchResultAvatar, { borderRadius: 8 }]}
                       />
                     )}
@@ -1859,7 +1859,7 @@ function CommunityDiscoverScreen() {
                       />
                     ) : (
                       <LinearGradient
-                        colors={['#1e293b', '#0f172a']}
+                        colors={['#1E1E1E', '#121212']}
                         style={[styles.searchResultAvatar, { borderRadius: 8 }]}
                       />
                     )}
@@ -2530,7 +2530,7 @@ function CommunityDiscoverScreen() {
                     />
                   ) : (
                     <LinearGradient
-                      colors={['#1e293b', '#0f172a']}
+                      colors={['#1E1E1E', '#121212']}
                       style={styles.personAvatar}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
@@ -2572,7 +2572,7 @@ function CommunityDiscoverScreen() {
                       />
                     ) : (
                       <LinearGradient
-                        colors={['#1e3a5f', '#0f172a']}
+                        colors={['#1e3a5f', '#121212']}
                         style={styles.suggestedAvatar}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
@@ -2816,7 +2816,7 @@ function CommunityDiscoverScreen() {
                       <Image source={{ uri: banner }} style={styles.heroImage} contentFit="cover" />
                     ) : (
                       <LinearGradient
-                        colors={['#1e293b', '#0f172a']}
+                        colors={['#1E1E1E', '#121212']}
                         style={styles.heroImage}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}

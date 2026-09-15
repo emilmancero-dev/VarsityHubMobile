@@ -2459,8 +2459,8 @@ gamesRouter.get(
         where: { id },
         include: {
           events: { orderBy: { date: 'asc' }, take: 1 },
-          homeTeam: { select: { id: true, name: true, avatar_url: true } },
-          awayTeam: { select: { id: true, name: true, avatar_url: true } },
+          homeTeam: { select: { id: true, name: true, avatar_url: true, primary_color: true } },
+          awayTeam: { select: { id: true, name: true, avatar_url: true, primary_color: true } },
         },
       });
       if (!game) return sendError(res, 404, 'Not found');
@@ -2498,8 +2498,8 @@ gamesRouter.get(
         where: { id },
         include: {
           events: { orderBy: { date: 'asc' }, take: 1 },
-          homeTeam: { select: { id: true, name: true, avatar_url: true } },
-          awayTeam: { select: { id: true, name: true, avatar_url: true } },
+          homeTeam: { select: { id: true, name: true, avatar_url: true, primary_color: true } },
+          awayTeam: { select: { id: true, name: true, avatar_url: true, primary_color: true } },
         },
       });
       if (!game) return sendError(res, 404, 'Not found');
@@ -2588,6 +2588,7 @@ gamesRouter.get(
               id: gameData.homeTeam.id,
               name: gameData.homeTeam.name,
               avatar_url: gameData.homeTeam.avatar_url,
+              primary_color: gameData.homeTeam.primary_color ?? null,
               profile_link: `/teams/${gameData.homeTeam.id}`,
             }
           : gameData.home_team
@@ -2598,6 +2599,7 @@ gamesRouter.get(
               id: gameData.awayTeam.id,
               name: gameData.awayTeam.name,
               avatar_url: gameData.awayTeam.avatar_url,
+              primary_color: gameData.awayTeam.primary_color ?? null,
               profile_link: `/teams/${gameData.awayTeam.id}`,
             }
           : gameData.away_team || gameData.away_team_name

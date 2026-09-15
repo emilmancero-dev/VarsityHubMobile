@@ -2676,7 +2676,7 @@ const styles = StyleSheet.create({
   // Fullscreen Media Styles
   fullscreenContainer: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#121212',
     justifyContent: 'center',
     alignItems: 'center',
   },

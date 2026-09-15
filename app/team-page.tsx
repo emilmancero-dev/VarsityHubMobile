@@ -567,7 +567,7 @@ function TeamScreen() {
               ) : (
                 <View style={[styles.gridImage, styles.gridImageFallback]}>
                   <LinearGradient
-                    colors={['#0f172a', '#1e293b']}
+                    colors={['#121212', '#1E1E1E']}
                     style={StyleSheet.absoluteFillObject as any}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}

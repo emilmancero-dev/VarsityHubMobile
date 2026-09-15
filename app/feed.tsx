@@ -1770,9 +1770,9 @@ export default function FeedScreen() {
           alignItems: 'center',
           padding: 12,
           borderRadius: 10,
-          backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#EFF6FF',
+          backgroundColor: colorScheme === 'dark' ? '#1E1E1E' : '#EFF6FF',
           borderWidth: 1,
-          borderColor: colorScheme === 'dark' ? '#334155' : '#BFDBFE',
+          borderColor: colorScheme === 'dark' ? '#3A3A3C' : '#BFDBFE',
           marginBottom: 12,
         }}
       >
@@ -2124,7 +2124,7 @@ export default function FeedScreen() {
                 <View
                   style={[
                     styles.adPlaceholder,
-                    { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#F3F4F6' },
+                    { backgroundColor: colorScheme === 'dark' ? '#1E1E1E' : '#F3F4F6' },
                   ]}
                 >
                   <MaterialIcons
@@ -2288,7 +2288,7 @@ export default function FeedScreen() {
           const mediaUrl = post.media_url || post.mediaUrl || null;
           const caption = post.caption || post.content || '';
           const gradient: [string, string] =
-            item.idx % 2 === 0 ? ['#1e293b', '#0f172a'] : ['#0f172a', '#1e293b'];
+            item.idx % 2 === 0 ? ['#1E1E1E', '#121212'] : ['#121212', '#1E1E1E'];
           return (
             <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
               <Pressable
@@ -2416,9 +2416,7 @@ export default function FeedScreen() {
                     )
                   ) : (
                     <LinearGradient
-                      colors={
-                        colorScheme === 'dark' ? ['#1e293b', '#0f172a'] : ['#1e293b', '#0f172a']
-                      }
+                      colors={['#1E1E1E', '#121212']}
                       style={styles.verticalFeedImage}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
@@ -2687,7 +2685,7 @@ export default function FeedScreen() {
 
       {/* Enhanced header with gradient background and safe area */}
       <LinearGradient
-        colors={colorScheme === 'dark' ? ['#1e293b', '#0f172a'] : ['#ffffff', '#f8fafc']}
+        colors={colorScheme === 'dark' ? ['#1E1E1E', '#121212'] : ['#ffffff', '#f8fafc']}
         style={[styles.headerGradient, { paddingTop: insets.top + 4 }]}
       >
         <View style={styles.headerRow}>
@@ -3085,7 +3083,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#121212',
     ...(Platform.OS === 'web'
       ? { boxShadow: '0px 4px 8px rgba(15, 23, 42, 0.12)' }
       : {
@@ -3104,7 +3102,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#121212',
     ...(Platform.OS === 'web'
       ? { boxShadow: '0px 4px 8px rgba(15, 23, 42, 0.12)' }
       : {
@@ -3283,7 +3281,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#121212',
     ...(Platform.OS === 'web'
       ? { boxShadow: '0px 4px 8px rgba(15, 23, 42, 0.12)' }
       : {
@@ -3441,7 +3439,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#121212',
     minHeight: 220,
     aspectRatio: 1,
     justifyContent: 'flex-end',

@@ -128,7 +128,7 @@ function MasonryPostCard({
                   recyclingKey={String(author?.id ?? author?.username ?? post.id)}
                 />
               ) : (
-                <LinearGradient colors={['#1e293b', '#0f172a']} style={styles.authorAvatar} />
+                <LinearGradient colors={['#1E1E1E', '#121212']} style={styles.authorAvatar} />
               )}
             </View>
             <Text
@@ -173,7 +173,7 @@ function MasonryPostCard({
             <View
               style={[
                 styles.media,
-                { backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' },
+                { backgroundColor: '#121212', alignItems: 'center', justifyContent: 'center' },
               ]}
             >
               <MaterialIcons name="videocam" size={28} color="#94a3b8" />

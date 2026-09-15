@@ -418,7 +418,7 @@ const FeedCard = memo(
           ) : (
             <View style={[styles.media, styles.textOnlyCard]}>
               <LinearGradient
-                colors={['#1e293b', '#0f172a']}
+                colors={['#1E1E1E', '#121212']}
                 style={StyleSheet.absoluteFillObject as any}
               />
               <View style={styles.textOnlyContent}>
@@ -1978,7 +1978,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1E1E1E',
     borderRadius: 16,
     padding: 24,
     width: '100%',
@@ -2040,7 +2040,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   editInput: {
-    backgroundColor: '#334155',
+    backgroundColor: '#3A3A3C',
     color: '#fff',
     borderRadius: 12,
     padding: 16,
@@ -2050,7 +2050,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   optionsMenu: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1E1E1E',
     borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 40,

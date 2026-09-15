@@ -100,11 +100,11 @@ export default function OnboardingLayout({
   };
 
   const colors = {
-    background: isDark ? '#0f172a' : '#FFFFFF',
+    background: isDark ? '#121212' : '#FFFFFF',
     text: Colors[colorScheme].text,
     textMuted: isDark ? '#9CA3AF' : '#6B7280',
-    border: isDark ? '#334155' : '#D1D5DB',
-    headerBg: isDark ? '#0f172a' : '#FFFFFF',
+    border: isDark ? '#3A3A3C' : '#D1D5DB',
+    headerBg: isDark ? '#121212' : '#FFFFFF',
     primary: isDark ? '#60A5FA' : '#2563EB',
     primaryMuted: isDark ? '#1E40AF' : '#D1E0FF',
   };

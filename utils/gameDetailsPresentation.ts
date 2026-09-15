@@ -6,12 +6,39 @@ import { isPostingWindowOpen, type LiveWindowFields } from '@/utils/liveWindow';
 import type { MediaItem } from '../app/game-details/StoriesViewer';
 
 export const PLACEHOLDER_GRADIENT: readonly [ColorValue, ColorValue, ...ColorValue[]] = [
-  '#1e293b',
-  '#1d4ed8',
-  '#38bdf8',
+  '#1E1E1E',
+  '#121212',
 ];
 
-export type TeamInfo = { id: string; name: string; avatarUrl?: string | null };
+export type TeamInfo = {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+  color?: string | null;
+};
+
+// PDF commandments: "When a NCAA game doesn't have a stadium image, include
+// a sport emoji in the center as well as a gradient background of the home
+// team's colors." Team.primary_color is a single hex accent (deliberately not
+// paired with logo/wordmark art, see schema.prisma's trademark-posture note) —
+// darken it for the second stop so the gradient reads as a surface, not a flat
+// color swatch. Falls back to the neutral placeholder when no team color exists.
+export function buildTeamColorGradient(
+  color: string | null | undefined
+): readonly [ColorValue, ColorValue] {
+  const hex = typeof color === 'string' ? color.trim() : '';
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return [PLACEHOLDER_GRADIENT[0], PLACEHOLDER_GRADIENT[1]];
+  const num = parseInt(match[1], 16);
+  const r = (num >> 16) & 0xff;
+  const g = (num >> 8) & 0xff;
+  const b = num & 0xff;
+  const darken = (channel: number) => Math.round(channel * 0.45);
+  const shadow = `#${[darken(r), darken(g), darken(b)]
+    .map(c => c.toString(16).padStart(2, '0'))
+    .join('')}`;
+  return [hex, shadow];
+}
 
 export type GameVM = {
   id: string;

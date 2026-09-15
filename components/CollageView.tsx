@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
   frame: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#121212',
   },
 });
 

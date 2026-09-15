@@ -315,7 +315,7 @@ function PostCard({ post, onPress, showAuthorHeader = true, onDeleted, onUpdated
           />
           {/* Top accent stripe */}
           <LinearGradient
-            colors={['#1e293b', '#0f172a']}
+            colors={['#1E1E1E', '#121212']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.topAccent}
@@ -362,7 +362,7 @@ function PostCard({ post, onPress, showAuthorHeader = true, onDeleted, onUpdated
                 <View
                   style={[
                     styles.media,
-                    { backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' },
+                    { backgroundColor: '#121212', alignItems: 'center', justifyContent: 'center' },
                   ]}
                 >
                   <MaterialIcons name="videocam" size={36} color="#94a3b8" />
@@ -760,7 +760,7 @@ const styles = StyleSheet.create({
   },
   authorName: { fontWeight: '700', maxWidth: 220 },
   actionsButton: { padding: 4, borderRadius: 12 },
-  mediaErrorState: { backgroundColor: '#1e293b', alignItems: 'center', justifyContent: 'center' },
+  mediaErrorState: { backgroundColor: '#1E1E1E', alignItems: 'center', justifyContent: 'center' },
   mediaErrorText: { color: '#94a3b8', fontSize: 12, marginTop: 4 },
   mediaRetryText: { color: '#e2e8f0', fontSize: 12, fontWeight: '700', marginTop: 6 },
 

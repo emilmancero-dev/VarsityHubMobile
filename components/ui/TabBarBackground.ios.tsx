@@ -6,7 +6,7 @@ export default function BlurTabBarBackground() {
   const colorScheme = useColorScheme();
 
   // Use solid opaque backgrounds - BlurView causes sawtooth/zigzag artifact at bottom edge on iOS
-  const backgroundColor = colorScheme === 'dark' ? '#0f172a' : '#FFFFFF';
+  const backgroundColor = colorScheme === 'dark' ? '#121212' : '#FFFFFF';
   return <View style={[StyleSheet.absoluteFill, { backgroundColor, overflow: 'hidden' }]} />;
 }
 

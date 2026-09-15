@@ -170,7 +170,7 @@ const VideoThumbnailImage = ({ videoUrl, style }: { videoUrl: string; style: any
   // Fallback: dark gradient with prominent play icon — never a blank card
   return (
     <LinearGradient
-      colors={['#1e293b', '#0f172a']}
+      colors={['#1E1E1E', '#121212']}
       style={[style, { alignItems: 'center', justifyContent: 'center' }]}
     >
       <View

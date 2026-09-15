@@ -47,13 +47,13 @@ import {
   capCount,
   computeIsPast,
   DEMO_MATCHUP_TAG,
+  buildTeamColorGradient,
   ensureIso,
   finalsBannerForTeams,
   formatDateLabel,
   formatTimeLabel,
   getVenuePhoto,
   pickBannerFromArrays,
-  PLACEHOLDER_GRADIENT,
   type GameVM,
   type TeamInfo,
 } from '@/utils/gameDetailsPresentation';
@@ -627,6 +627,7 @@ const GameDetailsScreen = () => {
         id: String(team.id ?? team.team_id ?? ''),
         name: String(team.name ?? team.team_name ?? 'Team'),
         avatarUrl: team.avatarUrl ?? team.avatar_url ?? null,
+        color: team.color ?? team.primary_color ?? null,
       }))
       .filter(team => team.id);
   };
@@ -765,7 +766,13 @@ const GameDetailsScreen = () => {
         userRsvped = Boolean(summary.userRsvped);
         reviewsCount = typeof summary.reviewsCount === 'number' ? summary.reviewsCount : null;
         isPast = Boolean(summary.isPast);
-        teams = mapTeams(summary.teams);
+        // The /summary endpoint returns homeTeam/awayTeam objects, not a
+        // teams array — build one so homeTeamObj/awayTeamObj lookups below
+        // (team color, tap-through) resolve for the primary load path too.
+        teams =
+          Array.isArray(summary.teams) && summary.teams.length > 0
+            ? mapTeams(summary.teams)
+            : mapTeams([summary.homeTeam, summary.awayTeam].filter(Boolean));
         dateIso = ensureIso(summary.date);
         title = summary.title ?? '';
         // Extract team names - handle both string and object formats
@@ -823,6 +830,7 @@ const GameDetailsScreen = () => {
             id: gameRecord.homeTeam.id,
             name: gameRecord.homeTeam.name,
             avatarUrl: (gameRecord.homeTeam as any).avatar_url || null,
+            color: (gameRecord.homeTeam as any).primary_color || null,
           });
         }
         if (gameRecord.awayTeam && typeof gameRecord.awayTeam === 'object') {
@@ -830,6 +838,7 @@ const GameDetailsScreen = () => {
             id: gameRecord.awayTeam.id,
             name: gameRecord.awayTeam.name,
             avatarUrl: (gameRecord.awayTeam as any).avatar_url || null,
+            color: (gameRecord.awayTeam as any).primary_color || null,
           });
         }
         teams = teamsArray;
@@ -2187,7 +2196,7 @@ const GameDetailsScreen = () => {
         />
       ) : (
         <LinearGradient
-          colors={PLACEHOLDER_GRADIENT}
+          colors={buildTeamColorGradient((homeTeamObj as any)?.color)}
           style={styles.bannerImage}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -2903,7 +2912,7 @@ const GameDetailsScreen = () => {
                                   style={[
                                     styles.gridImageContainer,
                                     {
-                                      backgroundColor: '#0f172a',
+                                      backgroundColor: '#121212',
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                     },
@@ -3637,7 +3646,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     bannerWrapper: {
       position: 'relative',
       height: 260,
-      backgroundColor: colorScheme === 'dark' ? '#1e293b' : '#eff6ff',
+      backgroundColor: colorScheme === 'dark' ? '#1E1E1E' : '#eff6ff',
     },
     bannerImage: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
     venueCreditFooter: {
@@ -4316,7 +4325,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       flex: 1,
       borderRadius: 16,
       overflow: 'hidden',
-      backgroundColor: '#0f172a',
+      backgroundColor: '#121212',
       borderWidth: 0,
     },
     storyItemSeen: { opacity: 0.5, transform: [{ scale: 0.95 }] },
@@ -4324,7 +4333,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       alignItems: 'center',
       justifyContent: 'center',
       padding: 8,
-      backgroundColor: '#0f172a',
+      backgroundColor: '#121212',
     },
     storyTileLabel: { color: '#cbd5e1', fontWeight: '700', fontSize: 12, marginBottom: 6 },
     storyTileTime: { color: '#ffffff', fontWeight: '900', fontSize: 16 },
@@ -4374,7 +4383,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       borderRadius: 20,
       overflow: 'hidden',
       minHeight: 220,
-      backgroundColor: '#0f172a',
+      backgroundColor: '#121212',
     },
     verticalFeedImage: { ...StyleSheet.absoluteFillObject },
     verticalFeedShade: { ...StyleSheet.absoluteFillObject },

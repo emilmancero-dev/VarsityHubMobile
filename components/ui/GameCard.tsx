@@ -132,7 +132,7 @@ export function GameCard({
         />
       ) : (
         <LinearGradient
-          colors={['#1e293b', '#0f172a']}
+          colors={['#1E1E1E', '#121212']}
           style={styles.cardImage}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}

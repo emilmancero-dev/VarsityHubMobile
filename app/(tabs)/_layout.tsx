@@ -111,7 +111,7 @@ export default function TabLayout() {
         height: Math.max(isWeb ? 78 : 64, (isWeb ? 66 : 56) + insets.bottom),
         paddingBottom: Math.max(isWeb ? 14 : 10, insets.bottom),
         paddingTop: isWeb ? 10 : 6,
-        backgroundColor: colorScheme === 'dark' ? '#0f172a' : palette.card,
+        backgroundColor: colorScheme === 'dark' ? '#121212' : palette.card,
         overflow: 'visible' as const,
         ...(isWeb ? { boxShadow: 'none' } : { shadowOpacity: 0, shadowRadius: 0 }),
         elevation: 0,

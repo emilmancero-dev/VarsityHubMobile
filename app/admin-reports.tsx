@@ -352,7 +352,7 @@ function AdminReportsScreen() {
           flex: 1,
           justifyContent: 'center',
           alignItems: 'center',
-          backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F9FAFB',
+          backgroundColor: colorScheme === 'dark' ? '#121212' : '#F9FAFB',
         }}
       >
         <ActivityIndicator size="large" color="#3B82F6" />
@@ -368,7 +368,7 @@ function AdminReportsScreen() {
           flex: 1,
           justifyContent: 'center',
           alignItems: 'center',
-          backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F9FAFB',
+          backgroundColor: colorScheme === 'dark' ? '#121212' : '#F9FAFB',
         }}
       >
         <Text

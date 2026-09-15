@@ -1842,7 +1842,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     enhancedModalCard: {
       width: '100%',
       maxWidth: 500,
-      backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#FFFFFF',
+      backgroundColor: colorScheme === 'dark' ? '#121212' : '#FFFFFF',
       borderRadius: 28,
       paddingHorizontal: 24,
       paddingVertical: 24,
@@ -1856,7 +1856,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
           }),
       elevation: 12,
       borderWidth: 1,
-      borderColor: colorScheme === 'dark' ? '#1E293B' : '#E2E8F0',
+      borderColor: colorScheme === 'dark' ? '#3A3A3C' : '#E2E8F0',
     },
     enhancedModalHeader: {
       flexDirection: 'row',
@@ -1907,9 +1907,9 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     },
     textAreaWrapper: {
       borderWidth: 1,
-      borderColor: colorScheme === 'dark' ? '#334155' : '#CBD5E1',
+      borderColor: colorScheme === 'dark' ? '#3A3A3C' : '#CBD5E1',
       borderRadius: 16,
-      backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#F8FAFC',
+      backgroundColor: colorScheme === 'dark' ? '#1E1E1E' : '#F8FAFC',
       paddingHorizontal: 14,
       paddingVertical: 12,
       marginBottom: 12,
@@ -1950,7 +1950,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       borderRadius: 14,
       backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.05)' : '#F1F5F9',
       borderWidth: 1,
-      borderColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0',
+      borderColor: colorScheme === 'dark' ? '#3A3A3C' : '#E2E8F0',
     },
     secondaryActionText: {
       fontSize: 14,
@@ -2154,11 +2154,11 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     typeModalCard: {
       width: '100%',
       maxWidth: 400,
-      backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#FFFFFF',
+      backgroundColor: colorScheme === 'dark' ? '#121212' : '#FFFFFF',
       borderRadius: 20,
       padding: 20,
       borderWidth: 1,
-      borderColor: colorScheme === 'dark' ? '#1E293B' : '#E2E8F0',
+      borderColor: colorScheme === 'dark' ? '#3A3A3C' : '#E2E8F0',
     },
     typeModalTitle: {
       fontSize: 17,
@@ -2173,9 +2173,9 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       paddingHorizontal: 12,
       borderRadius: 12,
       marginBottom: 6,
-      backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#F8FAFC',
+      backgroundColor: colorScheme === 'dark' ? '#1E1E1E' : '#F8FAFC',
       borderWidth: 1,
-      borderColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0',
+      borderColor: colorScheme === 'dark' ? '#3A3A3C' : '#E2E8F0',
     },
     typeOptionActive: {
       backgroundColor: colorScheme === 'dark' ? 'rgba(59,130,246,0.25)' : '#DBEAFE',
@@ -2196,7 +2196,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       paddingVertical: 10,
       paddingHorizontal: 18,
       borderRadius: 12,
-      backgroundColor: colorScheme === 'dark' ? '#334155' : '#F1F5F9',
+      backgroundColor: colorScheme === 'dark' ? '#3A3A3C' : '#F1F5F9',
     },
     typeCancelText: {
       fontSize: 15,

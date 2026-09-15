@@ -240,7 +240,7 @@ function AdConfirmationScreen() {
 
             {/* Details Card */}
             <LinearGradient
-              colors={colorScheme === 'dark' ? ['#1e293b', '#0f172a'] : ['#ffffff', '#f8fafc']}
+              colors={colorScheme === 'dark' ? ['#1E1E1E', '#121212'] : ['#ffffff', '#f8fafc']}
               style={[styles.detailsCard, { borderColor: Colors[colorScheme].border }]}
             >
               <ConfirmationDetailItem

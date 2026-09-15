@@ -46,7 +46,7 @@ function buildMapDocument(markers: MarkerPayload[], mapId: string, isDark: boole
       padding: 0;
       width: 100%;
       height: 100%;
-      background: ${isDark ? '#0f172a' : '#f8fafc'};
+      background: ${isDark ? '#121212' : '#f8fafc'};
     }
     .leaflet-container {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;

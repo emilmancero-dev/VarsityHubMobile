@@ -53,9 +53,9 @@ export default function FanPermissions() {
   }, [user, router]);
 
   const colors = {
-    background: isDark ? '#0f172a' : '#FFFFFF',
-    card: isDark ? '#1E293B' : '#F8FAFF',
-    cardBorder: isDark ? '#334155' : '#DBEAFE',
+    background: isDark ? '#121212' : '#FFFFFF',
+    card: isDark ? '#1E1E1E' : '#F8FAFF',
+    cardBorder: isDark ? '#3A3A3C' : '#DBEAFE',
     text: palette.text,
     textMuted: isDark ? '#9CA3AF' : '#6B7280',
     primary: isDark ? '#60A5FA' : '#2563EB',
@@ -261,8 +261,8 @@ export default function FanPermissions() {
           style={[
             styles.fanNote,
             {
-              backgroundColor: isDark ? '#0F172A' : '#F1F5F9',
-              borderColor: isDark ? '#334155' : '#E2E8F0',
+              backgroundColor: isDark ? '#1E1E1E' : '#F1F5F9',
+              borderColor: isDark ? '#3A3A3C' : '#E2E8F0',
             },
           ]}
         >
@@ -274,7 +274,7 @@ export default function FanPermissions() {
       </View>
 
       {/* Footer actions */}
-      <View style={[styles.footer, { borderTopColor: isDark ? '#334155' : '#E5E7EB' }]}>
+      <View style={[styles.footer, { borderTopColor: isDark ? '#3A3A3C' : '#E5E7EB' }]}>
         <Pressable
           onPress={requestAndContinue}
           disabled={loading}

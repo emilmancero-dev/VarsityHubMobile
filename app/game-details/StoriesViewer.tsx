@@ -374,7 +374,7 @@ const createStyles = (_colorScheme: 'light' | 'dark') =>
   StyleSheet.create({
     storyViewerRoot: {
       flex: 1,
-      backgroundColor: '#0f172a',
+      backgroundColor: '#121212',
       justifyContent: 'center',
       alignItems: 'center',
     },
