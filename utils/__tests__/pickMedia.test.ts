@@ -38,11 +38,16 @@ test('surfaces acquisition errors unchanged', async () => {
   launchLibrary.mockRejectedValueOnce(new Error('offline'));
   await expect(launchMediaLibraryAsync({ mediaTypes: ['videos'] })).rejects.toThrow('offline');
 });
-test('requires a rebuilt native app instead of silently returning to the broken picker', async () => {
+test('falls back to the Expo picker when the native module is absent (older build)', async () => {
+  // The native VarsityMediaPicker only ships in an eas build, never OTA, so
+  // binaries built before it was added (e.g. shipped 1.0.5) don't have it.
+  // Video selection must still work there via the standard Expo picker rather
+  // than dead-ending on an "Update required" alert.
   (requireOptionalNativeModule as jest.Mock).mockReturnValue(null);
-  await expect(launchMediaLibraryAsync({ mediaTypes: ['videos'] })).rejects.toThrow(
-    'latest app build'
-  );
+  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['videos'] };
+  await launchMediaLibraryAsync(options);
+  expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith(options);
+  expect(launchLibrary).not.toHaveBeenCalled();
 });
 test.each(['android', 'web'])('retains Expo selection on %s', async os => {
   Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
@@ -78,11 +83,4 @@ test('retains image-only camera controls without changing capture mode', async (
   const options: ImagePicker.ImagePickerOptions = { allowsEditing: false, quality: 1 };
   await launchMediaCameraAsync(options);
   expect(ImagePicker.launchCameraAsync).toHaveBeenCalledWith(options);
-});
-
-test('keeps update-required recovery guidance through the public error boundary', async () => {
-  const { toUserMessage } = require('../toUserMessage');
-  (requireOptionalNativeModule as jest.Mock).mockReturnValue(null);
-  const error = await launchMediaLibraryAsync({ mediaTypes: ['videos'] }).catch(error => error);
-  expect(toUserMessage(error)).toContain('update VarsityHub');
 });

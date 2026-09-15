@@ -19,14 +19,13 @@ export async function launchMediaLibraryAsync(
       selectionLimit: number
     ): Promise<ImagePicker.ImagePickerResult>;
   }>('VarsityMediaPicker');
-  if (!native) {
-    throw Object.assign(
-      new Error(
-        'Video selection requires the latest app build. Please update VarsityHub and try again.'
-      ),
-      { code: 'MEDIA_PICKER_UPDATE_REQUIRED' }
-    );
-  }
+  // VarsityMediaPicker is a NATIVE module that only ships in an eas build, never
+  // OTA — so binaries built before it was added (e.g. the shipped 1.0.5 App
+  // Store build) don't have it. When it's absent, fall back to the standard
+  // Expo picker so users can still select video: the native module avoids an
+  // AVAssetExportSession re-encode but is an enhancement, not a requirement.
+  // Hard-throwing here left 1.0.5 users with no video-upload path at all.
+  if (!native) return ImagePicker.launchImageLibraryAsync(options);
   const includeImages =
     mediaTypes === ImagePicker.MediaTypeOptions.All ||
     (Array.isArray(mediaTypes) && mediaTypes.includes('images'));

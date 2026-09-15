@@ -632,14 +632,6 @@ function CreatePostScreen() {
       // v1.0.2 audit fix: use shared iCloud detection (matches BannerUpload patterns)
       if (isICloudError(error)) {
         Alert.alert(ICLOUD_ERROR_TITLE, ICLOUD_ERROR_MESSAGE);
-      } else if (error?.code === 'MEDIA_PICKER_UPDATE_REQUIRED') {
-        // Video selection needs the VarsityMediaPicker native module, which only
-        // ships in a new binary (not OTA). An older installed build hits this —
-        // tell the user to update rather than showing a generic failure.
-        Alert.alert(
-          'Update required',
-          'Video selection requires the latest app build. Please update VarsityHub and try again.'
-        );
       } else {
         Alert.alert('Error', 'Failed to select media. Please try again.');
       }
