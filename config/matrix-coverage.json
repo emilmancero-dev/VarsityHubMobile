@@ -10842,6 +10842,38 @@
     "utils/uploadErrorAlert.ts#navigation:fc2efddac90a": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/edit-event.tsx#action:152d92c3e262": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#action:7cf290d4ee95": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#action:8ac32171a7d5": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#action:cfcf7612c5af": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#api-call:759ba63c58cd": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#navigation:8a24470c76d2": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/settings/_layout.tsx#registration:47c59d805b98": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "server/src/routes/users.ts#endpoint:804591f81057": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
     }
   }
 }
