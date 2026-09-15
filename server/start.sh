@@ -126,6 +126,32 @@ fi
 # rewritten from the primary on every sync. Non-fatal: a backup outage must
 # never block API startup; the sync job reports per-table failures instead.
 if [ -n "${DATABASE_BACKUP_URL:-}" ]; then
+  # Pre-push reconcile. The v1.0.2 migration created
+  # TransactionLog_apple_transaction_id_key as a PARTIAL unique index
+  # (WHERE apple_transaction_id IS NOT NULL). Prisma's `@unique` models a FULL
+  # unique index of the same name, so `db push` (which DIFFS schema.prisma against
+  # the live DB, unlike `migrate deploy` which just replays SQL and never notices)
+  # tries to CREATE that index and collides on the name — `relation
+  # "TransactionLog_apple_transaction_id_key" already exists` — aborting the ENTIRE
+  # push and silently freezing all NEWER Prisma schema on the backup replica.
+  # Drop ONLY the partial variant so the push below recreates it as the full unique
+  # index it expects; a no-op once converged (verified 2026-09-14). Backup-only +
+  # schema-only (backup rows are rewritten from primary every 6h) → safe. This must
+  # NEVER touch the primary — its partial index matches its migration history.
+  echo "[startup] Reconciling backup TransactionLog unique index (pre-push)..."
+  DATABASE_URL="$DATABASE_BACKUP_URL" timeout 60 ./node_modules/.bin/prisma db execute --url "$DATABASE_BACKUP_URL" --stdin <<'SQL' || echo "[startup] ⚠️  Backup index reconcile skipped (non-fatal)"
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND indexname = 'TransactionLog_apple_transaction_id_key'
+      AND indexdef LIKE '%WHERE%'
+  ) THEN
+    EXECUTE 'DROP INDEX "TransactionLog_apple_transaction_id_key"';
+  END IF;
+END $$;
+SQL
   echo "[startup] Reconciling backup DB schema (prisma db push)..."
   if DATABASE_URL="$DATABASE_BACKUP_URL" timeout 180 ./node_modules/.bin/prisma db push --skip-generate --accept-data-loss; then
     echo "[startup] ✓ Backup DB schema in sync"
