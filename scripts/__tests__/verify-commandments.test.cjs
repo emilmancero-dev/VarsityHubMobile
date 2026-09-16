@@ -24,6 +24,7 @@ test('commandments release gate includes every required verification family', ()
   }
   assert.match(source, /results\.some\(result => result\.exitCode !== 0\)/);
   assert.match(source, /git[\s\S]*rev-parse[\s\S]*HEAD/);
+  assert.match(source, /DATABASE_URL:\s*process\.env\.COMMANDMENTS_TEST_DATABASE_URL/);
 });
 
 test('package exposes the commandments release gate', () => {

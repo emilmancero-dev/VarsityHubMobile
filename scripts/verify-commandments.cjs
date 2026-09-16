@@ -5,6 +5,12 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const outputPath = path.join(root, 'artifacts', 'commandments-verification.json');
+const gateEnv = process.env.COMMANDMENTS_TEST_DATABASE_URL
+  ? {
+      ...process.env,
+      DATABASE_URL: process.env.COMMANDMENTS_TEST_DATABASE_URL,
+    }
+  : process.env;
 const gates = [
   { name: 'conflicts', command: 'npm', args: ['run', 'check:conflicts'] },
   {
@@ -44,7 +50,7 @@ for (const gate of gates) {
   const result = spawnSync(gate.command, gate.args, {
     cwd: root,
     stdio: 'inherit',
-    env: process.env,
+    env: gateEnv,
   });
   results.push({
     name: gate.name,
