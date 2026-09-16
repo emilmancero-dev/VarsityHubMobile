@@ -11,6 +11,7 @@ import { prisma } from '../lib/prisma.js';
 import {
   formatDobYmd,
   getUserAge,
+  isVerifiedAdult,
   parseDobLocal,
   requiresParentalConsent,
 } from '../lib/userAge.js';
@@ -1642,6 +1643,8 @@ usersRouter.get(
       },
       select: {
         ...publicUserSelect,
+        date_of_birth: true,
+        preferences: true,
         role: true,
         approval_status: true,
         _count: { select: { followers: { where: { status: 'accepted' } } } },
@@ -1672,6 +1675,8 @@ usersRouter.get(
 
     // Sort: mutual score desc, then follower count desc
     const scored = candidates
+      // Canonical age policy fails closed for unknown DOB, including legacy rows.
+      .filter(candidate => isVerifiedAdult(candidate))
       .map(c => ({ ...c, mutualScore: mutualScores.get(c.id) ?? 0 }))
       .sort((a, b) => b.mutualScore - a.mutualScore || b._count.followers - a._count.followers)
       .slice(0, limit);
