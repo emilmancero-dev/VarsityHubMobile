@@ -21,9 +21,16 @@ const read = (...parts: string[]) => readFileSync(join(...parts), 'utf8');
 const geofencing = read(SERVER_ROOT, 'src/lib/geofencing.ts');
 const adPricing = read(SERVER_ROOT, 'src/utils/adPricing.ts');
 const posts = read(SERVER_ROOT, 'src/routes/posts.ts');
+const payments = read(SERVER_ROOT, 'src/routes/payments.ts');
+const approvalService = read(SERVER_ROOT, 'src/lib/approvalService.ts');
+const scheduler = read(SERVER_ROOT, 'src/jobs/scheduler.ts');
+const mediaUploadSession = read(SERVER_ROOT, 'src/lib/mediaUploadSession.ts');
 const espnAdapter = read(SERVER_ROOT, 'src/lib/proSchedule/espnAdapter.ts');
 const feed = read(REPO_ROOT, 'app/feed.tsx');
 const profile = read(REPO_ROOT, 'app/profile.tsx');
+const eventFeedCard = read(REPO_ROOT, 'components/ui/EventFeedCard.tsx');
+const mapMarkerColor = read(REPO_ROOT, 'utils/mapMarkerColor.ts');
+const videoConstants = read(REPO_ROOT, 'constants/video.ts');
 const usersRoute = read(SERVER_ROOT, 'src/routes/users.ts');
 const commandments = read(REPO_ROOT, 'docs/COMMANDMENTS.md');
 
@@ -62,6 +69,9 @@ describe('commandments: posting caps', () => {
   it('media is capped at 5 items per post', () => {
     // media_urls array in the create-post schema
     expect(posts).toMatch(/media_urls[\s\S]{0,200}?\.max\(5\)/);
+  });
+  it('post text is capped at the documented current 4000 characters', () => {
+    expect(posts).toMatch(/content:\s*z\.string\(\)\.max\(4000\)/);
   });
 });
 
@@ -122,5 +132,31 @@ describe('commandments: doc exists and is the reconciled edition', () => {
     expect(usersRoute).toMatch(/eventPostingUnlock\.findMany/);
     expect(commandments).toMatch(/profile Events tab[^\n]*SHIPPED/i);
     expect(commandments).not.toMatch(/map legend, profile events\s+tab,/i);
+  });
+});
+
+describe('commandments: remaining registry invariants', () => {
+  it('purges zero-post event pages after the live window', () => {
+    expect(approvalService).toMatch(/export async function purgeUnpostedEventPages/);
+    expect(scheduler).toMatch(/await purgeUnpostedEventPages\(prisma\)/);
+  });
+
+  it('uses gold for event pages with posts on both map pins and live feed cards', () => {
+    expect(mapMarkerColor).toMatch(/HAS_POSTS_COLOR\s*=\s*'#D4AF37'/);
+    expect(mapMarkerColor).toMatch(/event\.has_posts === true\) return HAS_POSTS_COLOR/);
+    expect(eventFeedCard).toMatch(/borderColor: hasPosts \? HAS_POSTS_COLOR : '#EF4444'/);
+  });
+
+  it('enforces the 56-day ad booking horizon on both server payment paths', () => {
+    expect(payments.match(/MAX_BOOKING_HORIZON_DAYS = 56/g)).toHaveLength(2);
+  });
+
+  it('keeps the client and server media ceiling at 150 MB', () => {
+    expect(videoConstants).toMatch(/MAX_VIDEO_SIZE_BYTES = 150 \* 1024 \* 1024/);
+    expect(mediaUploadSession).toMatch(/MAX_BYTES = 150 \* 1024 \* 1024/);
+  });
+
+  it('classifies the unresolved original 800-character claim as OPEN', () => {
+    expect(commandments).toMatch(/CMD-CONTENT-001\s*\|\s*OPEN/);
   });
 });
