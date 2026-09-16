@@ -224,17 +224,19 @@ function CreatePostScreen() {
   const draftLoadedRef = useRef(false);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      router.replace('/create');
-      return;
-    }
-    if (!(user as any)?.email_verified) {
-      // nav-safe: auth gate -> email verification
-      router.replace('/verify-identity?method=email');
-    }
-  }, [authLoading, router, user]);
+  useFocusEffect(
+    useCallback(() => {
+      if (authLoading) return;
+      if (!user) {
+        router.replace('/create');
+        return;
+      }
+      if (!(user as any)?.email_verified) {
+        // nav-safe: auth gate -> email verification
+        router.replace('/verify-identity?method=email');
+      }
+    }, [authLoading, router, user])
+  );
 
   // Reset trim state and content consent when media changes
   useEffect(() => {
@@ -398,20 +400,31 @@ function CreatePostScreen() {
   // Request location permission before event uploads. Event-page posts require
   // device-origin GPS server-side; asking only after media selection can waste
   // an upload and make the final create step look broken.
-  useEffect(() => {
-    const shouldRequestForSelectedEvent = Boolean(gameId) || Boolean(eventId);
-    const shouldRequestForSuggestions = !hasAutoSuggested && !gameId && !eventId;
-    if (
-      permissionGranted === false &&
-      (shouldRequestForSelectedEvent || shouldRequestForSuggestions)
-    ) {
-      requestPermission().catch(() => {
-        setLocationError(
-          "Unable to access device location. You can still post, but event suggestions won't be available."
-        );
-      });
-    }
-  }, [permissionGranted, hasAutoSuggested, eventId, gameId, postType, requestPermission]);
+  useFocusEffect(
+    useCallback(() => {
+      if (authLoading || !user?.email_verified) return;
+      const shouldRequestForSelectedEvent = Boolean(gameId) || Boolean(eventId);
+      const shouldRequestForSuggestions = !hasAutoSuggested && !gameId && !eventId;
+      if (
+        permissionGranted === false &&
+        (shouldRequestForSelectedEvent || shouldRequestForSuggestions)
+      ) {
+        requestPermission().catch(() => {
+          setLocationError(
+            "Unable to access device location. You can still post, but event suggestions won't be available."
+          );
+        });
+      }
+    }, [
+      authLoading,
+      user?.email_verified,
+      permissionGranted,
+      hasAutoSuggested,
+      eventId,
+      gameId,
+      requestPermission,
+    ])
+  );
 
   useEffect(() => {
     if (_locError) {

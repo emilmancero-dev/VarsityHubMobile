@@ -164,6 +164,32 @@ describe('GET /games/posts-summary', () => {
       .expect(200);
 
     expect(res.body?.[event.id]).toBe(2);
+
+    // Normal creation denormalizes one post onto BOTH page identifiers.
+    await prisma.post.create({
+      data: {
+        author_id: userId,
+        content: `Dual-linked post ${ts}`,
+        type: 'post',
+        game_id: game.id,
+        event_id: event.id,
+      },
+    });
+    await prisma.post.create({
+      data: {
+        author_id: userId,
+        content: `Deleted dual-linked post ${ts}`,
+        type: 'post',
+        game_id: game.id,
+        event_id: event.id,
+        deleted_at: new Date(),
+      },
+    });
+    const combined = await request(app)
+      .get(`/games/posts-summary?ids=${event.id},${game.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(combined.body).toEqual({ [event.id]: 3, [game.id]: 3 });
   });
 
   it('rejects a request with no ids', async () => {

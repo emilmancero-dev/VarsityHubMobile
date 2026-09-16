@@ -76,6 +76,8 @@ jobs:
         run: |
           node --test scripts/__tests__/release-workflow-ordering.test.cjs
           node --test scripts/__tests__/matrix-inventory.test.cjs
+          node --test scripts/__tests__/outbound-error-telemetry.test.mjs
+          node --test scripts/__tests__/web-root-route-continuity.test.cjs
           npm run audit:matrix:inventory
 
       - name: Check async handler and error envelope usage

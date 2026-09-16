@@ -29,15 +29,19 @@ export function WebThemeToggle() {
   const { width } = useWindowDimensions();
   const [expanded, setExpanded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
+    setMounted(true);
     setDismissed(window.localStorage.getItem(DISMISS_KEY) === 'true');
   }, []);
 
   if (Platform.OS !== 'web') return null;
 
-  if (dismissed || width < MIN_FLOATING_WIDTH) return null;
+  // The static export has no viewport. Match its first render, then choose
+  // browser-only chrome after hydration rather than rebuilding the app tree.
+  if (!mounted || dismissed || width < MIN_FLOATING_WIDTH) return null;
 
   const palette = Colors[colorScheme];
   const selectedTheme = themePreference === 'system' ? colorScheme : themePreference;

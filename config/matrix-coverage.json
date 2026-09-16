@@ -181,7 +181,7 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/(tabs)/create-post.tsx#action:79e2bb4b5fa1": {
+    "app/(tabs)/create-post.tsx#action:31dfe3d8eb75": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -661,10 +661,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/(tabs)/discover/mobile-community.tsx#api-call:1cf0374a429a": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/(tabs)/discover/mobile-community.tsx#api-call:35599b35600c": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -697,10 +693,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/(tabs)/discover/mobile-community.tsx#api-call:91df411614ed": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/(tabs)/discover/mobile-community.tsx#api-call:94f9bcfd99dd": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -721,19 +713,11 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/(tabs)/discover/mobile-community.tsx#api-call:d7536e53b201": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/(tabs)/discover/mobile-community.tsx#api-call:d8829f37a3ff": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/(tabs)/discover/mobile-community.tsx#api-call:e266f8a476ce": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/discover/mobile-community.tsx#api-call:f690bf415129": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -1326,14 +1310,6 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/(tabs)/highlights/index.tsx#screen": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/index.tsx#navigation:3f3f21823199": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/index.tsx#screen": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -10875,7 +10851,7 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "utils/compressVideo.ts#api-call:b05f34d47edf": {
+    "utils/compressVideo.ts#api-call:4ba0905d6c3d": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },

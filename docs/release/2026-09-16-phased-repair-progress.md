@@ -36,7 +36,7 @@ Installed dependencies are linked read-only in use from the original checkout; n
 ## Remaining execution / release gates
 
 - Phase 4: implemented locally; see [pagination/backend change summary](2026-09-16-phase4-backend-repairs.md) for regressions, measured query counts, compatibility limits and release cautions. Deployment is still pending.
-- Phase 5: device profiling and video cancellation work pending.
+- Phase 5: compatible cancellation now avoids Android's unsafe native cancel call, preserves serialization and shows pending cancellation honestly. iOS/web abort propagation and completed-copy reuse have regression coverage. See [current evidence and native limits](2026-09-16-phase5-cancellation-investigation.md). True native Android interruption and physical-device profiling remain pending.
 - Phase 6: full candidate matrix/device/payment/release verification pending. No deployment or launch approval.
 - Phase 1's visual LIVE-label decision is still OPEN. No permission or visual rule was guessed.
 - Operational foundation tasks (backup/restore, provider setup, exports and monitoring) remain governed by the earlier foundation plan, not closed by these repairs.
@@ -48,7 +48,7 @@ Installed dependencies are linked read-only in use from the original checkout; n
 - Node 20.19.6 used for verification. Jest is configured to force exit; its open-handle advisory is not evidence of device performance.
 - Server lint: zero errors, five existing warnings in untouched portions of users.ts. No claim of a warning-free repository.
 - Explicit API-client lint: zero errors, 61 warnings across entities.ts and upload.ts; not hidden by the staged-file configuration, which omits apiclient paths.
-- No push, merge, provider changes, database migration or production deployment. Rollback is to omit/revert the repair commits; this batch changes no persistent schema.
+- No push, merge, provider changes, database migration or production deployment. This batch changes no persistent schema. Once new pagination markers are issued, rollback MUST retain dual readers; see the [production completion plan](../superpowers/plans/2026-09-16-production-completion.md).
 
 ## Repair commits
 
@@ -59,6 +59,8 @@ Installed dependencies are linked read-only in use from the original checkout; n
 - `1e7cb2b7`: viewer-scoped Feed cache, mutation invalidation and active-only polling.
 
 ## Verification scope
+
+Latest production-candidate verification (including web hydration/guest entry and linked-post count repairs): **232 client suites / 1,694 tests**, **345 server suites / 3,251 tests**, both typechecks and **17 Node regressions** passed. See the [candidate summary and remaining release gates](2026-09-16-production-candidate-summary.md). These are local results, not proof of production delivery.
 
 The following results describe the first repair batch. Latest Phase 4 verification on `41970a96`: **228 client suites / 1,665 tests**, **nine targeted backend suites / 177 tests**, and both full typechecks passed. See the [Phase 4 summary](2026-09-16-phase4-backend-repairs.md) for scope and rollout limits.
 

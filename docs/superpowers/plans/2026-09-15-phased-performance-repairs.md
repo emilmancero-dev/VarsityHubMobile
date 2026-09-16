@@ -142,6 +142,8 @@ Phase 1 establishes a trustworthy baseline. Phases 2–4 are independently revie
 
 **Interfaces:** Preserve `autoPlay`/`paused` intent, resumable checkpoint ownership, prepared-video reuse, server asset verification, and MP4/HLS/poster readiness. Add optional `signal?: AbortSignal` to preparation options only with working native cancellation/queue semantics.
 
+**September 16 checkpoint:** The uncommitted cancellation draft reproduces and repairs missing signal propagation in JavaScript tests, but review found an Android native promise-settlement race. This item remains unchecked and must not ship until native cancellation/serialization is safe. See `docs/release/2026-09-16-phase5-cancellation-investigation.md` for evidence and the required native repair versus delayed-cancellation decision.
+
 - [ ] Measure release-device first-frame time, active native player count, network bytes, memory, and scroll frame times using short/long clips and rapid swipes on Wi-Fi and constrained network conditions.
 - [ ] Measure acquisition, local encoding, transfer, provider processing, and post creation separately. Verify callback delivery before changing the 60-second readiness fallback.
 - [ ] Reproduce cancellation during compression followed immediately by a second upload. Read the installed compressor's cancellation API, propagate the existing signal, and ensure an aborted queued job never begins encoding or blocks a later job indefinitely.

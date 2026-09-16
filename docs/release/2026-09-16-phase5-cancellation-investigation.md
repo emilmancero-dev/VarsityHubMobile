@@ -17,6 +17,7 @@ Five new tests failed against the original preparation code: already-cancelled w
 - Additional checks cover delayed native registration, abort before native invocation, listener cleanup and a throwing cancel bridge.
 - Show a disabled "Cancelling upload" state while waiting for settlement. Never claim the encoder has already stopped.
 - If cancellation arrives during the durable copy or output stat, finish indexing the completed copy before rejecting so a retry does not re-encode it.
+- If the copy cannot be indexed (missing source timestamp, cache write failure or output-stat failure), cancellation removes only the newly created owned copy. Reused/original files are preserved. Four additional regressions cover these branches.
 
 This is safe deferred cancellation on Android, not immediate native interruption. It cannot recover an unrelated native encode that independently hangs. A rebuilt native compressor with verified cleanup/settlement is a separate pending improvement; no such patch is included in this OTA candidate.
 
@@ -43,6 +44,7 @@ Future native work must settle exactly once after resource cleanup, including pr
 - Explicit lint: zero errors, three existing `any` warnings in the uploader; four test paths were excluded by repository lint configuration (not claimed linted).
 - Independent re-review: Android queue-poisoning issue resolved by deferral; one durable-copy indexing issue identified and repaired with two red-to-green regressions.
 - Current full client run: **229 suites / 1,680 tests passed**; both full TypeScript checks passed. Evidence: `/private/tmp/varsityhub-release-client.json`. These results precede any subsequent dependency remediation and must be rerun afterward.
+- Fresh dependency run also passed **229 / 1,680** before the last four cleanup regressions were added. The final bounded cleanup review independently passed **16 cancellation tests**; related preparation/web run passed **51 tests**. Commit `ab861fc4` contains the reviewed cancellation repair.
 - No backend production runtime test, full release matrix, release build or physical-device performance acceptance is claimed. Previous Phase 4 evidence remains separate.
 - Apple device inventory showed only the Mac online, two iPhones offline and an iPhone simulator. A simulator is not physical-device performance evidence. Android physical-device availability is unverified.
 

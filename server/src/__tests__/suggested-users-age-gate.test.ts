@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
+import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import request from 'supertest';
 import { app } from '../testApp.js';
 import { prisma } from '../lib/prisma.js';
@@ -51,13 +51,27 @@ describe('suggestions preserve adult discovery and privacy gates', () => {
   });
 
   it('returns a known adult without suggesting unknown-age, minor, blocked or private users', async () => {
-    const response = await request(app)
-      .get('/users/me/suggested?limit=20')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    const suggested = response.body.items.map((item: { id: string }) => item.id);
-    expect(suggested).toContain(adult);
-    for (const id of excluded) expect(suggested).not.toContain(id);
-    expect(response.body.items.every((item: object) => !('date_of_birth' in item))).toBe(true);
+    // Exercise real SQL eligibility/privacy against this fixture cohort. The
+    // shared database may contain >50 equally ranked users from other suites;
+    // whether our adult wins that unrelated ranking is not the age contract.
+    const findMany = prisma.user.findMany.bind(prisma.user);
+    const candidates = jest.spyOn(prisma.user, 'findMany').mockImplementation((args: any) => {
+      if (args?.take === 50 && args?.select?.date_of_birth === true) {
+        return findMany({ ...args, where: { AND: [args.where, { id: { in: ids } }] } });
+      }
+      return findMany(args);
+    });
+    try {
+      const response = await request(app)
+        .get('/users/me/suggested?limit=20')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const suggested = response.body.items.map((item: { id: string }) => item.id);
+      expect(suggested).toContain(adult);
+      for (const id of excluded) expect(suggested).not.toContain(id);
+      expect(response.body.items.every((item: object) => !('date_of_birth' in item))).toBe(true);
+    } finally {
+      candidates.mockRestore();
+    }
   });
 });

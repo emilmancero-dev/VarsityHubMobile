@@ -1,6 +1,59 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as privacy from '../../shared/runtime/sentrySanitization.js';
+import { PostHogCoreTestClient } from '@posthog/core/testing';
+
+test('actual PostHog send hook preserves protocol timestamps without private diagnostics', async () => {
+  const store = {};
+  const bodies = [];
+  const client = new PostHogCoreTestClient(
+    {
+      storage: {
+        getItem: key => store[key],
+        setItem: (key, value) => {
+          store[key] = value;
+        },
+      },
+      fetch: async (_url, options) => {
+        bodies.push(JSON.parse(options.body));
+        return { status: 200, json: async () => ({}), text: async () => '' };
+      },
+    },
+    'synthetic-public-key',
+    {
+      before_send: privacy.scrubAnalyticsEvent,
+      preloadFeatureFlags: false,
+      disableSurveys: true,
+      disableCompression: true,
+      flushInterval: 0,
+      flushAt: 1000,
+    }
+  );
+  const timestamp = new Date('2026-09-16T00:00:00Z');
+  for (const event of ['Application Opened', '$exception']) {
+    client.capture(
+      event,
+      { email: 'private-value', $exception_message: 'private-value' },
+      {
+        timestamp,
+        uuid: '00000000-0000-4000-8000-000000000001',
+      }
+    );
+  }
+  await client.flush();
+  const batch = bodies.flatMap(body => body.batch || []);
+  assert.equal(batch.length, 2);
+  assert.deepEqual(
+    batch.map(item => item.event),
+    ['Application Opened', '$exception']
+  );
+  for (const item of batch) {
+    assert.equal(item.timestamp, timestamp.toISOString());
+    assert.equal(item.uuid, '00000000-0000-4000-8000-000000000001');
+  }
+  assert.equal(batch[0].properties.email, '[redacted]');
+  assert.ok(!JSON.stringify(batch[1]).includes('private-value'));
+});
 
 test('Sentry final boundary excludes arbitrary diagnostics and request copies', () => {
   const raw = {

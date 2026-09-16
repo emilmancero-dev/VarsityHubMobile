@@ -2342,10 +2342,9 @@ gamesRouter.get(
         where: { id: { in: ids } },
         select: {
           id: true,
-          _count: { select: { posts: { where: visiblePostWhere } } },
           events: {
             take: 1,
-            select: { _count: { select: { posts: { where: visiblePostWhere } } } },
+            select: { id: true },
           },
         },
         take: ids.length,
@@ -2355,10 +2354,11 @@ gamesRouter.get(
       // boolean ("has any posts") still read a count of 0 as falsy — the feed
       // gold-border promotion and the post-counter pill both consume this.
       const result: Record<string, number> = {};
+      const pages = new Map<string, { gameId?: string; eventId?: string }>();
       const foundGameIds = new Set<string>();
       for (const game of games as any[]) {
         foundGameIds.add(game.id);
-        result[game.id] = (game._count?.posts ?? 0) + (game.events?.[0]?._count?.posts ?? 0);
+        pages.set(game.id, { gameId: game.id, eventId: game.events?.[0]?.id });
       }
 
       // Any id that did not resolve to a Game is tried as an Event id. Linked
@@ -2370,15 +2370,38 @@ gamesRouter.get(
           where: { id: { in: missingIds } },
           select: {
             id: true,
-            _count: { select: { posts: { where: visiblePostWhere } } },
-            game: {
-              select: { _count: { select: { posts: { where: visiblePostWhere } } } },
-            },
+            game_id: true,
           },
           take: missingIds.length,
         });
         for (const event of events as any[]) {
-          result[event.id] = (event._count?.posts ?? 0) + (event.game?._count?.posts ?? 0);
+          pages.set(event.id, { eventId: event.id, gameId: event.game_id ?? undefined });
+        }
+      }
+
+      if (pages.size > 0) {
+        const gameIds = [...pages.values()].flatMap(page => (page.gameId ? [page.gameId] : []));
+        const eventIds = [...pages.values()].flatMap(page => (page.eventId ? [page.eventId] : []));
+        // Aggregate the union, not two relation counts: creation writes both
+        // identifiers onto the same post. Keep the full visibility predicate.
+        const counts = await prisma.post.groupBy({
+          by: ['game_id', 'event_id'],
+          where: {
+            ...visiblePostWhere,
+            OR: [{ game_id: { in: gameIds } }, { event_id: { in: eventIds } }],
+          },
+          _count: { _all: true },
+        });
+        for (const [id, page] of pages) {
+          result[id] = counts.reduce(
+            (total, row) =>
+              total +
+              ((page.gameId && row.game_id === page.gameId) ||
+              (page.eventId && row.event_id === page.eventId)
+                ? row._count._all
+                : 0),
+            0
+          );
         }
       }
 

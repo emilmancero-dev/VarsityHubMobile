@@ -129,11 +129,18 @@ export function sanitizeTelemetryData(value, depth = 0) {
 
 export function scrubAnalyticsEvent(event) {
   if (!event) return null;
-  if (event.event !== '$exception') return sanitizeTelemetryData(event);
+  // The SDK's envelope uses Date, not a plain diagnostics object. Keep its
+  // serialization contract without changing how arbitrary properties scrub.
+  const timestamp =
+    event.timestamp instanceof Date && Number.isFinite(event.timestamp.getTime())
+      ? event.timestamp
+      : undefined;
+  if (event.event !== '$exception') return { ...sanitizeTelemetryData(event), timestamp };
   // Covers SDK auto-capture as well as explicit captureException calls.
   return {
     event: '$exception',
     uuid: event.uuid,
+    timestamp,
     properties: {
       distinct_id: event.properties?.distinct_id,
       $exception_list: [{ type: 'Error', value: 'Application error; diagnostic text omitted' }],
