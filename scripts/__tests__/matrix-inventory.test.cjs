@@ -1,6 +1,16 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { scanSource, checkCoverage } = require('../audit-matrix.cjs');
+
+test('matrix runner disables Watchman for isolated server Jest suites', () => {
+  const runner = fs.readFileSync(path.join(__dirname, '..', 'run-matrix-audit.cjs'), 'utf8');
+  assert.match(
+    runner,
+    /\[\s*'--prefix',\s*'server',\s*'test',\s*'--',\s*'--watchman=false',\s*'--runInBand'/
+  );
+});
 test('discovers multiline routes, dynamic navigation, controls and API calls without comments', () => {
   const rows = scanSource(
     'app/tools.tsx',

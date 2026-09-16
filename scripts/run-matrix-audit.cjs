@@ -16,7 +16,16 @@ const commands = [
   ...suites.server.map(file => [
     path.basename(file, '.test.ts'),
     'npm',
-    ['--prefix', 'server', 'test', '--', '--runInBand', '--runTestsByPath', file],
+    [
+      '--prefix',
+      'server',
+      'test',
+      '--',
+      '--watchman=false',
+      '--runInBand',
+      '--runTestsByPath',
+      file,
+    ],
   ]),
   ['client-types', 'npx', ['tsc', '--noEmit']],
   ['server-types', 'npx', ['tsc', '--noEmit', '--project', 'server/tsconfig.json']],
