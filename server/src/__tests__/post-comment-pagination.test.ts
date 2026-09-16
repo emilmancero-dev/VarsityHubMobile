@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { signJwt } from '../lib/jwt.js';
 
 describe('post/comment pagination continuity (real database)', () => {
+  const previousWriterFlag = process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED;
   let viewer: string;
   let team: string;
   let organization: string;
@@ -12,6 +13,7 @@ describe('post/comment pagination continuity (real database)', () => {
   let posts: string[];
   let comments: string[];
   beforeEach(async () => {
+    process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED = 'true';
     const user = await prisma.user.create({
       data: {
         email: `pagination-${Date.now()}-${Math.random()}@example.com`,
@@ -63,6 +65,8 @@ describe('post/comment pagination continuity (real database)', () => {
     }
   });
   afterEach(async () => {
+    if (previousWriterFlag === undefined) delete process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED;
+    else process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED = previousWriterFlag;
     await prisma.post.deleteMany({ where: { author_id: viewer } });
     await prisma.team.delete({ where: { id: team } });
     await prisma.organization.delete({ where: { id: organization } });
@@ -108,6 +112,29 @@ describe('post/comment pagination continuity (real database)', () => {
     'delivers all seven %s exactly once at page size two',
     async kind => {
       expect(await traverse(kind)).toEqual([...(kind === 'comments' ? comments : posts)].reverse());
+    }
+  );
+  it.each(['posts', 'comments', 'bundle-people', 'bundle-teams', 'trending'])(
+    'defaults to legacy output and supports forward/rollback cursor transitions for %s',
+    async kind => {
+      delete process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED;
+      const target = kind === 'trending' ? 'posts' : kind;
+      const extra = kind === 'trending' ? { sort: 'trending' } : {};
+      const expected = [...(kind === 'comments' ? comments : posts)].reverse();
+      expect(await traverse(target, extra)).toEqual(expected);
+      const first = await page(target, undefined, extra);
+      expect(first.nextCursor).toBe(
+        kind === 'trending' ? `t:0|2026-01-01T00:00:00.000Z|${expected[2]}` : expected[2]
+      );
+      process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED = 'true';
+      const second = await page(target, first.nextCursor, extra);
+      expect(second.nextCursor.startsWith(kind === 'trending' ? 't2:' : 'p2:')).toBe(true);
+      process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED = 'false';
+      const third = await page(target, second.nextCursor, extra);
+      const fourth = await page(target, third.nextCursor, extra);
+      expect(
+        [...first.items, ...second.items, ...third.items, ...fourth.items].map(row => row.id)
+      ).toEqual(expected);
     }
   );
   it('keeps pinned team posts first without dropping timestamp ties', async () => {
@@ -225,25 +252,29 @@ describe('post/comment pagination continuity (real database)', () => {
         .expect(400);
     }
   });
-  it('returns a progressing raw cursor when distant rows exhaust the scan budget', async () => {
-    await prisma.post.createMany({
-      data: Array.from({ length: 95 }, (_, i) => ({
-        author_id: viewer,
-        content: `scan-budget ${i}`,
-        lat: 0,
-        lng: 0,
-        created_at: new Date(Date.UTC(2026, 1, 1, 0, 0, i)),
-      })),
-    });
-    const first = await page('posts', undefined, { lat: 40.75, lng: -73.99, radius: 10 });
-    expect(first.items).toEqual([]);
-    expect(first.nextCursor).toEqual(expect.any(String));
-    const second = await page('posts', first.nextCursor, { lat: 40.75, lng: -73.99, radius: 10 });
-    expect(second.items.map((r: { id: string }) => r.id)).toEqual([posts[6], posts[5]]);
-    expect(await traverse('posts', { lat: 40.75, lng: -73.99, radius: 10 })).toEqual(
-      [...posts].reverse()
-    );
-  });
+  it.each(['true', 'false'])(
+    'returns a progressing cursor when distant rows exhaust the scan budget (v2=%s)',
+    async enabled => {
+      process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED = enabled;
+      await prisma.post.createMany({
+        data: Array.from({ length: 95 }, (_, i) => ({
+          author_id: viewer,
+          content: `scan-budget ${i}`,
+          lat: 0,
+          lng: 0,
+          created_at: new Date(Date.UTC(2026, 1, 1, 0, 0, i)),
+        })),
+      });
+      const first = await page('posts', undefined, { lat: 40.75, lng: -73.99, radius: 10 });
+      expect(first.items).toEqual([]);
+      expect(first.nextCursor).toEqual(expect.any(String));
+      const second = await page('posts', first.nextCursor, { lat: 40.75, lng: -73.99, radius: 10 });
+      expect(second.items.map((r: { id: string }) => r.id)).toEqual([posts[6], posts[5]]);
+      expect(await traverse('posts', { lat: 40.75, lng: -73.99, radius: 10 })).toEqual(
+        [...posts].reverse()
+      );
+    }
+  );
   it('keeps nearby posts reachable beyond a full batch of distant records', async () => {
     await prisma.post.createMany({
       data: Array.from({ length: 10 }, (_, i) => ({
@@ -257,5 +288,42 @@ describe('post/comment pagination continuity (real database)', () => {
     expect(await traverse('posts', { lat: 40.75, lng: -73.99, radius: 10 })).toEqual(
       [...posts].reverse()
     );
+  });
+
+  it('does not repeat a nearby last-scanned row on a partial legacy page', async () => {
+    process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED = 'false';
+    const boundaryId = `c${viewer.slice(1, 17)}sparse0005`;
+    await prisma.post.createMany({
+      data: Array.from({ length: 95 }, (_, i) => ({
+        id: `c${viewer.slice(1, 17)}sparse${i.toString().padStart(4, '0')}`,
+        author_id: viewer,
+        content: `partial scan ${i}`,
+        lat: i === 5 ? 40.75 : 0,
+        lng: i === 5 ? -73.99 : 0,
+        created_at: new Date(Date.UTC(2026, 1, 1, 0, 0, i)),
+      })),
+    });
+    const nearby = { lat: 40.75, lng: -73.99, radius: 10 };
+    const first = await page('posts', undefined, nearby);
+    expect(first.items.map((row: { id: string }) => row.id)).toEqual([boundaryId]);
+    expect(first.nextCursor).not.toBe(boundaryId);
+    expect(await traverse('posts', nearby)).toEqual([boundaryId, ...posts.slice().reverse()]);
+  });
+
+  it('ends a legacy sparse page when the exact scan budget exhausts authorized rows', async () => {
+    process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED = 'false';
+    await prisma.post.updateMany({ where: { author_id: viewer }, data: { lat: 0, lng: 0 } });
+    await prisma.post.createMany({
+      data: Array.from({ length: 83 }, (_, i) => ({
+        author_id: viewer,
+        content: `exact scan ${i}`,
+        lat: 0,
+        lng: 0,
+        created_at: new Date(Date.UTC(2026, 1, 1, 0, 0, i)),
+      })),
+    });
+    const result = await page('posts', undefined, { lat: 40.75, lng: -73.99, radius: 10 });
+    expect(result.items).toEqual([]);
+    expect(result.nextCursor).toBeNull();
   });
 });

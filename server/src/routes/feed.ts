@@ -8,7 +8,7 @@ import { detectMediaType, resolvePreviewUrl } from '../lib/mediaUtils.js';
 import { loadPostInteractionSets, serializeFeedPost } from '../lib/feedPostSerializer.js';
 import { ensureOAuthUserVerified } from '../lib/oauthVerification.js';
 import { prisma } from '../lib/prisma.js';
-import { encodePostPageCursor, postPageBoundary } from '../lib/postPageCursor.js';
+import { postPageResponseCursor, postPageBoundary } from '../lib/postPageCursor.js';
 import {
   buildPrivateTeamPostVisibilityWhere,
   getBlockedUserIds,
@@ -204,7 +204,7 @@ async function getFollowedPostsPage(
   }
 
   const items = rows.slice(0, limit);
-  const nextCursor = rows.length > limit ? encodePostPageCursor(items[items.length - 1]) : null;
+  const nextCursor = postPageResponseCursor(rows, limit);
   const postIds: string[] = items.map((post: any) => post.id);
   const authorIds: string[] = items.map((post: any) => post.author_id).filter(Boolean);
   const pollIds: string[] = items.map((post: any) => post.poll?.id).filter(Boolean);

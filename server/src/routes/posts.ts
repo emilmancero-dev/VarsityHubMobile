@@ -13,7 +13,12 @@ import {
   serializeFeedPost,
 } from '../lib/feedPostSerializer.js';
 import { prisma } from '../lib/prisma.js';
-import { encodePostPageCursor, postPageBoundary } from '../lib/postPageCursor.js';
+import {
+  encodePostPageCursor,
+  postPageBoundary,
+  postPageResponseCursor,
+  writesPostPageCursorV2,
+} from '../lib/postPageCursor.js';
 import { ValidationError } from '../lib/errors/ValidationError.js';
 import {
   buildPrivateTeamPostVisibilityWhere,
@@ -565,9 +570,12 @@ postsRouter.get(
       }
       const items = filtered.slice(0, limit);
       const lastRow = items[items.length - 1];
+      const firstUnseen = filtered[limit];
       const nextCursor =
         filtered.length > limit && lastRow
-          ? `t2:${lastRow.score}|${lastRow.createdAt.toISOString()}|${lastRow.post.id}|${asOf}`
+          ? writesPostPageCursorV2()
+            ? `t2:${lastRow.score}|${lastRow.createdAt.toISOString()}|${lastRow.post.id}|${asOf}`
+            : `t:${firstUnseen.score}|${firstUnseen.createdAt.toISOString()}|${firstUnseen.post.id}`
           : null;
       const postIds = items.map((p: any) => p.post.id);
       const authorIds = items.map((p: any) => p.post.author_id).filter(Boolean);
@@ -647,12 +655,26 @@ postsRouter.get(
     }
 
     const items = rows.slice(0, limit);
-    const nextCursor =
-      rows.length > limit
-        ? encodePostPageCursor(items[items.length - 1], hasTeamFilter)
-        : !exhausted && lastScanned
-          ? encodePostPageCursor(lastScanned, hasTeamFilter)
-          : null;
+    let nextCursor = postPageResponseCursor(rows, limit, hasTeamFilter);
+    if (rows.length <= limit && !exhausted && lastScanned) {
+      if (writesPostPageCursorV2()) {
+        nextCursor = encodePostPageCursor(lastScanned, hasTeamFilter);
+      } else {
+        // A legacy cursor names the first UNSEEN row, never lastScanned (which
+        // may already be in this page). Keep authorization on the bounded peek.
+        const afterScanned = await postPageBoundary(
+          encodePostPageCursor(lastScanned, hasTeamFilter),
+          async () => null,
+          hasTeamFilter
+        );
+        const firstUnscanned = await prisma.post.findFirst({
+          where: { AND: [where, afterScanned] },
+          orderBy,
+          select: { id: true },
+        });
+        nextCursor = firstUnscanned?.id ?? null;
+      }
+    }
 
     const postIds: string[] = items.map((p: any) => p.id);
     const authorIds: string[] = items.map((p: any) => p.author_id).filter(Boolean);
@@ -1625,7 +1647,7 @@ postsRouter.get(
     // audit-allow unbounded: comment query object already includes take: limit + 1
     const rows = await prisma.comment.findMany(query);
     const items = rows.slice(0, limit);
-    const nextCursor = rows.length > limit ? encodePostPageCursor(items[items.length - 1]) : null;
+    const nextCursor = postPageResponseCursor(rows, limit);
     res.json({ items, nextCursor });
   })
 );

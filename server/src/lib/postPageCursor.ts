@@ -12,6 +12,17 @@ const invalidCursor = () =>
     errorCode: 'INVALID_CURSOR',
   });
 
+// Deploy dual readers with legacy writers first. Enable only after every old
+// replica has drained; rollback must retain these dual readers indefinitely.
+export const writesPostPageCursorV2 = (): boolean =>
+  process.env.POST_PAGE_CURSOR_V2_WRITE_ENABLED === 'true';
+
+/** Response writer only; internal scan boundaries always use the v2 encoder. */
+export function postPageResponseCursor(rows: Row[], limit: number, pinned = false): string | null {
+  if (rows.length <= limit) return null;
+  return writesPostPageCursorV2() ? encodePostPageCursor(rows[limit - 1], pinned) : rows[limit].id;
+}
+
 /** Last delivered (or scanned) position, independent of whether that row still exists. */
 export function encodePostPageCursor(row: Row, pinned = false): string {
   return `p2:${Buffer.from(
