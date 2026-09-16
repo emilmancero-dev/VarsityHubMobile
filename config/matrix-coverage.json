@@ -165,11 +165,19 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "app/(tabs)/create-post.tsx#action:21793f18f6df": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/create-post.tsx#action:3cd9552f2b76": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "app/(tabs)/create-post.tsx#action:48b494c5128f": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/(tabs)/create-post.tsx#action:657e619ae553": {
+    "app/(tabs)/create-post.tsx#action:505440544d8f": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -182,10 +190,6 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/(tabs)/create-post.tsx#action:9ed0986cec91": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/create-post.tsx#action:a057c70e163a": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -869,6 +873,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "app/(tabs)/edit-event.tsx#action:152d92c3e262": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "app/(tabs)/edit-event.tsx#action:2c235e8fd3b4": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -894,6 +902,14 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/(tabs)/edit-event.tsx#action:e9f8fd2590be": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/edit-event.tsx#action:ec506b0863cd": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/edit-event.tsx#api-call:2eeb9957b57d": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -3253,15 +3269,7 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/feed.tsx#action:61a169802388": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/feed.tsx#action:79f25b5c2abe": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/feed.tsx#action:86384eb7177b": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -3272,6 +3280,10 @@
     "app/feed.tsx#action:8dae59fb3556": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/feed.tsx#action:91cbdae1275b": {
+      "status": "missing",
+      "reason": "Shared event card prefetch needs an executable navigation-performance journey."
     },
     "app/feed.tsx#action:971f82256dd7": {
       "status": "missing",
@@ -3292,6 +3304,10 @@
     "app/feed.tsx#action:ccf3aaf86aaf": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/feed.tsx#action:d2821b3cb8a2": {
+      "status": "missing",
+      "reason": "Shared event card navigation needs an executable feed-to-event journey."
     },
     "app/feed.tsx#action:d3a0f6d428a8": {
       "status": "missing",
@@ -5879,6 +5895,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "app/profile.tsx#action:15291776a572": {
+      "status": "missing",
+      "reason": "Profile attendance card navigation needs an executable profile-to-event journey."
+    },
     "app/profile.tsx#action:1806143de24d": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -5911,11 +5931,19 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "app/profile.tsx#action:7cf290d4ee95": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "app/profile.tsx#action:81524cf802f4": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/profile.tsx#action:877a89b99be6": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#action:8ac32171a7d5": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -5971,6 +5999,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "app/profile.tsx#api-call:308591976a23": {
+      "status": "missing",
+      "reason": "Profile event-page post-count batching needs focused client evidence."
+    },
     "app/profile.tsx#api-call:3e2b6ab670fc": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -5980,6 +6012,10 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/profile.tsx#api-call:61633ea07de5": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#api-call:759ba63c58cd": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -6032,6 +6068,10 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/profile.tsx#navigation:89fa8ff4c260": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/profile.tsx#navigation:8a24470c76d2": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -6317,11 +6357,11 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/settings/_layout.tsx#registration:2d889cc6f597": {
+    "app/settings/_layout.tsx#registration:45f4c2e201d5": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/settings/_layout.tsx#registration:45f4c2e201d5": {
+    "app/settings/_layout.tsx#registration:47c59d805b98": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -7866,6 +7906,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "components/EditAdScreenBase.tsx#action:e8b41c7d94f9": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "components/EditAdScreenBase.tsx#action:edc34a4198f9": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -7878,7 +7922,7 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "components/EditAdScreenBase.tsx#api-call:5650bc924b5b": {
+    "components/EditAdScreenBase.tsx#api-call:42f4c2945238": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -8406,6 +8450,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "components/SubmitAdScreenBase.tsx#action:9cb332fffbeb": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "components/SubmitAdScreenBase.tsx#action:a4ca6fb7c277": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -8434,11 +8482,11 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "components/SubmitAdScreenBase.tsx#api-call:e779ead01baa": {
+    "components/SubmitAdScreenBase.tsx#api-call:c7e2a91a681d": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "components/SubmitAdScreenBase.tsx#api-call:f927788398c3": {
+    "components/SubmitAdScreenBase.tsx#api-call:e779ead01baa": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -8537,6 +8585,14 @@
     "components/ui/DateField.tsx#action:dc85098b38ac": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "components/ui/EventFeedCard.tsx#action:22b1c2619be6": {
+      "status": "missing",
+      "reason": "Shared event-card press behavior needs focused component evidence."
+    },
+    "components/ui/EventFeedCard.tsx#action:ff1b22321de4": {
+      "status": "missing",
+      "reason": "Shared event-card prefetch behavior needs focused component evidence."
     },
     "components/ui/GameCard.tsx#action:7018b3f16599": {
       "status": "missing",
@@ -9162,6 +9218,10 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
+    "server/src/routes/admin.ts#endpoint:89eca6371948": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "server/src/routes/admin.ts#endpoint:8a77fda32ec1": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -9513,6 +9573,10 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "server/src/routes/events.ts#endpoint:4d3840396d61": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "server/src/routes/events.ts#endpoint:5cc1063d1ada": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -10651,6 +10715,10 @@
       "endpoint": "POST /users/:id/follow",
       "dimensions": ["authenticated fan", "rookie owner", "veteran non-owner"]
     },
+    "server/src/routes/users.ts#endpoint:804591f81057": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
     "server/src/routes/users.ts#endpoint:8231eddee653": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -10840,82 +10908,6 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "utils/uploadErrorAlert.ts#navigation:fc2efddac90a": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/edit-event.tsx#action:152d92c3e262": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/profile.tsx#action:7cf290d4ee95": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/profile.tsx#action:8ac32171a7d5": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/profile.tsx#action:cfcf7612c5af": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/profile.tsx#api-call:759ba63c58cd": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/profile.tsx#navigation:8a24470c76d2": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/settings/_layout.tsx#registration:47c59d805b98": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "server/src/routes/users.ts#endpoint:804591f81057": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/create-post.tsx#action:21793f18f6df": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/create-post.tsx#action:3cd9552f2b76": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/create-post.tsx#action:505440544d8f": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/edit-event.tsx#action:ec506b0863cd": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/(tabs)/edit-event.tsx#api-call:2eeb9957b57d": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "components/EditAdScreenBase.tsx#action:e8b41c7d94f9": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "components/EditAdScreenBase.tsx#api-call:42f4c2945238": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "components/SubmitAdScreenBase.tsx#action:9cb332fffbeb": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "components/SubmitAdScreenBase.tsx#api-call:c7e2a91a681d": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "server/src/routes/admin.ts#endpoint:89eca6371948": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "server/src/routes/events.ts#endpoint:5cc1063d1ada": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     }
