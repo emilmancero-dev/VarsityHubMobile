@@ -2,7 +2,7 @@
 
 ## Status
 
-Local repair candidate, **not yet production-complete**. The isolated worktree preserves the user's original checkout and media-picker edits. GitHub and delivery evidence must be recorded after the corresponding actions actually succeed.
+Repair candidate pushed to GitHub, **not yet production-complete**. The isolated worktree preserves the user's original checkout and media-picker edits. [Draft PR #25](https://github.com/emilmancero-dev/VarsityHubMobile/pull/25) holds the candidate; the initial clean push was `27be6cb1d715502e70763333f1408349e27a3fad`. API/web/OTA production publication has not occurred.
 
 ## Surgical repairs
 
@@ -44,6 +44,14 @@ The web preview used the existing production API for read-only guest flows; it d
 2. Physical installed-app evidence for 1.0.5 and 1.0.6: media selection/upload/playback/cancellation, foreground/background behavior and required payment journeys. Source compatibility and completed EAS builds do not establish device acceptance or store availability.
 3. Canonical launch gates: candidate staging, provider delivery/payment evidence, monitoring/alerts, restore/load/rollback and required owner signoffs. Unknown is not PASS.
 4. Fresh remote CI must pass on the pushed candidate. Main, Railway, Vercel and EAS production delivery remain separate controlled actions.
+
+## GitHub follow-up
+
+The initial candidate passed remote server tests, server invariants, both type checks, lint, route/cache guards, npm dependency audit, Expo Doctor, public API health and web export. Client CI was still running at this checkpoint. The independent Snyk dependency job confirmed the node-forge finding above; advisory SAST findings still need comparison with the pre-existing reviewed policy, not a blanket clean claim.
+
+Two CI findings have narrow follow-up corrections: Prettier formatting in the inherited event serializer; and a historical false positive on the isolation test's fabricated signing key. The test now generates its key per run. `.gitleaksignore` marks only the exact original commit/file/rule/line fingerprint, with rationale; it does not exempt a real credential, broad path or scanner rule. The isolation regression passed and independent review approved this correction; fresh CI must confirm the scanner result.
+
+Device inventory currently shows no attached Android and two unavailable iPhones. No installed-device checks are being reported as passed.
 
 ## Delivery order
 

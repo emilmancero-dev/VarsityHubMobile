@@ -524,8 +524,7 @@ const serializeEvent = (
       event.game?.homeTeam?.primary_color ??
       event.team?.primary_color ??
       null,
-    pro_away_color:
-      event.proAwayTeam?.primary_color ?? event.game?.awayTeam?.primary_color ?? null,
+    pro_away_color: event.proAwayTeam?.primary_color ?? event.game?.awayTeam?.primary_color ?? null,
     pro_league: event.proHomeTeam?.league ?? event.proAwayTeam?.league ?? null,
     venue_photo: venuePhotoFor(event.location),
     ...serializeLiveWindow(event.date, event.live_window_hours_after_start),

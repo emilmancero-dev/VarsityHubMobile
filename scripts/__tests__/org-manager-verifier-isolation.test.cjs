@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { randomBytes } = require('node:crypto');
 
 test(
   'org-manager verifier refuses an occupied port without contacting another API',
@@ -31,7 +32,7 @@ test(
             DOTENV_CONFIG_PATH: '/dev/null',
             VARSITYHUB_ENV_PATH: '/dev/null',
             DATABASE_URL: 'postgresql://test:test@127.0.0.1:1/unreachable_test',
-            JWT_SECRET: 'isolation-test-secret-at-least-32-characters',
+            JWT_SECRET: randomBytes(32).toString('hex'),
             BASE_URL: `http://127.0.0.1:${port}`,
           },
           stdio: ['ignore', 'pipe', 'pipe'],
