@@ -71,7 +71,7 @@ type AdminSummaryBody = {
 } | null;
 
 const prisma = new PrismaClient();
-const BASE_URL = (process.env.BASE_URL || 'http://localhost:4000').replace(/\/$/, '');
+let BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:0').replace(/\/$/, '');
 const REPORT_PATH = String(process.env.ORG_MANAGER_VERIFY_REPORT_PATH || '').trim();
 
 const results: StepResult[] = [];
@@ -127,24 +127,12 @@ function getBaseUrlAddress(url: string): { hostname: string; port: number } {
   };
 }
 
-async function isBaseUrlReachable(url: string): Promise<boolean> {
-  try {
-    await fetch(`${url}/health`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(1500),
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function ensureLocalServer() {
   if (!isLocalBaseUrl(BASE_URL)) {
     throw new Error('verify-org-manager-access is local-only. Set BASE_URL to localhost.');
   }
-  if (await isBaseUrlReachable(BASE_URL)) return;
-
+  // Own the API process as well as its database configuration. A reachable
+  // localhost server may use a different (even remote) database; never reuse it.
   const { hostname, port } = getBaseUrlAddress(BASE_URL);
   process.env.NODE_ENV = 'test';
   // Keep the localhost verifier hermetic. This script exercises auth and org
@@ -155,13 +143,15 @@ async function ensureLocalServer() {
   await new Promise<void>((resolve, reject) => {
     const server = app.listen(port, hostname, () => {
       embeddedLocalServer = server;
+      const address = server.address();
+      if (address && typeof address !== 'string') BASE_URL = `http://${hostname}:${address.port}`;
       resolve();
     });
     server.on('error', reject);
   });
 
   console.log(
-    `[org-manager-verify] Started embedded local API on ${hostname}:${port} for localhost verification.`
+    `[org-manager-verify] Started embedded local API on ${BASE_URL} for localhost verification.`
   );
 }
 

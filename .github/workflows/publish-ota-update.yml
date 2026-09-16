@@ -1,8 +1,8 @@
 name: Publish Production OTA Update
 
-# Auto-publishes the JS/asset bundle to EAS Update's production branch on
-# every push to main that touches client code — the mobile-app equivalent of
-# Vercel's auto-deploy for web. Requires an EXPO_TOKEN repo secret (Settings >
+# Explicit release stage: dispatch only after candidate CI and backend runtime
+# verification pass. Never race a main push against the API deployment.
+# Requires an EXPO_TOKEN repo secret (Settings >
 # Secrets and variables > Actions); if it's missing, this workflow logs a
 # failure instead of silently publishing no update. Requires SENTRY_AUTH_TOKEN
 # so Sentry source maps upload with the production OTA bundle.
@@ -15,19 +15,16 @@ name: Publish Production OTA Update
 on:
   workflow_dispatch:
     inputs:
-      message:
-        description: 'Update message (shown in EAS update history)'
-        required: false
-        default: 'Manual OTA publish via GitHub Actions'
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'server/**'
-      - 'docs/**'
-      - '.github/**'
-      - 'ios/**'
-      - 'android/**'
-      - '**/*.md'
+      runtime:
+        description: 'Native-compatible runtime reviewed for this release'
+        type: choice
+        required: true
+        default: '1.0.6'
+        options: ['1.0.6', '1.0.5']
+
+concurrency:
+  group: production-ota
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -68,9 +65,4 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-        run: eas update --branch production --non-interactive --message "${{ github.event.inputs.message || format('Auto-publish from {0}', github.sha) }}"
-
-      - name: Upload Sentry source maps
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-        run: node node_modules/@sentry/react-native/scripts/expo-upload-sourcemaps dist
+        run: npm run update:production -- --runtime ${{ inputs.runtime }}

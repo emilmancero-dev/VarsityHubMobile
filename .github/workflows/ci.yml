@@ -74,6 +74,7 @@ jobs:
 
       - name: Check matrix inventory drift and evidence
         run: |
+          node --test scripts/__tests__/release-workflow-ordering.test.cjs
           node --test scripts/__tests__/matrix-inventory.test.cjs
           npm run audit:matrix:inventory
 
@@ -289,6 +290,11 @@ jobs:
         working-directory: server
         run: npx prisma migrate deploy
 
+      - name: Install isolated Redis test prerequisite
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+
       - name: Run server tests
         working-directory: server
         # Invoke the wrapper by direct path so the inner `npm test`
@@ -302,6 +308,9 @@ jobs:
         # jest.config.js sets maxWorkers: 2 which keeps Postgres connection
         # pressure bounded without the cross-suite collision.
         run: node ../scripts/run-with-retry.js 2 npm test
+
+      - name: Verify local runtime test isolation
+        run: node --test scripts/__tests__/org-manager-verifier-isolation.test.cjs
 
   # All checks must pass - this job ensures the PR gate
   all-checks:

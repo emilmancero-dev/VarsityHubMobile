@@ -9,7 +9,8 @@ name: Publish OTA to runtime 1.0.4 (live store binary)
 # "appVersion" then resolves the update's runtime to 1.0.4.
 #
 # Harmless if the store is actually 1.0.5 (no 1.0.4 devices to receive it).
-# Runs on workflow_dispatch or a push to main that changes THIS file.
+# Historical manual-only path. Not part of the 1.0.5/1.0.6 release; do not
+# dispatch without a separate binary compatibility review.
 #
 # Re-run 2026-07-17: deliver the Fanatics Fest NYC feed pin AND the
 # server-bounds-aware live/story window (fest days run 18h) to the live 1.0.4
@@ -21,10 +22,6 @@ name: Publish OTA to runtime 1.0.4 (live store binary)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/publish-ota-1_0_4.yml'
 
 jobs:
   publish:
