@@ -41,22 +41,24 @@ The web preview used the existing production API for read-only guest flows; it d
 
 ## Release blockers — do not silently waive
 
-1. `node-forge` 1.4.0 scanner finding `SNYK-JS-NODEFORGE-19635204`: no fixed registry successor at inspection. A narrow upstream backport plus an explicitly approved temporary single-finding exception was proposed, not authorized or applied. Do not disable security scanning.
+1. `node-forge` 1.4.0 scanner finding `SNYK-JS-NODEFORGE-19635204`: no fixed registry successor at inspection. The owner explicitly chose **wait for an official package fix**. No backport, temporary exception, or scanner bypass is authorized or applied.
 2. Physical installed-app evidence for 1.0.5 and 1.0.6: media selection/upload/playback/cancellation, foreground/background behavior and required payment journeys. Source compatibility and completed EAS builds do not establish device acceptance or store availability.
 3. Canonical launch gates: candidate staging, provider delivery/payment evidence, monitoring/alerts, restore/load/rollback and required owner signoffs. Unknown is not PASS.
 4. Fresh remote CI must pass on the pushed candidate. Main, Railway, Vercel and EAS production delivery remain separate controlled actions.
 
 ## GitHub follow-up
 
-The initial candidate passed remote server tests, server invariants, both type checks, lint, route/cache guards, npm dependency audit, Expo Doctor, public API health and web export. Client CI was still running at this checkpoint. The independent Snyk dependency job confirmed the node-forge finding above; advisory SAST findings still need comparison with the pre-existing reviewed policy, not a blanket clean claim.
+Application source `a3f60014ef240171b9ba2cd3d5a9fd05c3ed75e1` passed remote client/server tests, server invariants, both type checks, lint, formatting, route/cache guards, npm dependency audit, public API health, web export and gitleaks. [Source CI](https://github.com/emilmancero-dev/VarsityHubMobile/actions/runs/35066177070) and [secret scan](https://github.com/emilmancero-dev/VarsityHubMobile/actions/runs/35066177203) completed. The separate [Snyk dependency job](https://github.com/emilmancero-dev/VarsityHubMobile/actions/runs/35066177094) still fails; the green aggregate named “All Checks Passed” does not override that failure. Any subsequent commit needs its own remote checks before release.
 
-Two CI findings have narrow follow-up corrections: Prettier formatting in the inherited event serializer; and a historical false positive on the isolation test's fabricated signing key. The test now generates its key per run. `.gitleaksignore` marks only the exact original commit/file/rule/line fingerprint, with rationale; it does not exempt a real credential, broad path or scanner rule. The isolation regression passed and independent review approved this correction; fresh CI must confirm the scanner result.
+Two CI findings received narrow corrections: Prettier formatting in the inherited event serializer; and a historical false positive on the isolation test's fabricated signing key. The test now generates its key per run. `.gitleaksignore` marks only the exact original commit/file/rule/line fingerprint, with rationale; it does not exempt a real credential, broad path or scanner rule. The isolation regression and independent review passed; the completed source CI above confirms formatting and gitleaks acceptance.
 
 Device inventory currently shows no attached Android and two unavailable iPhones. No installed-device checks are being reported as passed.
 
 Follow-up `b9778322` passed remote gitleaks and formatting. The first root SAST scan reported 49 unique findings: 41 matched existing rule/path reviews, seven were the previously undocumented shared-link sinks repaired above, and one was consent's development CSRF fallback (normal production startup requires a valid JWT secret before serving). Do not describe all advisory findings as newly verified clean or disable their reporting. The node-forge dependency finding remains a real release blocker with no new exception added.
 
 ## Delivery order
+
+Isolated staging infrastructure is now created and verified; the API itself is **not deployed** pending separate test-provider configuration. See the [staging handoff](2026-09-16-isolated-staging-handoff.md) for exact resources, observed evidence and remaining work. This does not close the staging, provider or production gates.
 
 Clean reviewed GitHub candidate → CI and external acceptance gates → API dual-reader deployment with legacy writing → readiness and old-replica drain → optional v2 writer activation → production web → separate compatible OTA publications for 1.0.5 and 1.0.6 → verify returned runtime/platform/update IDs and the 15-minute observation window.
 
