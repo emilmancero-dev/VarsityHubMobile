@@ -503,12 +503,8 @@ export const Post = {
       if (cursor) q.push('cursor=' + encodeURIComponent(cursor));
       if (limit) q.push('limit=' + String(limit));
       q.push('sort=-created_at'); // Sort by most recent
-      try {
-        const res = await httpGet('/posts' + (q.length ? '?' + q.join('&') : ''), {}, 12000, 0);
-        return parsePostPage(res);
-      } catch (_fallbackError) {
-        return { items: [], nextCursor: null };
-      }
+      const res = await httpGet('/posts' + (q.length ? '?' + q.join('&') : ''), {}, 12000, 0);
+      return parsePostPage(res);
     }
   },
   createCollage: (data: CreatePostPayload) => httpPost('/posts/collage', data),
