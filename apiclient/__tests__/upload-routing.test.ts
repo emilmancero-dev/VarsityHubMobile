@@ -212,6 +212,43 @@ describe('uploadFile routing', () => {
     });
   });
 
+  it.each(['png', 'gif', 'webp'])(
+    'sends a truthful %s filename when the composer supplied image.jpg',
+    async extension => {
+      (global as any).FormData = class {
+        fields = new Map<string, unknown>();
+        append(key: string, value: unknown) {
+          this.fields.set(key, value);
+        }
+        get(key: string) {
+          return this.fields.get(key);
+        }
+      };
+      mockR2ProbeUnavailable().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          cloudName: 'varsityhub',
+          apiKey: 'key',
+          signature: 'sig',
+          timestamp: 123,
+        }),
+      });
+      const { uploadFile } = await import('../upload');
+      await uploadFile(
+        'https://api.test',
+        `file:///selected.${extension}`,
+        'image.jpg',
+        `image/${extension}`
+      );
+      const form = MockXHR.instances[0]?.requestBody as any;
+      expect(form.get('file')).toMatchObject({
+        name: `image.${extension}`,
+        type: `image/${extension}`,
+      });
+    }
+  );
+
   it('mirrors onboarding upload context into the query string for server uploads', async () => {
     fetchMock.mockResolvedValue({
       ok: true,

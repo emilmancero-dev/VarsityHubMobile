@@ -73,7 +73,6 @@ import { materializeICloudAssetIfNeeded } from '@/utils/materializeICloudAsset';
 import { pickerAllMediaTypesProp, pickerMediaTypeFor } from '@/utils/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 
 // Media validation constants
@@ -108,26 +107,6 @@ const getFileSizeFromUri = async (uri: string): Promise<number> => {
   } catch (error) {
     if (__DEV__) console.warn('Could not determine file size:', error);
     return 0;
-  }
-};
-
-const prepareImageForPostUpload = async (uri: string, fileSize: number): Promise<string> => {
-  // Skip resize for small images (under 2MB) — already fast enough.
-  if (fileSize <= 2 * 1024 * 1024) return uri;
-
-  try {
-    const result = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1280 } }], {
-      compress: 0.8,
-      format: ImageManipulator.SaveFormat.JPEG,
-    });
-    return result.uri;
-  } catch (error: any) {
-    if (__DEV__)
-      console.warn(
-        '[CreatePost] Image manipulation failed, using original:',
-        error?.message || error
-      );
-    return uri;
   }
 };
 
@@ -636,9 +615,8 @@ function CreatePostScreen() {
             return;
           }
 
-          const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
           prepared.push({
-            uri,
+            uri: a.uri,
             mime: mimeType,
             durationS: typeof a.duration === 'number' ? a.duration / 1000 : undefined,
           });
@@ -738,9 +716,8 @@ function CreatePostScreen() {
           return;
         }
 
-        const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
         setPicked({
-          uri,
+          uri: a.uri,
           type: media,
           mime: mimeType,
           durationS: typeof a.duration === 'number' ? a.duration / 1000 : undefined,
