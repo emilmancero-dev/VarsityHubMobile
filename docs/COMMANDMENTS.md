@@ -1,14 +1,37 @@
 # VarsityHub Commandments — Code-Verified Edition
 
-> **Status:** This is the reconciled version of the owner's `VARSITYHUB COMMANDMENTS`
-> spec, corrected on **2026-09-15** so every claim matches what is actually
-> built. The load-bearing numbers here are pinned by
-> `server/src/__tests__/commandments-invariants.test.ts` — if code and this doc
-> drift apart, that test fails in CI.
+> **Status:** This is the canonical, reconciled version of the owner's
+> `VARSITYHUB COMMANDMENTS` spec. Each claim is classified below. `CURRENT`
+> means the described behavior exists now; it does not mean every interaction
+> has full end-to-end coverage. Load-bearing constants and the event-card claims
+> are pinned by `server/src/__tests__/commandments-invariants.test.ts`.
 >
 > Sections marked **ROADMAP** are intended future behavior, not current claims.
 > Sections marked **UI TODO** are open product asks (from the spec screenshots),
 > tracked separately, not asserted here.
+
+## Claim registry
+
+Stable IDs make review comments, tests, and historical audits refer to the same
+claim. `POLICY` records an intentional choice that differs from the original
+spec. `OPEN` is a known unresolved difference. `ROADMAP` is future scope.
+
+| ID              | Status  | Claim                                                                                    |
+| --------------- | ------- | ---------------------------------------------------------------------------------------- |
+| CMD-EVENT-001   | CURRENT | Standard, all-day, and extended live windows are 8h, 12h, and 18h.                       |
+| CMD-EVENT-002   | POLICY  | Posts and stories use the same flat 3 km geofence.                                       |
+| CMD-EVENT-003   | CURRENT | Eligible event posters receive a seven-day post grace period.                            |
+| CMD-EVENT-004   | CURRENT | A post accepts at most five media items and 4,000 text characters.                       |
+| CMD-EVENT-005   | CURRENT | Watching is a future-event action; live and past cards show the event-page post count.   |
+| CMD-EVENT-006   | CURRENT | The profile Events tab is SHIPPED attendance history backed by verified posting unlocks. |
+| CMD-EVENT-007   | CURRENT | Event pages with zero posts are purged after their live window closes.                   |
+| CMD-FEED-001    | CURRENT | Event activity controls gold map pins and live-card borders.                             |
+| CMD-ADS-001     | CURRENT | Weekday and weekend ad blocks cost $4.99 and $7.99.                                      |
+| CMD-ADS-002     | POLICY  | Ads can be booked up to 56 days ahead.                                                   |
+| CMD-INGEST-001  | POLICY  | Schedule ingest uses ESPN and the implemented league list.                               |
+| CMD-INGEST-002  | ROADMAP | NCAA expansion beyond the five Division I ESPN leagues.                                  |
+| CMD-MEDIA-001   | POLICY  | Uploaded photo/video media has a 150 MB hard cap.                                        |
+| CMD-CONTENT-001 | OPEN    | The original 800-character post limit remains 4,000 in current code.                     |
 
 ---
 
@@ -50,8 +73,14 @@ event's end time.
   `content .max(4000)`). _The original spec said 800 — see "Open reconciliations"._
 - Anyone can interact (like / comment / vote) regardless of location.
 - Polls: competitive games only; any VarsityHub user can vote.
-- **Watching ("TV") button:** users who intend to watch tap it (tv emoji, tap
-  again to undo) — a simple count. (Formerly "RSVP".)
+- **Watching ("TV") button:** before an event starts, users can tap the TV emoji
+  to add or remove themselves from the watching count. Once the event is live,
+  and for all past events, the card replaces Watching with the event page's post
+  count.
+- **Profile attendance history:** the profile Events tab shows event pages where
+  the user passed the geofence and posted a post or story. It uses the same
+  `EventFeedCard` presentation as the feed and remains tied to the attendance
+  ledger even if that user's content is later deleted.
 
 ### Push reminders (users who posted)
 
@@ -185,7 +214,10 @@ shapes shown there.
 
 Tracked separately, not asserted by tests: true dark-mode (grey, not purple),
 scroll-trap fix, blank upload tab, highlights tab positioning, event-page load
-flicker, remove "You're here" / "Multiple" from the map legend, profile events
-tab, metallic bronze/silver/gold buttons, cross-dissolving sport-emoji loader,
-full-screen post swipe. Several dark-mode / gradient / gold-border items were
-shipped in the 2026-09-14/15 passes.
+flicker, remove "You're here" / "Multiple" from the map legend, metallic
+bronze/silver/gold buttons, cross-dissolving sport-emoji loader, and full-screen
+post swipe.
+
+The profile Events tab is SHIPPED and documented by `CMD-EVENT-006`. Several
+dark-mode, gradient, and gold-border items also shipped in the 2026-09-14/15
+passes.

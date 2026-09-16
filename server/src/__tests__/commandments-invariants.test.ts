@@ -22,6 +22,9 @@ const geofencing = read(SERVER_ROOT, 'src/lib/geofencing.ts');
 const adPricing = read(SERVER_ROOT, 'src/utils/adPricing.ts');
 const posts = read(SERVER_ROOT, 'src/routes/posts.ts');
 const espnAdapter = read(SERVER_ROOT, 'src/lib/proSchedule/espnAdapter.ts');
+const feed = read(REPO_ROOT, 'app/feed.tsx');
+const profile = read(REPO_ROOT, 'app/profile.tsx');
+const usersRoute = read(SERVER_ROOT, 'src/routes/users.ts');
 const commandments = read(REPO_ROOT, 'docs/COMMANDMENTS.md');
 
 describe('commandments: live window', () => {
@@ -38,7 +41,9 @@ describe('commandments: live window', () => {
     expect(geofencing).toMatch(/COACH_ALL_DAY_EXTENDED_LIVE_WINDOW_HOURS\s*=\s*18\b/);
   });
   it('post grace window is 7 days', () => {
-    expect(geofencing).toMatch(/REGULAR_POST_GRACE_WINDOW_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+    expect(geofencing).toMatch(
+      /REGULAR_POST_GRACE_WINDOW_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/
+    );
   });
 });
 
@@ -88,7 +93,7 @@ describe('commandments: data source is ESPN, not SeatGeek', () => {
 
 describe('commandments: NCAA scope is D1, five ESPN leagues (not "all divisions")', () => {
   const ncaaLeagues = ['ncaaf', 'ncaamb', 'ncaawb', 'ncaabaseball', 'ncaamhockey'];
-  it.each(ncaaLeagues)('ingests NCAA league %s', (league) => {
+  it.each(ncaaLeagues)('ingests NCAA league %s', league => {
     expect(espnAdapter).toMatch(new RegExp(`\\b${league}\\s*:`));
   });
   it('the doc does not claim D1-D3 all-sports coverage as current', () => {
@@ -99,5 +104,23 @@ describe('commandments: NCAA scope is D1, five ESPN leagues (not "all divisions"
 describe('commandments: doc exists and is the reconciled edition', () => {
   it('is labeled code-verified', () => {
     expect(commandments).toMatch(/Code-Verified Edition/);
+  });
+
+  it('assigns stable IDs and explicit statuses to the event-card claims', () => {
+    expect(commandments).toMatch(/CMD-EVENT-005\s*\|\s*CURRENT/);
+    expect(commandments).toMatch(/CMD-EVENT-006\s*\|\s*CURRENT/);
+  });
+
+  it('documents the live and past post counter instead of stale Watching-closed behavior', () => {
+    expect(feed).toMatch(/const showPostCounter = isLive \|\| isEventPast/);
+    expect(commandments).toMatch(/live and past[^\n]*post count/i);
+  });
+
+  it('documents the profile Events tab as shipped attendance history', () => {
+    expect(profile).toMatch(/User\.eventPagesForProfile/);
+    expect(profile).toMatch(/<EventFeedCard/);
+    expect(usersRoute).toMatch(/eventPostingUnlock\.findMany/);
+    expect(commandments).toMatch(/profile Events tab[^\n]*SHIPPED/i);
+    expect(commandments).not.toMatch(/map legend, profile events\s+tab,/i);
   });
 });
