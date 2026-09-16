@@ -10,6 +10,7 @@ Repair candidate pushed to GitHub, **not yet production-complete**. The isolated
 - Cursor rollout: legacy writers by default; deploy dual readers, verify old replicas have drained, then enable `POST_PAGE_CURSOR_V2_WRITE_ENABLED=true` on the same candidate. Once new markers exist, rollback must retain dual readers.
 - Media: one photo-preparation path; cancellation propagates through preparation/upload. Legacy Android cancellation waits for the encoder to finish without publishing the cancelled result or overlapping another encoder. This is **not** immediate native interruption.
 - Linked-post summary: posts linked by both game and event IDs were counted twice. A grouped union counts each post once while retaining the complete visibility predicate, including deleted-content exclusion.
+- Shared-link security: inherited public landing pages trusted Host/forwarded headers for clickable URLs. Two tests reproduced unsafe schemes and attacker-controlled destinations. All seven rendering paths now use validated HTTP(S), credential-free `APP_BASE_URL` origins, preserving path/query and existing privacy rules. Invalid configuration safely falls back to the public apex. Seven new regressions and independent review passed; production's existing value was read-only verified as `https://varsityhub.app`.
 - Web hydration: defer viewport-only chrome until mount, keep the initial system-theme snapshot identical to server output, and remove the competing tab-root index. Bare tab links still initialize Feed explicitly; actual installed-router tests cover root matching and tab initialization.
 - Composer entry: redirects and automatic location prompts are focus-scoped. Guests/unverified users no longer trigger the location prompt while being sent to authentication. Regression failed before the guard, passed afterward; the rebuilt browser now reaches Login successfully.
 - Telemetry: preserve the SDK's valid protocol timestamp while continuing to scrub payload properties. Actual SDK batching/flush regression covers this; it does not prove repair of every previously queued malformed analytics event.
@@ -23,7 +24,7 @@ Node 20.19.6, independent dependencies, disposable PostgreSQL on port 55439, pro
 | Check                                                | Result                                                                                             |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Full client                                          | 232 suites / 1,694 tests passed                                                                    |
-| Full server                                          | 345 suites / 3,251 tests passed                                                                    |
+| Full server                                          | 345 suites / 3,258 tests passed                                                                    |
 | Client and server TypeScript                         | Both passed                                                                                        |
 | Node release/routing/telemetry/inventory regressions | 17 passed                                                                                          |
 | Matrix inventory                                     | No drift or evidence-reference errors; 2,678 unclassified diagnostic surfaces                      |
@@ -34,7 +35,7 @@ Node 20.19.6, independent dependencies, disposable PostgreSQL on port 55439, pro
 | Web export                                           | Passed on patched dependencies                                                                     |
 | Browser guest smoke                                  | Feed, Discover, Profile → Sign In, Create → Login passed; final fresh-origin flow logged no errors |
 
-Evidence logs are local temporary artifacts: `/private/tmp/varsityhub-release-client-final3.log`, `/private/tmp/varsityhub-release-server-final3.log`, `/private/tmp/varsityhub-release-node-final.log`, `/private/tmp/varsityhub-release-matrix-inventory-final.log`, `/private/tmp/varsityhub-release-local-isolated.log`, `/private/tmp/varsityhub-release-build-final.log`, `/private/tmp/varsityhub-release-runtime.log`, and `/private/tmp/varsityhub-release-web-permission-fixed.log`. Review the test counts rather than assuming these temporary files will exist on another machine.
+Evidence logs are local temporary artifacts: `/private/tmp/varsityhub-release-client-final3.log`, `/private/tmp/varsityhub-release-server-final4.log`, `/private/tmp/varsityhub-release-node-final.log`, `/private/tmp/varsityhub-release-matrix-inventory-final2.log`, `/private/tmp/varsityhub-release-local-isolated.log`, `/private/tmp/varsityhub-release-build-final.log`, `/private/tmp/varsityhub-release-runtime.log`, and `/private/tmp/varsityhub-release-web-permission-fixed.log`. Review the test counts rather than assuming these temporary files will exist on another machine.
 
 The web preview used the existing production API for read-only guest flows; it did not have every production provider key. No real user content or purchase was created. Jest reports teardown/open-handle warnings; no measured device speedup or claim that every feature works follows from these test passes.
 
@@ -52,6 +53,8 @@ The initial candidate passed remote server tests, server invariants, both type c
 Two CI findings have narrow follow-up corrections: Prettier formatting in the inherited event serializer; and a historical false positive on the isolation test's fabricated signing key. The test now generates its key per run. `.gitleaksignore` marks only the exact original commit/file/rule/line fingerprint, with rationale; it does not exempt a real credential, broad path or scanner rule. The isolation regression passed and independent review approved this correction; fresh CI must confirm the scanner result.
 
 Device inventory currently shows no attached Android and two unavailable iPhones. No installed-device checks are being reported as passed.
+
+Follow-up `b9778322` passed remote gitleaks and formatting. The first root SAST scan reported 49 unique findings: 41 matched existing rule/path reviews, seven were the previously undocumented shared-link sinks repaired above, and one was consent's development CSRF fallback (normal production startup requires a valid JWT secret before serving). Do not describe all advisory findings as newly verified clean or disable their reporting. The node-forge dependency finding remains a real release blocker with no new exception added.
 
 ## Delivery order
 

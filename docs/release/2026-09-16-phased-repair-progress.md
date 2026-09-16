@@ -60,7 +60,7 @@ Installed dependencies are linked read-only in use from the original checkout; n
 
 ## Verification scope
 
-Latest production-candidate verification (including web hydration/guest entry and linked-post count repairs): **232 client suites / 1,694 tests**, **345 server suites / 3,251 tests**, both typechecks and **17 Node regressions** passed. See the [candidate summary and remaining release gates](2026-09-16-production-candidate-summary.md). These are local results, not proof of production delivery.
+Latest production-candidate verification (including web hydration/guest entry, linked-post counts and shared-link origin security): **232 client suites / 1,694 tests**, **345 server suites / 3,258 tests**, both typechecks and **17 Node regressions** passed. See the [candidate summary and remaining release gates](2026-09-16-production-candidate-summary.md). These are local results, not proof of production delivery.
 
 The following results describe the first repair batch. Latest Phase 4 verification on `41970a96`: **228 client suites / 1,665 tests**, **nine targeted backend suites / 177 tests**, and both full typechecks passed. See the [Phase 4 summary](2026-09-16-phase4-backend-repairs.md) for scope and rollout limits.
 
