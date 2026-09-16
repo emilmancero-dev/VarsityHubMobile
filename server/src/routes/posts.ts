@@ -777,6 +777,7 @@ const locationSchema = z
 const mediaUrlMessage = MEDIA_URL_MESSAGE;
 const POST_MAX_DURATION_S = 90;
 const MAX_VIDEO_SIZE_BYTES = 150 * 1024 * 1024;
+const POST_CONTENT_MAX_LENGTH = 800;
 
 const createPostSchema = z
   .object({
@@ -787,6 +788,8 @@ const createPostSchema = z
       .regex(/^[a-zA-Z0-9_-]+$/)
       .optional(),
     title: z.string().min(1).max(200).optional(),
+    // Parse historical request envelopes for exact idempotent replay only.
+    // Every NEW write is capped at POST_CONTENT_MAX_LENGTH after replay lookup.
     content: z.string().max(4000).optional(),
     type: z.string().max(50).optional(),
     media_url: z.string().trim().min(1).refine(isAllowedPostMediaUrl, mediaUrlMessage).optional(),
@@ -899,6 +902,13 @@ postsRouter.post(
       return true;
     };
     if (await replayPost()) return;
+    if (data.content && data.content.length > POST_CONTENT_MAX_LENGTH) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        code: 'POST_CONTENT_TOO_LONG',
+        issues: [{ path: ['content'], message: 'Posts are limited to 800 characters.' }],
+      });
+    }
     // Normalize batch media: media_urls (new) takes precedence when present,
     // media_url (legacy single-item clients) is the fallback. The canonical
     // list is capped at 5 (PDF commandments: "up to 5 items per post"); the
@@ -2324,7 +2334,7 @@ postsRouter.patch(
     const userId = req.user!.id;
 
     const schema = z.object({
-      content: z.string().min(1).max(4000).optional(), // VAL-1: Aligned with frontend maxLength=4000
+      content: z.string().min(1).max(POST_CONTENT_MAX_LENGTH).optional(),
       title: z.string().max(200).optional(),
       is_pinned: z.boolean().optional(),
     });

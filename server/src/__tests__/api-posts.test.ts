@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import request from 'supertest';
 import { app } from '../testApp.js';
 import bcrypt from 'bcrypt';
+import crypto from 'node:crypto';
 import { describeDb } from './helpers/dbTestSuite.js';
 
 let prisma: any;
@@ -303,6 +304,164 @@ describeDb('Posts API Endpoints', () => {
           })
           .catch(() => {});
         await prisma.sportProgram.delete({ where: { id: program.id } }).catch(() => {});
+      }
+    });
+  });
+
+  describe('post content boundaries', () => {
+    // A separate synthetic author keeps this boundary battery independent of
+    // the ordinary posting suite's real per-user rate limit. No limiter bypass.
+    let testUser: any;
+    let testUserToken: string;
+    beforeAll(async () => {
+      testUser = await prisma.user.create({
+        data: {
+          email: `post-boundary-${crypto.randomUUID()}@example.com`,
+          email_verified: true,
+          role: 'coach',
+          onboarding_completed: true,
+          approval_status: 'APPROVED',
+          preferences: {
+            role: 'coach',
+            onboarding_completed: true,
+            coach_agreement_accepted_at: new Date().toISOString(),
+          },
+        },
+      });
+      testUserToken = signJwt({ id: testUser.id });
+    });
+    afterAll(async () => {
+      if (!testUser) return;
+      await prisma.post.deleteMany({ where: { author_id: testUser.id } });
+      await prisma.user.delete({ where: { id: testUser.id } });
+    });
+    it.each([800, 801])('enforces the post content boundary on create (%i)', async length => {
+      const content = 'c'.repeat(length);
+      const res = await request(app)
+        .post('/posts')
+        .set('Authorization', `Bearer ${testUserToken}`)
+        .send({ content });
+      try {
+        expect(res.status).toBe(length === 800 ? 201 : 400);
+        const stored = await prisma.post.findMany({
+          where: { author_id: testUser.id, content },
+          take: 2,
+        });
+        expect(stored).toHaveLength(length === 800 ? 1 : 0);
+        if (length === 800) expect(res.body.content).toBe(content);
+        else {
+          expect(res.body.code).toBe('POST_CONTENT_TOO_LONG');
+          expect(res.body.issues).toEqual(
+            expect.arrayContaining([expect.objectContaining({ path: ['content'] })])
+          );
+        }
+      } finally {
+        await prisma.post.deleteMany({ where: { author_id: testUser.id, content } });
+      }
+    });
+
+    it.each([800, 801])('enforces the post content boundary on edit (%i)', async length => {
+      const post = await prisma.post.create({
+        data: { author_id: testUser.id, content: 'original' },
+      });
+      const content = 'e'.repeat(length);
+      try {
+        const res = await request(app)
+          .patch(`/posts/${post.id}`)
+          .set('Authorization', `Bearer ${testUserToken}`)
+          .send({ content });
+        expect(res.status).toBe(length === 800 ? 200 : 400);
+        const stored = await prisma.post.findUnique({ where: { id: post.id } });
+        expect(stored.content).toBe(length === 800 ? content : 'original');
+      } finally {
+        await prisma.post.delete({ where: { id: post.id } });
+      }
+    });
+
+    it('preserves historical long content when only post metadata changes', async () => {
+      const content = 'historical '.repeat(100);
+      const post = await prisma.post.create({ data: { author_id: testUser.id, content } });
+      try {
+        const res = await request(app)
+          .patch(`/posts/${post.id}`)
+          .set('Authorization', `Bearer ${testUserToken}`)
+          .send({ title: 'Updated title' });
+        expect(res.status).toBe(200);
+        expect(res.body.content).toBe(content);
+        const stored = await prisma.post.findUnique({ where: { id: post.id } });
+        expect(stored.content).toBe(content);
+      } finally {
+        await prisma.post.delete({ where: { id: post.id } });
+      }
+    });
+
+    it('replays a historical long post without creating another post', async () => {
+      const payload = { client_request_id: 'legacy-long-request-001', content: 'l'.repeat(1200) };
+      const id = `post_${crypto
+        .createHash('sha256')
+        .update(JSON.stringify([testUser.id, payload.client_request_id]))
+        .digest('hex')}`;
+      await prisma.post.create({
+        data: {
+          id,
+          author_id: testUser.id,
+          content: payload.content,
+          client_request_hash: crypto
+            .createHash('sha256')
+            .update(JSON.stringify(payload))
+            .digest('hex'),
+        },
+      });
+      try {
+        const res = await request(app)
+          .post('/posts')
+          .set('Authorization', `Bearer ${testUserToken}`)
+          .send(payload);
+        expect(res.status).toBe(200);
+        expect(res.body.id).toBe(id);
+        expect(res.body.content).toBe(payload.content);
+        const conflict = await request(app)
+          .post('/posts')
+          .set('Authorization', `Bearer ${testUserToken}`)
+          .send({ ...payload, content: 'Shortened after a late commit' });
+        expect(conflict.status).toBe(409);
+        expect(conflict.body.code).toBe('IDEMPOTENCY_CONFLICT');
+        expect(
+          await prisma.post.count({ where: { author_id: testUser.id, content: payload.content } })
+        ).toBe(1);
+      } finally {
+        await prisma.post.delete({ where: { id } });
+      }
+    });
+
+    it('accepts a corrected uncommitted long request under the original request identity', async () => {
+      const payload = { client_request_id: 'legacy-uncommitted-001', content: 'u'.repeat(1200) };
+      const rejected = await request(app)
+        .post('/posts')
+        .set('Authorization', `Bearer ${testUserToken}`)
+        .send(payload);
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.code).toBe('POST_CONTENT_TOO_LONG');
+      const corrected = { ...payload, content: 'Corrected legacy caption' };
+      const created = await request(app)
+        .post('/posts')
+        .set('Authorization', `Bearer ${testUserToken}`)
+        .send(corrected);
+      try {
+        expect(created.status).toBe(201);
+        const replay = await request(app)
+          .post('/posts')
+          .set('Authorization', `Bearer ${testUserToken}`)
+          .send(corrected);
+        expect(replay.status).toBe(200);
+        expect(replay.body.id).toBe(created.body.id);
+        expect(
+          await prisma.post.count({ where: { author_id: testUser.id, content: corrected.content } })
+        ).toBe(1);
+      } finally {
+        await prisma.post.deleteMany({
+          where: { author_id: testUser.id, content: corrected.content },
+        });
       }
     });
   });

@@ -75,6 +75,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 
+const POST_CONTENT_MAX_LENGTH = 800;
+const POST_CONTENT_LIMIT_MESSAGE =
+  'Posts are limited to 800 characters. Shorten your text to continue.';
+
 // Media validation constants
 const ALLOWED_IMAGE_TYPES = [
   'image/jpeg',
@@ -842,6 +846,15 @@ function CreatePostScreen() {
   ]);
 
   const onSubmit = async () => {
+    // Restored drafts and programmatic mention insertion can exceed maxLength.
+    // Preserve exact pending requests: only the server can confirm an old commit.
+    if (
+      content.length > POST_CONTENT_MAX_LENGTH &&
+      !recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload
+    ) {
+      setError(POST_CONTENT_LIMIT_MESSAGE);
+      return;
+    }
     // First, show preview
     const trimmedContent = content.trim();
     if (!trimmedContent && !picked?.uri) {
@@ -939,6 +952,10 @@ function CreatePostScreen() {
     const hadPendingPayload = Boolean(
       recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload
     );
+    if (!hadPendingPayload && content.length > POST_CONTENT_MAX_LENGTH) {
+      setError(POST_CONTENT_LIMIT_MESSAGE);
+      return;
+    }
     // 90s highlight cap: an over-limit pick must go through the trimmer (which
     // clamps its window to the cap) before it can post. Trimmed output is
     // capped by construction, so only the untrimmed original needs checking.
@@ -1072,6 +1089,7 @@ function CreatePostScreen() {
         if (typeof res?.bytes === 'number') mediaMeta.media_bytes = res.bytes;
         if (typeof res?.duration === 'number') mediaMeta.media_duration_s = res.duration;
         await persistRecovery({
+          ...recoveryForOwner(recoveryRef.current, ownerId),
           ownerId,
           sourceUri: source,
           upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
@@ -1115,6 +1133,7 @@ function CreatePostScreen() {
           }
         }
         await persistRecovery({
+          ...recoveryForOwner(recoveryRef.current, ownerId),
           ownerId,
           sourceUri: source,
           upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
@@ -1183,7 +1202,8 @@ function CreatePostScreen() {
       setSavingPost(true);
       const pendingPayload = recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload || {
         ...payload,
-        client_request_id: newPostRequestId(),
+        client_request_id:
+          recoveryForOwner(recoveryRef.current, ownerId)?.clientRequestId || newPostRequestId(),
       };
       await persistRecovery({
         ...recoveryForOwner(recoveryRef.current, ownerId),
@@ -1286,6 +1306,8 @@ function CreatePostScreen() {
         setPostSuccess(true);
         setTimeout(() => safeGoBack(router, '/(tabs)/feed'), 800);
         return;
+      } else if (e?.status === 400 && e?.data?.code === 'POST_CONTENT_TOO_LONG') {
+        setError(POST_CONTENT_LIMIT_MESSAGE);
       } else if (issues.length) {
         setError('Please check your post and try again.');
       } else {
@@ -1519,17 +1541,18 @@ function CreatePostScreen() {
                   color: Colors[colorScheme].text,
                 },
               ]}
-              maxLength={4000}
+              maxLength={POST_CONTENT_MAX_LENGTH}
             />
             <Text style={[styles.helper, { color: Colors[colorScheme].mutedText }]}>
               Use # to tag teams and @ to mention players
             </Text>
-            {content.length > 800 ? (
+            {content.length > POST_CONTENT_MAX_LENGTH ? (
               <Text
                 testID="create-post-long-content-warning"
                 style={[styles.helper, { color: '#B8860B' }]}
               >
-                {content.length}/4000 — posts over 800 characters may be truncated in some views.
+                {content.length}/800 — shorten your text before posting. Your draft has not been
+                truncated.
               </Text>
             ) : null}
           </View>

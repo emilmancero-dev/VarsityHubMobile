@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Image, Platform } from 'react-native';
+import { Alert, Image, Platform } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { prepareVideoForUpload } from '@/utils/compressVideo';
 import { uploadVideo } from '@/api/videoUpload';
@@ -134,6 +134,116 @@ afterEach(() => {
   global.fetch = originalFetch;
   jest.useRealTimers();
 });
+
+it('submits exactly 800 characters without truncating them', async () => {
+  render(<CreatePostScreen />);
+  await act(async () => {});
+  const input = screen.UNSAFE_getByType('MentionInput' as any);
+  expect(input.props.maxLength).toBe(800);
+  fireEvent(input, 'changeText', 'a'.repeat(800));
+  fireEvent.press(screen.getByTestId('create-post-submit-button'));
+  fireEvent.press(screen.getByLabelText('Confirm and post'));
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(mockCreate.mock.calls[0][0].content).toBe('a'.repeat(800));
+});
+
+it('blocks oversize restored drafts before preview or upload without losing text', async () => {
+  const content = 'd'.repeat(801);
+  mockDraft = { content, ownerId: 'photo-owner' };
+  const alert = jest.spyOn(Alert, 'alert');
+  render(<CreatePostScreen />);
+  await act(async () => {});
+  const restore = alert.mock.calls
+    .find(call => call[0] === 'Restore draft?')?.[2]
+    ?.find(button => button.text === 'Restore');
+  expect(restore).toBeDefined();
+  await act(async () => {
+    restore?.onPress?.();
+  });
+  fireEvent.press(screen.getByTestId('create-post-submit-button'));
+  expect(
+    screen.getByText('Posts are limited to 800 characters. Shorten your text to continue.')
+  ).toBeTruthy();
+  expect(screen.queryByLabelText('Confirm and post')).toBeNull();
+  expect(screen.UNSAFE_getByType('MentionInput' as any).props.value).toBe(content);
+  expect(mockCreate).not.toHaveBeenCalled();
+  expect(mockPut).not.toHaveBeenCalled();
+  alert.mockRestore();
+});
+
+it.each([false, true])(
+  'corrects a rejected legacy draft preserving identity (replace media: %s)',
+  async replaceMedia => {
+    const pendingPayload = { client_request_id: 'legacy-pending-001', content: 'p'.repeat(1200) };
+    mockDraft = {
+      ownerId: 'photo-owner',
+      content: pendingPayload.content,
+      picked: { uri: 'file:///previous.jpg', type: 'image', mime: 'image/jpeg' },
+      recovery: {
+        ownerId: 'photo-owner',
+        pendingPayload,
+        sourceUri: 'file:///previous.jpg',
+        upload: { url: 'https://media.test/photo' },
+      },
+    };
+    mockCreate.mockRejectedValueOnce({
+      status: 400,
+      data: {
+        error: 'Invalid payload',
+        code: 'POST_CONTENT_TOO_LONG',
+        issues: [{ path: ['content'], message: 'Posts are limited to 800 characters.' }],
+      },
+    });
+    const alert = jest.spyOn(Alert, 'alert');
+    render(<CreatePostScreen />);
+    await act(async () => {});
+    const restore = alert.mock.calls
+      .find(call => call[0] === 'Restore draft?')?.[2]
+      ?.find(button => button.text === 'Restore');
+    await act(async () => {
+      restore?.onPress?.();
+    });
+    fireEvent.press(screen.getByTestId('create-post-submit-button'));
+    fireEvent.press(screen.getByLabelText('I confirm I personally filmed or own this content'));
+    fireEvent.press(screen.getByLabelText('Confirm and upload'));
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Posts are limited to 800 characters. Shorten your text to continue.')
+      ).toBeTruthy()
+    );
+    expect(mockDraft.recovery.upload.url).toBe('https://media.test/photo');
+    expect(screen.UNSAFE_getByType('MentionInput' as any).props.value).toBe(pendingPayload.content);
+    fireEvent(screen.UNSAFE_getByType('MentionInput' as any), 'changeText', 'Corrected caption');
+    if (replaceMedia) {
+      mockPick.mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: 'file:///replacement.jpg', mimeType: 'image/jpeg', type: 'image' }],
+      });
+      fireEvent.press(screen.getByTestId('create-post-photo-picker'));
+      await waitFor(() =>
+        expect(
+          screen
+            .UNSAFE_getAllByType(Image)
+            .some(item => item.props.source?.uri === 'file:///replacement.jpg')
+        ).toBe(true)
+      );
+    }
+    fireEvent.press(screen.getByTestId('create-post-submit-button'));
+    if (replaceMedia) {
+      fireEvent.press(screen.getByLabelText('I confirm I personally filmed or own this content'));
+    }
+    fireEvent.press(screen.getByLabelText('Confirm and upload'));
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+    expect(mockCreate.mock.calls[1][0]).toMatchObject({
+      client_request_id: 'legacy-pending-001',
+      content: 'Corrected caption',
+      media_url: 'https://media.test/photo',
+    });
+    expect(mockPut).toHaveBeenCalledTimes(replaceMedia ? 1 : 0);
+    alert.mockRestore();
+  }
+);
 
 it.each([
   ['jpeg', 'image/jpeg', 1, 'file:///prepared.jpg', 'image/jpeg'],

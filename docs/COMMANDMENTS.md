@@ -16,22 +16,22 @@ Stable IDs make review comments, tests, and historical audits refer to the same
 claim. `POLICY` records an intentional choice that differs from the original
 spec. `OPEN` is a known unresolved difference. `ROADMAP` is future scope.
 
-| ID              | Status  | Claim                                                                                    |
-| --------------- | ------- | ---------------------------------------------------------------------------------------- |
-| CMD-EVENT-001   | CURRENT | Standard, all-day, and extended live windows are 8h, 12h, and 18h.                       |
-| CMD-EVENT-002   | POLICY  | Posts and stories use the same flat 3 km geofence.                                       |
-| CMD-EVENT-003   | CURRENT | Eligible event posters receive a seven-day post grace period.                            |
-| CMD-EVENT-004   | CURRENT | A post accepts at most five media items and 4,000 text characters.                       |
-| CMD-EVENT-005   | CURRENT | Watching is a future-event action; live and past cards show the event-page post count.   |
-| CMD-EVENT-006   | CURRENT | The profile Events tab is SHIPPED attendance history backed by verified posting unlocks. |
-| CMD-EVENT-007   | CURRENT | Event pages with zero posts are purged after their live window closes.                   |
-| CMD-FEED-001    | CURRENT | Event activity controls gold map pins and live-card borders.                             |
-| CMD-ADS-001     | CURRENT | Weekday and weekend ad blocks cost $4.99 and $7.99.                                      |
-| CMD-ADS-002     | POLICY  | Ads can be booked up to 56 days ahead.                                                   |
-| CMD-INGEST-001  | POLICY  | Schedule ingest uses ESPN and the implemented league list.                               |
-| CMD-INGEST-002  | ROADMAP | NCAA expansion beyond the five Division I ESPN leagues.                                  |
-| CMD-MEDIA-001   | POLICY  | Uploaded photo/video media has a 150 MB hard cap.                                        |
-| CMD-CONTENT-001 | OPEN    | The original 800-character post limit remains 4,000 in current code.                     |
+| ID              | Status  | Claim                                                                                          |
+| --------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| CMD-EVENT-001   | CURRENT | Standard, all-day, and extended live windows are 8h, 12h, and 18h.                             |
+| CMD-EVENT-002   | POLICY  | Posts and stories use the same flat 3 km geofence.                                             |
+| CMD-EVENT-003   | CURRENT | Eligible event posters receive a seven-day post grace period.                                  |
+| CMD-EVENT-004   | CURRENT | A new post accepts at most five media items and 800 text characters.                           |
+| CMD-EVENT-005   | CURRENT | Watching is a future-event action; live and past cards show the event-page post count.         |
+| CMD-EVENT-006   | CURRENT | The profile Events tab is SHIPPED attendance history backed by verified posting unlocks.       |
+| CMD-EVENT-007   | CURRENT | Event pages with zero posts are purged after their live window closes.                         |
+| CMD-FEED-001    | CURRENT | Event activity controls gold map pins and live-card borders.                                   |
+| CMD-ADS-001     | CURRENT | Weekday and weekend ad blocks cost $4.99 and $7.99.                                            |
+| CMD-ADS-002     | POLICY  | Ads can be booked up to 56 days ahead.                                                         |
+| CMD-INGEST-001  | POLICY  | Schedule ingest uses ESPN and the implemented league list.                                     |
+| CMD-INGEST-002  | ROADMAP | NCAA expansion beyond the five Division I ESPN leagues.                                        |
+| CMD-MEDIA-001   | POLICY  | Uploaded photo/video media has a 150 MB hard cap.                                              |
+| CMD-CONTENT-001 | CURRENT | New post content and content edits are capped at 800 characters; existing posts are preserved. |
 
 ---
 
@@ -69,8 +69,13 @@ event's end time.
 - After 7 days the event stays viewable via the calendar/map database.
 - **Media cap: up to 5 items per post** (`posts.ts` `media_urls .max(5)`, comment
   cites this doc). Photos and videos can be mixed.
-- **Post text cap:** currently **4000 chars** server-side (`posts.ts`
-  `content .max(4000)`). _The original spec said 800 — see "Open reconciliations"._
+- **Post text cap:** **800 characters** for new posts and content edits, per the
+  owner's explicit September 16 decision. Server create validation runs after
+  exact-request replay lookup so older committed posts can still be confirmed
+  without duplicate creation. Existing longer posts remain readable; metadata-only
+  edits do not truncate them. Restored oversized drafts stay intact and must be
+  shortened before a new submission. Counting retains JavaScript string-length
+  semantics (UTF-16 code units), matching the existing client/server behavior.
 - Anyone can interact (like / comment / vote) regardless of location.
 - Polls: competitive games only; any VarsityHub user can vote.
 - **Watching ("TV") button:** before an event starts, users can tap the TV emoji
@@ -190,14 +195,14 @@ the home team's colors. Ad visibility does not suppress the emoji.
 
 ## Open reconciliations (spec ≠ code, deliberately)
 
-These are the four places the spec and code disagree. Direction chosen by the
-owner on 2026-09-15:
+These historical differences record the owner's decisions on September 15–16.
+Implemented candidate behavior is not proof of production delivery.
 
 | Claim in original spec           | Reality in code         | Resolution                                                                              |
 | -------------------------------- | ----------------------- | --------------------------------------------------------------------------------------- |
 | Data source = SeatGeek           | ESPN (no SeatGeek code) | **Doc corrected to ESPN** ✅                                                            |
 | NCAA D1–D3, all sports           | D1, 5 ESPN leagues      | **Doc narrowed; expansion is roadmap** ✅                                               |
-| Post text ≤ 800 chars            | 4000 chars              | Cheap code change — pending owner go-ahead                                              |
+| Post text ≤ 800 chars            | 800 for new writes      | **Owner approved September 16; create/edit boundary regressions pass**                  |
 | Capacity-scaled geo-fence radius | Flat 3.0 km             | **Kept flat 3km by design** ✅ (consistency + absorbs indoor GPS drift; tiers rejected) |
 | Ad horizon 12 months             | 56 days                 | **Kept 56-day cap; doc corrected** ✅                                                   |
 | Media 500MB video / 50MB photo   | 150 MB                  | **Kept 150 MB; doc corrected** ✅                                                       |

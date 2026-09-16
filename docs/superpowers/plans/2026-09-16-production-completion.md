@@ -13,7 +13,7 @@
 ## Global constraints
 
 - Work in `/Users/varsityhub/Code/VarsityHubMobile-performance-repairs`, branch `codex/phased-performance-repairs`. Preserve the original checkout's media-picker edits and all other worktrees.
-- The local baseline is `7ba08b49`, plus this task's uncommitted cancellation draft. Do not publish that draft as-is.
+- The resumed baseline is clean commit `f90accb9`; earlier cancellation drafts have been replaced by reviewed compatibility repairs. No production delivery is implied by this baseline.
 - No hook bypasses, force pushes, ignored failing safety checks, invented measurements, or credentials in logs.
 - Do not edit the original checkout's dependencies. On September 16 the two dependency symlinks were moved intact to `/private/tmp/varsityhub-release-deps.Thfuva`, then independent dependencies were installed in this worktree for patched-lockfile verification. Native experiments must remain isolated.
 - Preserve permissions, age/block/private-content rules, approved payment flows, upload limits and server asset verification. Tests use a disposable database with production environment loading disabled.
@@ -22,7 +22,57 @@
 - Publishing an update is not proof that a device installed it. Record update/build IDs, runtime/platform/channel and delivery checks separately from device acceptance evidence.
 - Required external evidence stays UNKNOWN until observed. A blocker pauses only the affected release action while safe in-scope repairs/checks continue. Do not repeat a request for authority already supplied.
 
-## Phase 1 — Establish source, runtime and rollout truth
+## Resumed gap-closure sequence — owner authorization September 16
+
+This sequence schedules the remaining work without resetting completed phases below. A blocked provider/device task does not block independent local repairs. `CURRENT` means implemented in the candidate, not deployed or exhaustively accepted. Deferred features and unverified surfaces are never counted as completed.
+
+| Step                                   | Deliverable and evidence                                                                                                                   | Dependency                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| A — Rules and gap inventory            | Reconcile current code/tests against the registry and stale audit claims; retain explicit open, policy, roadmap and external-evidence rows | Local source; owner decisions for ambiguous rules              |
+| B — Surgical foundation repairs        | One reproducing test, minimal owning-layer fix, neighboring safety tests, independent review and clean commit per defect                   | Confirmed diagnosis; no speculative cleanup                    |
+| C — Isolated staging                   | Candidate backend/schema ready, staging web and mobile target isolation verified, provider sandbox journeys recorded                       | Separate credentials; actual build-path verification           |
+| D — Feature and performance acceptance | Role/privacy/payment/media journeys and repeatable before/after device timings for both runtimes                                           | Connected devices, isolated fixtures and providers             |
+| E — Recovery/security readiness        | Restore, private export, reconciliation, concurrent writes, alerts, rollback and support ownership proven                                  | Scoped provider access; official node-forge fix; no exceptions |
+| F — Production and closure             | Reviewed clean SHA; ordered API/web/1.0.5/1.0.6 delivery; installation and observation evidence; final report                              | All canonical required gates pass                              |
+
+### Task A1 / B1 — Owner-approved 800-character post limit
+
+**Decision:** The owner explicitly chose “Change to 800 characters.” Preserve stored longer posts and drafts; never silently truncate them. New submissions and content edits must satisfy the new limit. Titles, comments and DMs are not part of this change. Keep existing JavaScript string-length semantics; do not introduce a Unicode-counting migration.
+
+**Files:** `server/src/routes/posts.ts` (create and patch validation), `app/(tabs)/create-post.tsx` (input, restored-draft/submit guard and feedback), `utils/postRecovery.ts` and its tests, `server/src/__tests__/api-posts.test.ts`, `app/__tests__/create-post-image-preparation.test.tsx`, `server/src/__tests__/commandments-invariants.test.ts`, `config/commandment-workflows.json`, `docs/COMMANDMENTS.md`.
+
+**Interface:** New `POST /posts` writes and `PATCH /posts/:id` content edits reject `content.length > 800` with existing validation-error envelopes. Exactly 800 is accepted when normal authorization/content rules pass. Metadata-only edits do not rewrite historical content. Exact replay of an already-committed legacy request returns that existing post before the new-write limit, without a duplicate. Composer rejects oversize editable restored content before preview/upload and retains the draft for correction; frozen pending retries still go to the server for confirmation. Ambiguous restored pending requests retain their identity and upload checkpoint rather than silently minting another post.
+
+- [x] Add real HTTP regressions for create/edit 800 accepted, 801 rejected with no persistence, and metadata-only edits preserving a historical long post. Example boundary: `expect((await request(app).post('/posts').set('Authorization', token).send({ content: 'a'.repeat(801) })).status).toBe(400)`; confirm against the actual current router.
+- [x] Add rendered-composer coverage for accepted 800-character submission and oversize restored/programmatic content blocked without upload or truncation. Use the existing controlled network/native dependencies, not source-grep-only assertions.
+- [x] Run those tests before implementation and record the expected failures. Database tests must explicitly use the disposable localhost test database with `VARSITYHUB_ENV_PATH=/dev/null`, never standing staging or production.
+- [x] Apply the smallest matching server/client fix; replace the old 4,000-character warning with accurate limit/error feedback. Keep media, auth, consent, geofence and recovery behavior intact.
+- [x] Rerun boundary, commandments, validation-parity, composer/media/recovery tests and both typechecks. Classify registry claim `CMD-CONTENT-001` as CURRENT only after the boundary tests pass; record the owner decision date and non-truncating rollout.
+- [x] Independent review; resolve findings. Final scoped review found no remaining critical/important findings; this is not release approval.
+- [ ] Commit explicit files with hooks enabled. Push only the maintained repair branch, not main; require fresh CI before any release.
+
+**Verification (September 16):** Initial HTTP regressions failed as expected because create/edit accepted 801 characters. Review identified a frozen legacy draft recovery dead end, then a retained-key loss on replacement-media upload; both received failing regressions before repair. Final targeted runs passed **55 client tests / 3 suites** (composer image preparation, recovery, confirmation) and **66 server tests / 3 suites** (posts HTTP, validation parity, commandments). Server tests used only disposable localhost Postgres, with production dotenv loading disabled. Both client and server TypeScript checks passed. Targeted client lint had zero errors, two existing helper `any` warnings and two ignored-test-file notices. Jest's existing forced-exit notice remains; this does not certify absence of open handles. Matrix inventory had zero drift/errors, but 2,678 unclassified surfaces and `FLOW-AD-PURCHASE` still block exhaustive acceptance. Full-suite, device, staging and production evidence are not implied.
+
+**Retry contract:** A coded `POST_CONTENT_TOO_LONG` response occurs after replay lookup. It allows editing a rejected legacy body while retaining `clientRequestId`, including across both media upload checkpoints. Corrected retries reuse that key, so any late original commit produces a conflict instead of a duplicate. Exact historical replay remains accepted. No old post or restored draft is truncated.
+
+### Task A2 — Bound stale security backlog claims
+
+- [x] Recheck `docs/SECURITY_BACKLOG.md` claims #9 (web token storage), #12 (logout invalidation) and #18 (Apple renewal notifications) against live routes/client storage and tests. Record precisely what is stale versus any residual issue; do not label an entire feature secure based on source presence.
+- [x] Reconcile findings into the existing backlog with file/test references. Leave unexamined items explicitly historical/unverified, rather than inventing a verified remaining-bug count.
+
+**Observed:** Web storage/revocation/webhook existence claims were stale, but meaningful residuals remain. The local Apple verifier probe reproduced untrusted-certificate acceptance without network or database calls; a separate receipt-before-processing ordering defect is source-confirmed, not yet fault-injected. These are open release blockers. Prioritize bounded Apple verification/retry repair before lower-risk cleanup; its design approval was requested separately. No production mutation or dependency exception is implied. The detailed local investigation is `/private/tmp/varsityhub-backlog-reconciliation-current.md`; durable high-level status and source references are in `docs/SECURITY_BACKLOG.md`.
+
+### Next foundation investigation — startup readiness
+
+- [x] Reproduce `server/start.sh` migration failure and placeholder readiness in a temporary process harness with fake Prisma, no database/provider access. Expected safe contract: no ready response or application launch after required primary-schema failure.
+- [x] Present the bounded fail-closed change and rollout-timeout implications before implementation; preserve optional-backup versus required-primary distinctions. Do not make a production configuration change as part of this investigation.
+- [ ] Receive design approval; add persistent process-level regressions and implement the bounded repair in a separate change.
+
+**Observed:** `/private/tmp/varsityhub-startup-probe.4zEQUe/probe.cjs` exercised the actual startup shell with fake Prisma returning 42. During that failure, `/health` returned HTTP 200 with `status: starting`; startup then launched the harmless fake API and exited zero. The log incorrectly recorded migration status zero because the shell status was captured after the `if` compound. No database connection, provider call or production change occurred. Proposed design: placeholder returns 503; required primary migrations/raw-SQL initialization fail closed with correct exit status; optional backup reconciliation retains separate non-fatal handling. Account for real startup duration in deployment timeout settings after staging measurements. Approval requested before implementation.
+
+The remaining C–F execution details and external evidence requirements remain in the phases below and the [isolated staging handoff](../../release/2026-09-16-isolated-staging-handoff.md). No full-app completion percentage is inferred from this checklist.
+
+## Phase 1 evidence — source, runtime and rollout truth
 
 **Files:** `app.config.js`, `app.json`, `eas.json`, `railway.toml`, `.github/workflows/publish-ota-update.yml`, `.github/workflows/deploy-web.yml`, `scripts/deploy-web.sh`, existing release docs.
 

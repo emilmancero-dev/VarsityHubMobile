@@ -70,9 +70,8 @@ describe('commandments: posting caps', () => {
     // media_urls array in the create-post schema
     expect(posts).toMatch(/media_urls[\s\S]{0,200}?\.max\(5\)/);
   });
-  it('post text is capped at the documented current 4000 characters', () => {
-    expect(posts).toMatch(/content:\s*z\.string\(\)\.max\(4000\)/);
-  });
+  // Content boundaries are exercised through real create/edit HTTP requests in
+  // api-posts.test.ts, including exact replay of historical longer requests.
 });
 
 describe('commandments: ad pricing', () => {
@@ -154,9 +153,5 @@ describe('commandments: remaining registry invariants', () => {
   it('keeps the client and server media ceiling at 150 MB', () => {
     expect(videoConstants).toMatch(/MAX_VIDEO_SIZE_BYTES = 150 \* 1024 \* 1024/);
     expect(mediaUploadSession).toMatch(/MAX_BYTES = 150 \* 1024 \* 1024/);
-  });
-
-  it('classifies the unresolved original 800-character claim as OPEN', () => {
-    expect(commandments).toMatch(/CMD-CONTENT-001\s*\|\s*OPEN/);
   });
 });

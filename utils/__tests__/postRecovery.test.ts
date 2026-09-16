@@ -45,6 +45,28 @@ describe('fresh post rejection recovery', () => {
     expect(recoveryAfterPostRejection(recovery, error, false)).toBeNull();
     expect(recovery.pendingPayload.content).toBe('Original');
   });
+  it('unfreezes an oversized legacy payload while retaining its request identity and upload', () => {
+    const legacy = {
+      ...recovery,
+      pendingPayload: { client_request_id: 'legacy-pending-001', content: 'a'.repeat(1200) },
+    };
+    expect(
+      recoveryAfterPostRejection(
+        legacy,
+        {
+          status: 400,
+          data: { error: 'Invalid payload', code: 'POST_CONTENT_TOO_LONG', issues: [] },
+        },
+        false
+      )
+    ).toEqual({
+      ownerId: 'owner',
+      sourceUri: 'local.mp4',
+      upload: recovery.upload,
+      clientRequestId: 'legacy-pending-001',
+    });
+    expect(legacy.pendingPayload.content).toHaveLength(1200);
+  });
   it.each([
     new Error('network'),
     { status: 400 },

@@ -14,7 +14,7 @@
     { "id": "CMD-INGEST-001", "status": "POLICY", "workflows": ["FLOW-SCHEDULE-INGEST"] },
     { "id": "CMD-INGEST-002", "status": "ROADMAP", "workflows": [] },
     { "id": "CMD-MEDIA-001", "status": "POLICY", "workflows": ["FLOW-MEDIA-UPLOAD"] },
-    { "id": "CMD-CONTENT-001", "status": "OPEN", "workflows": [] }
+    { "id": "CMD-CONTENT-001", "status": "CURRENT", "workflows": ["FLOW-EVENT-POSTING"] }
   ],
   "workflows": [
     {
@@ -23,6 +23,24 @@
       "risk": "high",
       "status": "verified",
       "evidence": [
+        {
+          "type": "integration",
+          "file": "server/src/__tests__/api-posts.test.ts",
+          "cases": [
+            "enforces the post content boundary on create",
+            "enforces the post content boundary on edit",
+            "preserves historical long content when only post metadata changes",
+            "replays a historical long post without creating another post"
+          ]
+        },
+        {
+          "type": "automated",
+          "file": "app/__tests__/create-post-image-preparation.test.tsx",
+          "cases": [
+            "submits exactly 800 characters without truncating them",
+            "blocks oversize restored drafts before preview or upload without losing text"
+          ]
+        },
         {
           "type": "automated",
           "file": "server/src/__tests__/commandments-invariants.test.ts",
