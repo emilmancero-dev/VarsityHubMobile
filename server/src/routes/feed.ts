@@ -8,6 +8,7 @@ import { detectMediaType, resolvePreviewUrl } from '../lib/mediaUtils.js';
 import { loadPostInteractionSets, serializeFeedPost } from '../lib/feedPostSerializer.js';
 import { ensureOAuthUserVerified } from '../lib/oauthVerification.js';
 import { prisma } from '../lib/prisma.js';
+import { encodePostPageCursor, postPageBoundary } from '../lib/postPageCursor.js';
 import {
   buildPrivateTeamPostVisibilityWhere,
   getBlockedUserIds,
@@ -172,8 +173,14 @@ async function getFollowedPostsPage(
     mergeAndWhere(where, buildPrivateTeamPostVisibilityWhere(excludedTeamIds));
   }
 
+  const boundary = await postPageBoundary(cursor, id =>
+    prisma.post.findFirst({
+      where: { AND: [where, { id }] },
+      select: { id: true, created_at: true },
+    })
+  );
   const query: any = {
-    where,
+    where: { AND: [where, boundary] },
     orderBy: [{ created_at: 'desc' as const }, { id: 'desc' as const }],
     include: {
       author: { select: { id: true, username: true, display_name: true, avatar_url: true } },
@@ -183,10 +190,6 @@ async function getFollowedPostsPage(
     },
     take: limit + 1,
   };
-  if (cursor) {
-    query.cursor = { id: cursor };
-    query.skip = 1;
-  }
 
   let rows: any[] = [];
   try {
@@ -201,7 +204,7 @@ async function getFollowedPostsPage(
   }
 
   const items = rows.slice(0, limit);
-  const nextCursor = rows.length > limit ? rows[limit].id : null;
+  const nextCursor = rows.length > limit ? encodePostPageCursor(items[items.length - 1]) : null;
   const postIds: string[] = items.map((post: any) => post.id);
   const authorIds: string[] = items.map((post: any) => post.author_id).filter(Boolean);
   const pollIds: string[] = items.map((post: any) => post.poll?.id).filter(Boolean);
