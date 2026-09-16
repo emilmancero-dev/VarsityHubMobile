@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Image as RNImage,
   InteractionManager,
@@ -439,6 +440,12 @@ export default function FeedScreen() {
   const feedQueryPlanRef = useRef<FeedGameQueryPlan | null>(null);
   const feedBundleParamsRef = useRef<FeedBundleParams | null>(null);
   const hasFocusedOnceRef = useRef(false);
+  const postsPollInFlightRef = useRef(false);
+  const unreadPollInFlightRef = useRef(false);
+  const refreshUnreadRef = useRef<() => Promise<void>>(async () => {});
+  const gamesForPollingRef = useRef(games);
+  gamesForPollingRef.current = games;
+  const pollingScopeRef = useRef<() => boolean>(() => false);
   const LOAD_COOLDOWN_MS = 30_000;
 
   useEffect(() => {
@@ -491,33 +498,44 @@ export default function FeedScreen() {
   // falls back to a standalone-event lookup for any id that isn't a Game, so
   // they can go gold on the feed the same way they already can on the map
   // (owner "commandments" parity rule, 2026-09-14).
-  const preloadPostsActivity = useCallback(async (gameList: GameItem[]) => {
-    const now = Date.now();
-    const ids = gameList
-      .filter(game => isGameLive(game, now) || isGameOver(game, now))
-      .map(game => String(game.id))
-      .filter(id => id)
-      .slice(0, 50);
-    if (!ids.length) return;
-    try {
-      const batch = await Game.postsSummaryBatch(ids);
-      const next = { ...postsActivityRef.current };
-      let changed = false;
-      ids.forEach(id => {
-        const value = Number((batch as Record<string, number>)?.[id] ?? 0);
-        if (next[id] !== value) {
-          next[id] = value;
-          changed = true;
+  const preloadPostsActivity = useCallback(
+    async (gameList: GameItem[], isCurrent = pollingScopeRef.current): Promise<void> => {
+      if (!isCurrent() || postsPollInFlightRef.current) return;
+      const now = Date.now();
+      const ids = gameList
+        .filter(game => isGameLive(game, now) || isGameOver(game, now))
+        .map(game => String(game.id))
+        .filter(id => id)
+        .slice(0, 50);
+      if (!ids.length) return;
+      postsPollInFlightRef.current = true;
+      try {
+        const batch = await Game.postsSummaryBatch(ids);
+        if (!isCurrent()) return;
+        const next = { ...postsActivityRef.current };
+        let changed = false;
+        ids.forEach(id => {
+          const value = Number((batch as Record<string, number>)?.[id] ?? 0);
+          if (next[id] !== value) {
+            next[id] = value;
+            changed = true;
+          }
+        });
+        if (changed) {
+          setPostsActivity(next);
+          postsActivityRef.current = next;
         }
-      });
-      if (changed) {
-        setPostsActivity(next);
-        postsActivityRef.current = next;
+      } catch (err) {
+        if (__DEV__) console.warn('Posts activity batch failed', err);
+      } finally {
+        postsPollInFlightRef.current = false;
+        if (!isCurrent() && pollingScopeRef.current()) {
+          void preloadPostsActivity(gamesForPollingRef.current, pollingScopeRef.current);
+        }
       }
-    } catch (err) {
-      if (__DEV__) console.warn('Posts activity batch failed', err);
-    }
-  }, []);
+    },
+    []
+  );
 
   const preloadRsvpSummaries = useCallback(async (gameList: GameItem[]) => {
     const now = Date.now();
@@ -581,7 +599,17 @@ export default function FeedScreen() {
       // Performance: skip silent reloads if data is fresh (< 30s old).
       // force=true (explicit pull-to-refresh) always refetches — a user pull
       // must never be a no-op.
-      if (silent && !force && Date.now() - lastLoadTimestampRef.current < LOAD_COOLDOWN_MS) return;
+      const invalidated = queryClient.getQueryState([
+        'feed-game-window',
+        user?.id ?? 'guest',
+      ])?.isInvalidated;
+      if (
+        silent &&
+        !force &&
+        !invalidated &&
+        Date.now() - lastLoadTimestampRef.current < LOAD_COOLDOWN_MS
+      )
+        return;
       // Deduplicate concurrent load calls
       if (loadInFlightRef.current && silent) return;
       loadInFlightRef.current = true;
@@ -600,24 +628,13 @@ export default function FeedScreen() {
             return null;
           });
 
-        // Resolve viewer coords BEFORE the games queries so the server can
-        // select nearest-first games ("always show games closest to them").
-        // Last-known position only — never getCurrentPositionAsync here, it
-        // can block the feed for seconds. No coords is fine: the server falls
-        // back to the signed-in viewer's zip preference. Coords are rounded
-        // to 2 decimals (~1km) so cache keys stay stable across small moves.
-        let viewerCoords: { lat: number; lng: number } | null = null;
+        // Last-known position supports at-venue pinning only. Feed's game
+        // requests are global; device coordinates must not change cache identity.
         try {
           const { status } = await Location.getForegroundPermissionsAsync();
           if (status === 'granted') {
             const loc = await Location.getLastKnownPositionAsync().catch(() => null);
             if (loc) {
-              viewerCoords = {
-                lat: Math.round(loc.coords.latitude * 100) / 100,
-                lng: Math.round(loc.coords.longitude * 100) / 100,
-              };
-              // Unrounded — the at-venue check runs against a 3km radius, which
-              // the ~1km rounding above would blur.
               setViewerPosition({
                 latitude: loc.coords.latitude,
                 longitude: loc.coords.longitude,
@@ -635,21 +652,27 @@ export default function FeedScreen() {
         // Upcoming and the past recap are separate queries with separate page
         // budgets (see utils/feedGameQueries.ts); the upcoming query is the
         // primary one — it owns the pagination cursor and the error state.
-        const queryPlan = buildFeedGameQueries(Date.now());
-        const proLookaheadTo = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString();
+        // Cache the window itself with the pages so remounts reuse their exact
+        // bounds. A refresh or stale window gets a new snapshot; cursors retain
+        // the originating plan via feedQueryPlanRef.
+        const viewerKey = user?.id ?? 'guest';
+        const queryPlan = await queryClient.fetchQuery({
+          queryKey: ['feed-game-window', viewerKey],
+          queryFn: () => buildFeedGameQueries(Date.now()),
+          staleTime: force ? 0 : LOAD_COOLDOWN_MS,
+        });
+        const proLookaheadTo = new Date(
+          Date.parse(queryPlan.past.options.dateTo!) + 45 * 24 * 60 * 60 * 1000
+        ).toISOString();
         feedQueryPlanRef.current = queryPlan;
         // First paint waits only for the core game pages. Pro/NCAA/event-only
         // rows are useful enrichment, but they should not hold the feed spinner.
         const [upcomingData, pastGamesData, marqueeGamesData] = await Promise.all([
           queryClient
             .fetchQuery({
-              queryKey: [
-                'feed-games-upcoming',
-                queryPlan.upcoming.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
+              queryKey: ['feed-games-upcoming', viewerKey, queryPlan.upcoming.options.dateFrom],
               queryFn: () => Game.list(queryPlan.upcoming.sort, queryPlan.upcoming.options),
+              staleTime: force ? 0 : LOAD_COOLDOWN_MS,
             })
             .catch((err: any) => {
               if (__DEV__) console.error('[Feed] Failed to load games:', err);
@@ -665,13 +688,9 @@ export default function FeedScreen() {
             }),
           queryClient
             .fetchQuery({
-              queryKey: [
-                'feed-games-past',
-                queryPlan.past.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
+              queryKey: ['feed-games-past', viewerKey, queryPlan.past.options.dateFrom],
               queryFn: () => Game.list(queryPlan.past.sort, queryPlan.past.options),
+              staleTime: force ? 0 : LOAD_COOLDOWN_MS,
             })
             .catch((err: any) => {
               if (__DEV__) console.warn('[Feed] Failed to load past games:', err);
@@ -679,13 +698,9 @@ export default function FeedScreen() {
             }),
           queryClient
             .fetchQuery({
-              queryKey: [
-                'feed-games-marquee',
-                queryPlan.marquee.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
+              queryKey: ['feed-games-marquee', viewerKey, queryPlan.marquee.options.dateFrom],
               queryFn: () => Game.list(queryPlan.marquee.sort, queryPlan.marquee.options),
+              staleTime: force ? 0 : LOAD_COOLDOWN_MS,
             })
             .catch((err: any) => {
               if (__DEV__) console.warn('[Feed] Failed to load marquee games:', err);
@@ -740,7 +755,12 @@ export default function FeedScreen() {
             ] = await Promise.all([
               queryClient
                 .fetchQuery({
-                  queryKey: ['feed-pro-events-upcoming', queryPlan.upcoming.options.dateFrom],
+                  queryKey: [
+                    'feed-pro-events-upcoming',
+                    viewerKey,
+                    queryPlan.upcoming.options.dateFrom,
+                  ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -762,9 +782,11 @@ export default function FeedScreen() {
                 .fetchQuery({
                   queryKey: [
                     'feed-pro-events-past',
+                    viewerKey,
                     queryPlan.past.options.dateFrom,
                     queryPlan.past.options.dateTo ?? null,
                   ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -786,9 +808,11 @@ export default function FeedScreen() {
                 .fetchQuery({
                   queryKey: [
                     'feed-varsityhub-events-upcoming',
+                    viewerKey,
                     queryPlan.upcoming.options.dateFrom,
                     queryPlan.upcoming.options.dateTo ?? null,
                   ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -809,9 +833,11 @@ export default function FeedScreen() {
                 .fetchQuery({
                   queryKey: [
                     'feed-varsityhub-events-past',
+                    viewerKey,
                     queryPlan.past.options.dateFrom,
                     queryPlan.past.options.dateTo ?? null,
                   ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -1153,24 +1179,19 @@ export default function FeedScreen() {
     return () => handle.cancel();
   }, [games, preloadVoteSummaries, preloadRsvpSummaries, preloadPostsActivity]);
 
-  // A live game can get its first post at any moment, and that's exactly what
-  // should promote it — polling only on full feed reloads would miss it for
-  // however long the fan stays on the screen. Re-check just the live games
-  // periodically while the feed is focused; cheap since preloadPostsActivity
-  // already scopes to isGameLive and caps at 50 ids.
-  useEffect(() => {
-    if (!games.length) return;
-    const interval = setInterval(() => {
-      void preloadPostsActivity(games);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [games, preloadPostsActivity]);
-
-  // Refresh feed data + unread counts on focus, then poll every 60s while visible.
-  // Single hook replaces two separate useFocusEffects that both fetched unread counts.
+  // Poll only while this screen is focused AND the app is active. Scope tokens
+  // discard results from before blur/background/account change; refs prevent
+  // slow requests overlapping even when a new focus lifecycle starts.
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
+      let active = AppState.currentState !== 'background' && AppState.currentState !== 'inactive';
+      let generation = 0;
+      const scope = () => {
+        const started = generation;
+        return () => mounted && active && started === generation;
+      };
+      pollingScopeRef.current = scope();
       if (hasFocusedOnceRef.current) {
         void load({ silent: true });
       } else {
@@ -1178,10 +1199,14 @@ export default function FeedScreen() {
       }
 
       const tick = async () => {
+        if (!mounted || !active || unreadPollInFlightRef.current) return;
+        unreadPollInFlightRef.current = true;
+        const isCurrent = scope();
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Notification poll timeout')), 10000)
-          );
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Notification poll timeout')), 10000);
+          });
           const [notifCountRes, unreadRes] = await Promise.all([
             Promise.race([
               NotificationApi.unreadCount().catch(() => 0),
@@ -1189,7 +1214,7 @@ export default function FeedScreen() {
             ]) as Promise<any>,
             Message.unreadCount().catch(() => ({ count: 0 })),
           ]);
-          if (!mounted) return;
+          if (!isCurrent()) return;
           const nc =
             typeof notifCountRes === 'number' ? notifCountRes : (notifCountRes?.count ?? 0);
           setUnreadNotifCount(nc);
@@ -1198,17 +1223,39 @@ export default function FeedScreen() {
           if (__DEV__ && err?.message !== 'Notification poll timeout') {
             if (__DEV__) console.warn('[Feed] Notification poll error:', err?.message);
           }
+        } finally {
+          clearTimeout(timeoutId);
+          unreadPollInFlightRef.current = false;
+          if (!isCurrent() && pollingScopeRef.current()) void refreshUnreadRef.current();
         }
       };
+      refreshUnreadRef.current = tick;
 
       // `load()` above now refreshes unread counts via /feed/bundle on focus.
       // Keep the interval as a lightweight fallback while the screen stays visible.
       const id = setInterval(tick, 120000);
+      const pollPosts = () => {
+        if (mounted && active) void preloadPostsActivity(gamesForPollingRef.current, scope());
+      };
+      const postsId = setInterval(pollPosts, 30000);
+      pollPosts();
+      const subscription = AppState.addEventListener('change', state => {
+        const wasActive = active;
+        active = state === 'active';
+        generation += 1;
+        pollingScopeRef.current = scope();
+        if (active && !wasActive) {
+          pollPosts();
+          void tick();
+        }
+      });
       return () => {
         mounted = false;
         clearInterval(id);
+        clearInterval(postsId);
+        subscription.remove();
       };
-    }, [load])
+    }, [load, preloadPostsActivity])
   );
 
   // Load notifications when modal opens

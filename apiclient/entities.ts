@@ -1,5 +1,6 @@
 // Local REST client wrappers. Swaps out Base44 for a self-hosted API.
 import auth, { invalidateMeCache } from './auth';
+import { queryClient } from '@/lib/queryClient';
 import {
   httpDelete,
   httpGet,
@@ -45,6 +46,16 @@ import type {
 } from './types';
 
 export type SportsLeagueScheduleStatus = 'provider_backed' | 'event_seeded' | 'catalog_only';
+
+/** Successful event writes expire all Feed slices and their shared time window. */
+function invalidateFeedGames<T>(result: T): T {
+  void queryClient.invalidateQueries({
+    predicate: query =>
+      /^(feed-game|feed-pro-events|feed-varsityhub-events)/.test(String(query.queryKey[0])),
+    refetchType: 'none',
+  });
+  return result;
+}
 
 export type SportsLeagueSummary = {
   id: string;
@@ -297,10 +308,12 @@ export const Game = {
   // Summary drives the game-details screen critical path.
   // Keep it bounded; caller can fall back to Game.get when unavailable.
   summary: (id: string) => httpGet('/games/' + encodeURIComponent(id) + '/summary', {}, 15000, 1),
-  create: (data: CreateGamePayload | Record<string, unknown>) => httpPost('/games', data),
+  create: (data: CreateGamePayload | Record<string, unknown>) =>
+    httpPost('/games', data).then(invalidateFeedGames),
   // v1.0.2: atomic bulk create for season scheduling (all-or-nothing tx on server)
-  bulkCreate: (games: Array<Record<string, unknown>>) => httpPost('/games/bulk', { games }),
-  delete: (id: string) => httpDelete('/games/' + encodeURIComponent(id)),
+  bulkCreate: (games: Array<Record<string, unknown>>) =>
+    httpPost('/games/bulk', { games }).then(invalidateFeedGames),
+  delete: (id: string) => httpDelete('/games/' + encodeURIComponent(id)).then(invalidateFeedGames),
   posts: (id: string, options: { limit?: number; cursor?: string } = {}) => {
     const q: string[] = [];
     if (typeof options.limit === 'number')
@@ -335,16 +348,16 @@ export const Game = {
     httpPost(`/games/${encodeURIComponent(id)}/votes`, { team }),
   clearVote: (id: string) => httpDelete(`/games/${encodeURIComponent(id)}/votes`),
   update: (id: string, data: UpdateGamePayload) =>
-    httpPut('/games/' + encodeURIComponent(id), data),
+    httpPut('/games/' + encodeURIComponent(id), data).then(invalidateFeedGames),
   setResult: (
     id: string,
     data: { home_score?: number; away_score?: number; winner?: 'home' | 'away' | 'tie' | null }
-  ) => httpPatch(`/games/${encodeURIComponent(id)}/result`, data),
+  ) => httpPatch(`/games/${encodeURIComponent(id)}/result`, data).then(invalidateFeedGames),
   setApprovalStatus: (id: string, approval: 'approved' | 'rejected', reason?: string) =>
     httpPut(
       `/games/${encodeURIComponent(id)}/approve`,
       reason ? { approval_status: approval, reason } : { approval_status: approval }
-    ),
+    ).then(invalidateFeedGames),
   // Opponent-approval workflow: games awaiting a decision from a team the
   // caller manages, and the accept/decline action itself.
   opponentPending: () => httpGet('/games/opponent-pending', {}, 15000, 1),
@@ -352,7 +365,7 @@ export const Game = {
     httpPost(
       `/games/${encodeURIComponent(id)}/opponent-approval`,
       reason ? { decision, reason } : { decision }
-    ),
+    ).then(invalidateFeedGames),
   stories: (id: string) => httpGet(`/games/${encodeURIComponent(id)}/stories`, {}, 15000, 1),
   // Story creation can be slower under server load; allow a longer timeout but avoid retries to prevent duplicates.
   addStory: (
@@ -543,7 +556,7 @@ export const Post = {
 };
 
 export const Event = {
-  create: (data: CreateEventPayload) => httpPost('/events', data),
+  create: (data: CreateEventPayload) => httpPost('/events', data).then(invalidateFeedGames),
   sportsLeagues: (
     where: { sport?: string; level?: string; gender?: string; q?: string; limit?: number } = {}
   ): Promise<{ items: SportsLeagueSummary[] }> => {
@@ -619,12 +632,17 @@ export const Event = {
     httpPost(`/events/${encodeURIComponent(id)}/votes`, { team }),
   clearVote: (id: string) => httpDelete(`/events/${encodeURIComponent(id)}/votes`),
   update: (id: string, data: UpdateEventPayload) =>
-    httpPatch('/events/' + encodeURIComponent(id), data),
-  approve: (id: string) => httpPut(`/events/${encodeURIComponent(id)}/approve`, {}),
+    httpPatch('/events/' + encodeURIComponent(id), data).then(invalidateFeedGames),
+  approve: (id: string) =>
+    httpPut(`/events/${encodeURIComponent(id)}/approve`, {}).then(invalidateFeedGames),
   reject: (id: string, reason?: string) =>
-    httpPut(`/events/${encodeURIComponent(id)}/reject`, reason ? { reason } : {}),
-  cancel: (id: string) => httpPatch('/events/' + encodeURIComponent(id) + '/cancel'),
-  extendWindow: (id: string) => httpPost(`/events/${encodeURIComponent(id)}/extend-window`, {}),
+    httpPut(`/events/${encodeURIComponent(id)}/reject`, reason ? { reason } : {}).then(
+      invalidateFeedGames
+    ),
+  cancel: (id: string) =>
+    httpPatch('/events/' + encodeURIComponent(id) + '/cancel').then(invalidateFeedGames),
+  extendWindow: (id: string) =>
+    httpPost(`/events/${encodeURIComponent(id)}/extend-window`, {}).then(invalidateFeedGames),
   rsvpStatus: (id: string) => httpGet(`/events/${encodeURIComponent(id)}/rsvp`),
   rsvpSummaryBatch: (ids: string[]): Promise<Record<string, { going: boolean; count: number }>> => {
     if (ids.length === 0) return Promise.resolve({});
