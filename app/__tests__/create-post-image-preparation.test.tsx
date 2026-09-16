@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Image, Platform } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { prepareVideoForUpload } from '@/utils/compressVideo';
+import { uploadVideo } from '@/api/videoUpload';
 
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
@@ -51,6 +53,7 @@ jest.mock('@/utils/mediaDraftFiles', () => ({ persistPreparedMedia: async (uri: 
 jest.mock('@/utils/compressVideo', () => ({
   cleanupConfirmedVideoDraft: jest.fn(),
   prepareVideoForUpload: jest.fn(),
+  uploadTimeoutMsForSize: () => 300000,
 }));
 jest.mock('@/api/videoUpload', () => ({ uploadVideo: jest.fn() }));
 jest.mock('@/api/auth', () => ({ __esModule: true, default: { getToken: async () => 'token' } }));
@@ -209,4 +212,39 @@ it('does not upload or create a post when image preparation fails', async () => 
   expect(mockPut).not.toHaveBeenCalled();
   expect(mockCreate).not.toHaveBeenCalled();
   expect(mockDraft.picked.uri).toBe('file:///photo.jpg');
+});
+
+it('Cancel upload reaches video preparation and preserves the draft without publishing', async () => {
+  let preparationSignal: AbortSignal | undefined;
+  let finishPreparation!: (value: any) => void;
+  (prepareVideoForUpload as jest.Mock).mockImplementation((_uri, options) => {
+    preparationSignal = options?.signal;
+    return new Promise(resolve => {
+      finishPreparation = resolve;
+    });
+  });
+  mockPick.mockResolvedValue({
+    canceled: false,
+    assets: [{ uri: 'file:///video.mp4', mimeType: 'video/mp4', type: 'video', duration: 10000 }],
+  });
+  render(<CreatePostScreen />);
+  await act(async () => {});
+  fireEvent.press(screen.getByTestId('create-post-video-picker'));
+  await waitFor(() => expect(screen.getByTestId('create-post-remove-media-button')).toBeTruthy());
+  fireEvent.press(screen.getByTestId('create-post-submit-button'));
+  fireEvent.press(screen.getByLabelText('I confirm I personally filmed or own this content'));
+  fireEvent.press(screen.getByLabelText('Confirm and upload'));
+  await waitFor(() => expect(prepareVideoForUpload).toHaveBeenCalled());
+  fireEvent.press(screen.getByLabelText('Cancel upload'));
+  expect(screen.getByLabelText('Cancelling upload')).toBeDisabled();
+  await act(async () => {
+    finishPreparation({ uri: 'file:///video.mp4', finalSizeBytes: 3000000 });
+  });
+  await waitFor(() =>
+    expect(screen.getByText('Upload paused. Your draft is saved; retry when ready.')).toBeTruthy()
+  );
+  expect(preparationSignal?.aborted).toBe(true);
+  expect(uploadVideo).not.toHaveBeenCalled();
+  expect(mockCreate).not.toHaveBeenCalled();
+  expect(mockDraft.picked.uri).toBe('file:///video.mp4');
 });

@@ -115,6 +115,21 @@ it('enforces preparation before sending any native video bytes', async () => {
   expect(mockRequest).not.toHaveBeenCalled();
   expect(ranges).toHaveLength(0);
 });
+it('passes cancellation into preparation and never starts a cancelled transfer', async () => {
+  const controller = new AbortController();
+  let preparationSignal: AbortSignal | undefined;
+  mockPrepare.mockImplementation(async (_uri, options) => {
+    preparationSignal = options?.signal;
+    controller.abort();
+    return { uri, wasCompressed: false };
+  });
+  await expect(
+    uploadVideo(uri, 'video.mov', 'video/quicktime', { signal: controller.signal })
+  ).rejects.toMatchObject({ name: 'AbortError' });
+  expect(preparationSignal).toBe(controller.signal);
+  expect(mockRequest).not.toHaveBeenCalled();
+  expect(ranges).toHaveLength(0);
+});
 it.each([0, NaN, 150 * 1024 * 1024 + 1])(
   'rejects invalid or oversized video bytes (%s) before requesting an upload session',
   async size => {

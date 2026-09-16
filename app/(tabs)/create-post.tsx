@@ -165,6 +165,7 @@ function CreatePostScreen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [precisionBannerDismissed, setPrecisionBannerDismissed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cancellingUpload, setCancellingUpload] = useState(false);
   // Phase + the progress of THAT phase. `mediaUploadPercent` folds the two into
   // the single forward-only bar the user sees (utils/uploadProgress.ts).
   const [mediaPhase, setMediaPhase] = useState<MediaUploadPhase>('uploading');
@@ -944,6 +945,7 @@ function CreatePostScreen() {
     submittingRef.current = true;
     const uploadController = new AbortController();
     uploadAbortRef.current = uploadController;
+    setCancellingUpload(false);
     setSavingPost(false);
     setSubmitting(true);
     setMediaPhase(picked?.type === 'video' ? 'compressing' : 'uploading');
@@ -1011,6 +1013,7 @@ function CreatePostScreen() {
         const prepared =
           picked.type === 'video'
             ? await prepareVideoForUpload(sourceUri, {
+                signal: uploadController.signal,
                 onCompressProgress: fraction => setPhaseProgress(fraction * 100),
               })
             : null;
@@ -1344,6 +1347,7 @@ function CreatePostScreen() {
     } finally {
       submittingRef.current = false;
       uploadAbortRef.current = null;
+      setCancellingUpload(false);
       setSavingPost(false);
       setSubmitting(false);
       setPhaseProgress(0);
@@ -2311,19 +2315,27 @@ function CreatePostScreen() {
                       marginTop: 4,
                     }}
                   >
-                    {mediaUploadLabel(mediaPhase, phaseProgress, mediaCompressShare)}
+                    {cancellingUpload
+                      ? 'Cancelling upload… waiting for media preparation to finish safely.'
+                      : mediaUploadLabel(mediaPhase, phaseProgress, mediaCompressShare)}
                   </Text>
                 </View>
               )}
 
               {submitting && !savingPost && (
                 <Pressable
-                  onPress={() => uploadAbortRef.current?.abort()}
+                  onPress={() => {
+                    setCancellingUpload(true);
+                    uploadAbortRef.current?.abort();
+                  }}
+                  disabled={cancellingUpload}
                   accessibilityRole="button"
-                  accessibilityLabel="Cancel upload"
+                  accessibilityLabel={cancellingUpload ? 'Cancelling upload' : 'Cancel upload'}
                   style={{ padding: 12, alignItems: 'center' }}
                 >
-                  <Text style={{ color: Colors[colorScheme].text }}>Cancel upload</Text>
+                  <Text style={{ color: Colors[colorScheme].text }}>
+                    {cancellingUpload ? 'Cancelling upload…' : 'Cancel upload'}
+                  </Text>
                 </Pressable>
               )}
               {submitting && savingPost && (
