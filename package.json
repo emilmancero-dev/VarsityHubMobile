@@ -240,6 +240,7 @@
     "node-forge": "^1.4.0",
     "brace-expansion": "5.0.9",
     "picomatch": "^4.0.4",
+    "joi": "^17.13.8",
     "@humanwhocodes/config-array": {
       "minimatch": "10.2.6"
     },
