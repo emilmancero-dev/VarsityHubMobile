@@ -17,6 +17,7 @@ test('commandments release gate includes every required verification family', ()
     'secrets',
     'client-types',
     'server-types',
+    'db-integration',
     'matrix',
   ]) {
     assert.match(source, new RegExp(`name: '${gate}'`));

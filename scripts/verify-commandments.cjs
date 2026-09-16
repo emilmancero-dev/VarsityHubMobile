@@ -30,6 +30,11 @@ const gates = [
     command: 'npx',
     args: ['tsc', '--noEmit', '--project', 'server/tsconfig.json'],
   },
+  {
+    name: 'db-integration',
+    command: 'npm',
+    args: ['run', 'verify:commandments:db'],
+  },
   { name: 'matrix', command: 'node', args: ['scripts/run-matrix-audit.cjs'] },
 ];
 
