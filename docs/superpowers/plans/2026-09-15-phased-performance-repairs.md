@@ -111,25 +111,28 @@ Phase 1 establishes a trustworthy baseline. Phases 2–4 are independently revie
 
 **Files:** `server/src/routes/feed.ts`, `server/src/routes/posts.ts`, `server/src/__tests__/api-feed-bundle.test.ts`; create `server/src/__tests__/post-comment-pagination.test.ts` for uncovered routes.
 
-**Interface:** Preserve `{ items, nextCursor }`. Use a consistent exclusive cursor identifying the last delivered record with `skip: 1`; inspect existing clients and ordering before applying this convention to every affected path.
+**Interface:** Preserve `{ items, nextCursor }`. Use a consistent exclusive cursor identifying the last delivered record. Implementation uses a self-contained timestamp/ID boundary instead of the proposed `skip: 1`, so deleting the anchor does not break continuation. Legacy first-unseen cursors remain inclusive; see the Phase 4 report for compatibility limits.
 
-- [ ] Add real isolated-database traversal tests with seven rows and page size two. Assert collected IDs equal the complete expected list and contain no duplicates. Cover bundle people/team feeds, ordinary posts, and comments.
-- [ ] Correct the lookahead-row/skip mismatch. Test equal timestamps and deterministic ID tie-breaking.
-- [ ] Test location filtering separately: eligible posts beyond an exhausted over-fetch batch must not become unreachable. Preserve a raw scan cursor if needed and bound any scan loop.
-- [ ] Test deletion between requests, an invalid cursor, and a client continuing a cursor issued before deployment. Define safe continuation behavior; do not assume old cursors use the new convention.
-- [ ] Commit the correctness repair before bundle optimizations.
+- [x] Add real isolated-database traversal tests with seven rows and page size two. Assert collected IDs equal the complete expected list and contain no duplicates. Cover bundle people/team feeds, ordinary posts, and comments.
+- [x] Correct the lookahead-row/skip mismatch. Test equal timestamps and deterministic ID tie-breaking.
+- [x] Test location filtering separately: eligible posts beyond an exhausted over-fetch batch must not become unreachable. Preserve a raw scan cursor if needed and bound any scan loop.
+- [x] Test deletion between requests, an invalid cursor, and a client continuing a cursor issued before deployment. Define safe continuation behavior; do not assume old cursors use the new convention.
+- [x] Commit the correctness repair before bundle optimizations.
 
 ### 4B: Compute only the requested slices
 
-**Files:** `server/src/routes/feed.ts`, `server/src/lib/privacyUtils.ts`, `apiclient/entities.ts`, `app/feed.tsx`, `server/src/__tests__/api-feed-bundle.test.ts`; create `server/src/__tests__/feed-request-work.test.ts` for query-count assertions.
+**Files:** `server/src/routes/feed.ts`, `server/src/lib/privacyUtils.ts`, `apiclient/entities.ts`, `app/feed.tsx`, `server/src/__tests__/api-feed-bundle.test.ts`. Query-count assertions live in the existing bundle suite and new `server/src/__tests__/privacy-request-reuse.test.ts` rather than a separate feed-request-work suite.
 
 **Interface:** Add an optional validated `sections` parameter with allowlisted values matching existing bundle keys: `posts`, `posts_followed_teams`, `highlights`, `ads`, `unread_notifications`, `unread_messages`. Omission retains the old full-bundle behavior. Preserve the existing response shape with explicit requested-section handling in the client; do not overwrite unrequested section state with defaults.
 
-- [ ] Add tests proving a people-post continuation performs no highlights/ad/count work and a legacy full-bundle request still returns all sections.
-- [ ] Add request-scoped promise reuse for private-author and private-team decisions. Preserve blocked-user deduplication and all authorization clauses; failed checks must not produce permissive empty exclusions.
-- [ ] In the warm-private-data fixture, verify three consumers share four viewer authorization queries instead of twelve. Test concurrent consumers, rejection, separate requests, separate viewers, and block/privacy changes.
-- [ ] Deploy-compatible order: server supports optional selection first; client starts requesting selective pages only afterward. A mixed-version test must pass before rollout.
-- [ ] Run privacy, minors, authorization, pagination, and feed regressions against the isolated DB, plus both typechecks. Commit backend and client contract changes independently.
+- [x] Add tests proving a people-post continuation performs no highlights/ad/count work and a legacy full-bundle request still returns all sections.
+- [x] Add request-scoped promise reuse for private-author and private-team decisions. Preserve blocked-user deduplication and all authorization clauses; failed checks must not produce permissive empty exclusions.
+- [x] In the warm-private-data fixture, verify three consumers share four viewer authorization queries instead of twelve. Test concurrent consumers, rejection, separate requests, separate viewers, and changed follow permissions; existing block/privacy suites also pass.
+- [x] Verify the selective client accepts legacy full-bundle responses and the new server accepts omitted selection. Backend and client support are separate ordered commits.
+- [ ] Deploy-compatible order: release server support before dependent clients. Avoid routing new `p2`/`t2` cursors to old API replicas; validate rollout and refresh-on-rollback on release infrastructure. No deployment performed.
+- [x] Run privacy, minors, authorization, pagination, and feed regressions against the isolated DB, plus both typechecks. Commit backend and client contract changes independently.
+
+**Local verification:** 177 backend tests across nine suites, 1,665 client tests across 228 suites, and both typechecks passed. Detailed evidence, review findings, commits and remaining rollout limits: `docs/release/2026-09-16-phase4-backend-repairs.md`.
 
 **Exit:** Traversal loses no eligible records; single-section pagination avoids unrelated work; shared privacy checks preserve visibility rules under success and failure.
 

@@ -35,7 +35,7 @@ Installed dependencies are linked read-only in use from the original checkout; n
 
 ## Remaining execution / release gates
 
-- Phase 4: pagination traversal, selective server bundles and per-request privacy-query reuse are not implemented. The first-page cursor issues remain open.
+- Phase 4: implemented locally; see [pagination/backend change summary](2026-09-16-phase4-backend-repairs.md) for regressions, measured query counts, compatibility limits and release cautions. Deployment is still pending.
 - Phase 5: device profiling and video cancellation work pending.
 - Phase 6: full candidate matrix/device/payment/release verification pending. No deployment or launch approval.
 - Phase 1's visual LIVE-label decision is still OPEN. No permission or visual rule was guessed.
@@ -59,6 +59,8 @@ Installed dependencies are linked read-only in use from the original checkout; n
 - `1e7cb2b7`: viewer-scoped Feed cache, mutation invalidation and active-only polling.
 
 ## Verification scope
+
+The following results describe the first repair batch. Latest Phase 4 verification on `41970a96`: **228 client suites / 1,665 tests**, **nine targeted backend suites / 177 tests**, and both full typechecks passed. See the [Phase 4 summary](2026-09-16-phase4-backend-repairs.md) for scope and rollout limits.
 
 - Both client and server full TypeScript checks passed on repair commit `1e7cb2b7`.
 - Targeted backend run: 71/71 assertions, three suites, on the disposable local PostgreSQL database with production environment loading disabled. Database server stopped after verification; data files retained.
