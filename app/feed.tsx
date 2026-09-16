@@ -1106,14 +1106,20 @@ export default function FeedScreen() {
         const params: FeedBundleParams = {
           ...(feedBundleParamsRef.current ?? {}),
           posts_limit: SOCIAL_POSTS_PAGE_SIZE,
-          highlights_limit: 1,
-          ads_limit: 1,
+          sections: [isPeople ? 'posts' : 'posts_followed_teams'],
           ...(isPeople ? { posts_cursor: cursor } : { posts_followed_teams_cursor: cursor }),
         };
         const bundle = await Feed.bundle(params);
         const bundleErrors = Array.isArray((bundle as any)?.errors)
           ? ((bundle as any).errors as any[])
           : [];
+        const requestedSlice = isPeople ? 'posts' : 'posts_followed_teams';
+        if (
+          bundleErrors.some(error => error.slice === requestedSlice) ||
+          !Array.isArray(bundle?.[requestedSlice]?.items)
+        ) {
+          throw new Error('Requested feed section did not load');
+        }
         setSocialFeedWarning(
           bundleErrors.length
             ? 'Some feed sections could not load. Pull to refresh or try again.'

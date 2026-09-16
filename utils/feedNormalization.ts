@@ -1,4 +1,5 @@
 import { normalizeSportSlug } from '@/constants/sports';
+import type { FeedBundleSection } from '@/api/types';
 
 export type GameItem = {
   id: string;
@@ -23,6 +24,7 @@ export type GameItem = {
 };
 
 export type FeedBundleParams = {
+  sections?: FeedBundleSection[];
   country?: string;
   date?: string;
   zip?: string;

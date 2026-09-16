@@ -32,6 +32,7 @@ import {
   validateTeamScreenSummary,
 } from './schemas/team';
 import type {
+  FeedBundleSection,
   CompleteOnboardingPayload,
   CreateAdPayload,
   CreateEventPayload,
@@ -1216,6 +1217,7 @@ export const Feed = {
       ads_limit?: number;
       posts_cursor?: string;
       posts_followed_teams_cursor?: string;
+      sections?: FeedBundleSection[];
     } = {}
   ) => {
     const q: string[] = [];
@@ -1233,6 +1235,7 @@ export const Feed = {
       q.push(
         'posts_followed_teams_cursor=' + encodeURIComponent(params.posts_followed_teams_cursor)
       );
+    if (params.sections) q.push('sections=' + encodeURIComponent(params.sections.join(',')));
     return httpGet('/feed/bundle' + (q.length ? '?' + q.join('&') : ''));
   },
 };

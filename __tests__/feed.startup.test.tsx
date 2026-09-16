@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, FlatList, RefreshControl, View } from 'react-native';
 
 type Deferred<T> = {
@@ -21,6 +21,7 @@ const createDeferred = <T,>(): Deferred<T> => {
 const mockRouterPush = jest.fn();
 const mockPostsSummary = jest.fn(async (..._args: any[]) => ({}));
 const mockEventFilter = jest.fn(async (..._args: any[]) => []);
+const mockFeedBundle = jest.fn<Promise<any>, [any]>();
 let capturedFocusEffect: null | (() => void | (() => void)) = null;
 let authDeferred: Deferred<any>;
 let firstGameDeferred: Deferred<any>;
@@ -88,7 +89,7 @@ jest.mock('@/api/entities', () => ({
     postsSummaryBatch: (...args: any[]) => mockPostsSummary(...args),
   },
   Feed: {
-    bundle: jest.fn(async () => null),
+    bundle: (params: any) => mockFeedBundle(params),
   },
   Highlights: {
     fetch: jest.fn(async () => null),
@@ -199,6 +200,7 @@ describe('Feed startup performance', () => {
     queryClient.clear();
     capturedFocusEffect = null;
     mockViewer = null;
+    mockFeedBundle.mockReset().mockResolvedValue(null);
     authDeferred = createDeferred<any>();
     firstGameDeferred = createDeferred<any>();
     gameDeferredQueue = [firstGameDeferred];
@@ -207,6 +209,88 @@ describe('Feed startup performance', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it.each([
+    ['selective', 'people'],
+    ['legacy-full', 'people'],
+    ['selective', 'teams'],
+    ['legacy-full', 'teams'],
+  ])(
+    'paginates only the requested social section with a %s response for %s',
+    async (mode, section) => {
+      const people = section === 'people';
+      mockViewer = { id: 'viewer', email_verified: true, preferences: { country_code: 'US' } };
+      const original = {
+        posts: { items: [{ id: 'p1' }], nextCursor: 'people-next' },
+        posts_followed_teams: { items: [{ id: 't1' }], nextCursor: 'teams-next' },
+        errors: [],
+        unread_notifications: 3,
+        unread_messages: 2,
+      };
+      mockFeedBundle.mockResolvedValueOnce(original).mockResolvedValueOnce({
+        ...(mode === 'legacy-full'
+          ? {
+              posts: { items: [], nextCursor: null },
+              posts_followed_teams: { items: [], nextCursor: null },
+            }
+          : {}),
+        [people ? 'posts' : 'posts_followed_teams']: {
+          items: [{ id: people ? 'p2' : 't2' }],
+          nextCursor: null,
+        },
+        errors: [],
+      });
+      const view = render(<FeedScreen />);
+      await act(async () => {
+        firstGameDeferred.resolve(EMPTY_GAMES_PAGE);
+        authDeferred.resolve(mockViewer);
+      });
+      const button = people ? 'feed-load-more-followed-posts' : 'feed-load-more-team-posts';
+      await waitFor(() => expect(view.getByTestId(button)).toBeTruthy());
+      fireEvent.press(view.getByTestId(button));
+      await waitFor(() =>
+        expect(mockFeedBundle).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            sections: [people ? 'posts' : 'posts_followed_teams'],
+            [people ? 'posts_cursor' : 'posts_followed_teams_cursor']: people
+              ? 'people-next'
+              : 'teams-next',
+          })
+        )
+      );
+      await waitFor(() => {
+        const rows = view.UNSAFE_getByType(FlatList).props.data;
+        expect(
+          rows.filter((r: any) => r._t === 'followed_post').map((r: any) => r.data.id)
+        ).toEqual(people ? ['p1', 'p2'] : ['p1']);
+        expect(
+          rows.filter((r: any) => r._t === 'followed_teams_post').map((r: any) => r.data.id)
+        ).toEqual(people ? ['t1'] : ['t1', 't2']);
+      });
+    }
+  );
+  it('retains the social continuation for retry when the requested slice fails', async () => {
+    mockViewer = { id: 'viewer', preferences: {} };
+    mockFeedBundle
+      .mockResolvedValueOnce({
+        posts: { items: [{ id: 'p1' }], nextCursor: 'people-next' },
+        posts_followed_teams: { items: [], nextCursor: null },
+        errors: [],
+      })
+      .mockResolvedValueOnce({
+        posts: { items: [], nextCursor: null },
+        errors: [{ slice: 'posts', code: 'SLICE_FAILED' }],
+      });
+    const view = render(<FeedScreen />);
+    await act(async () => {
+      firstGameDeferred.resolve(EMPTY_GAMES_PAGE);
+      authDeferred.resolve(mockViewer);
+    });
+    await waitFor(() => expect(view.getByTestId('feed-load-more-followed-posts')).toBeTruthy());
+    fireEvent.press(view.getByTestId('feed-load-more-followed-posts'));
+    expect(await view.findByText('Unable to load more posts right now.')).toBeTruthy();
+    expect(view.getByTestId('feed-load-more-followed-posts')).toBeTruthy();
   });
 
   it('renders game cards before user/background hydration finishes', async () => {

@@ -6,6 +6,14 @@
 
 // ── User ──────────────────────────────────────────────────────────────
 
+export type FeedBundleSection =
+  | 'posts'
+  | 'posts_followed_teams'
+  | 'highlights'
+  | 'ads'
+  | 'unread_notifications'
+  | 'unread_messages';
+
 export interface UpdateMePayload {
   display_name?: string | null;
   username?: string | null;
