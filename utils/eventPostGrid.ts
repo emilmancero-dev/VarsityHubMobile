@@ -197,3 +197,34 @@ export function buildEventScrapbookPlan<T extends ScrapbookInput>(
     hasMore: all.length > ordered.length,
   };
 }
+
+/**
+ * Stale-while-revalidate merge for a game-less event page's view-model on a
+ * SOFT refresh (focus regain, pull-to-refresh, or a realtime socket event).
+ *
+ * The event loader rebuilds a fresh view-model with `posts: []` / `media: []`
+ * every time it runs, because those arrive via deferred fetches that resolve
+ * after the initial render. Applying that fresh payload verbatim on a refresh
+ * blanks the Posts grid back to "Loading…" until the re-fetch lands — the
+ * user-reported flicker (posts "going away then coming back"). When the refresh
+ * is for the SAME event, keep whatever posts/media are already on screen so the
+ * grid never empties; the deferred fetches then update the arrays in place.
+ *
+ * A genuinely new event (prev is null, or a different event/game) starts clean.
+ */
+export function mergeEventVmRefresh<
+  T extends {
+    eventId: string | null;
+    gameId: string | null;
+    posts?: unknown[];
+    media?: unknown[];
+  },
+>(prev: T | null | undefined, next: T): T {
+  const sameEvent = !!prev && !prev.gameId && prev.eventId === next.eventId;
+  if (!sameEvent) return next;
+  return {
+    ...next,
+    posts: Array.isArray(prev.posts) && prev.posts.length ? prev.posts : next.posts,
+    media: Array.isArray(prev.media) && prev.media.length ? prev.media : next.media,
+  };
+}
