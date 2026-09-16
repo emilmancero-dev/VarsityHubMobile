@@ -94,9 +94,9 @@ async function getFollowedPostsPage(
         select: { following_id: true },
         take: 5000,
       }),
-      getExcludedPrivateAuthorIds(currentUserId),
+      getExcludedPrivateAuthorIds(currentUserId, getRequestBlockedCache(req)),
       getBlockedUserIds(currentUserId, getRequestBlockedCache(req)),
-      getExcludedPrivateTeamIds(currentUserId),
+      getExcludedPrivateTeamIds(currentUserId, getRequestBlockedCache(req)),
     ]);
 
     const followedAuthorIds = followRows.map(r => r.following_id);
@@ -119,9 +119,9 @@ async function getFollowedPostsPage(
         select: { team_id: true },
         take: 5000,
       }),
-      getExcludedPrivateAuthorIds(currentUserId),
+      getExcludedPrivateAuthorIds(currentUserId, getRequestBlockedCache(req)),
       getBlockedUserIds(currentUserId, getRequestBlockedCache(req)),
-      getExcludedPrivateTeamIds(currentUserId),
+      getExcludedPrivateTeamIds(currentUserId, getRequestBlockedCache(req)),
     ]);
 
     const followedTeamIds = teamFollowRows.map(r => r.team_id);
@@ -233,9 +233,9 @@ async function getHighlightsBundle(req: AuthedRequest, limit: number) {
   const radiusKm = 100;
 
   const [excludedIds, blockedIds, excludedTeamIds] = await Promise.all([
-    getExcludedPrivateAuthorIds(req.user?.id ?? null),
+    getExcludedPrivateAuthorIds(req.user?.id ?? null, getRequestBlockedCache(req)),
     getBlockedUserIds(req.user?.id ?? null, getRequestBlockedCache(req)),
-    getExcludedPrivateTeamIds(req.user?.id ?? null),
+    getExcludedPrivateTeamIds(req.user?.id ?? null, getRequestBlockedCache(req)),
   ]);
   const allExcluded = [...new Set([...excludedIds, ...blockedIds])];
   const privacyWhere: any = {};
@@ -489,6 +489,27 @@ feedRouter.get(
   requireAuth as any,
   asyncHandler(async (req: AuthedRequest, res) => {
     try {
+      const sliceNames = [
+        'posts',
+        'posts_followed_teams',
+        'highlights',
+        'ads',
+        'unread_notifications',
+        'unread_messages',
+      ] as const;
+      type Slice = (typeof sliceNames)[number];
+      const requested =
+        req.query.sections === undefined
+          ? [...sliceNames]
+          : typeof req.query.sections === 'string'
+            ? req.query.sections.split(',')
+            : [];
+      if (!requested.length || requested.some(name => !sliceNames.includes(name as Slice))) {
+        return sendError(res, 400, 'Invalid feed sections', { code: 'INVALID_SECTIONS' });
+      }
+      const selected = new Set(requested);
+      const run = <T>(name: Slice, load: () => Promise<T>) =>
+        selected.has(name) ? load() : Promise.resolve(undefined);
       const postsLimit = Math.max(1, Math.min(Number(req.query.posts_limit || 20) || 20, 50));
       const highlightsLimit = Math.max(
         1,
@@ -503,59 +524,61 @@ feedRouter.get(
 
       // Fetch viewer profile concurrently with feed slices — it's only needed
       // by getAdsBundle (age gate) and unread counts, not by the post/highlights queries.
-      const viewerPromise = req.user?.id
-        ? prisma.user.findUnique({
-            where: { id: req.user.id },
-            select: {
-              id: true,
-              email_verified: true,
-              google_id: true,
-              apple_id: true,
-              date_of_birth: true,
-              preferences: true,
-            },
-          })
-        : Promise.resolve(null);
+      const viewerPromise =
+        req.user?.id && (selected.has('ads') || selected.has('unread_messages'))
+          ? prisma.user.findUnique({
+              where: { id: req.user.id },
+              select: {
+                id: true,
+                email_verified: true,
+                google_id: true,
+                apple_id: true,
+                date_of_birth: true,
+                preferences: true,
+              },
+            })
+          : Promise.resolve(null);
 
       const settled = await Promise.allSettled([
-        getFollowedPostsPage(
-          req,
-          'followed',
-          postsLimit,
-          typeof req.query.posts_cursor === 'string' ? req.query.posts_cursor : null
+        run('posts', () =>
+          getFollowedPostsPage(
+            req,
+            'followed',
+            postsLimit,
+            typeof req.query.posts_cursor === 'string' ? req.query.posts_cursor : null
+          )
         ),
-        getFollowedPostsPage(
-          req,
-          'followed_teams',
-          postsLimit,
-          typeof req.query.posts_followed_teams_cursor === 'string'
-            ? req.query.posts_followed_teams_cursor
-            : null
+        run('posts_followed_teams', () =>
+          getFollowedPostsPage(
+            req,
+            'followed_teams',
+            postsLimit,
+            typeof req.query.posts_followed_teams_cursor === 'string'
+              ? req.query.posts_followed_teams_cursor
+              : null
+          )
         ),
-        getHighlightsBundle(req, highlightsLimit),
-        viewerPromise.then(async v => {
-          const verifiedV = await ensureOAuthUserVerified(v as any);
-          return getAdsBundle(verifiedV, req, adsLimit);
-        }),
-        prisma.notification.count({
-          where: { user_id: req.user!.id, read_at: null },
-        }),
-        viewerPromise.then(async v => {
-          const verifiedV = await ensureOAuthUserVerified(v as any);
-          return verifiedV?.email_verified
-            ? prisma.message.count({ where: { recipient_id: req.user!.id, read: false } })
-            : 0;
-        }),
+        run('highlights', () => getHighlightsBundle(req, highlightsLimit)),
+        run('ads', () =>
+          viewerPromise.then(async v => {
+            const verifiedV = await ensureOAuthUserVerified(v as any);
+            return getAdsBundle(verifiedV, req, adsLimit);
+          })
+        ),
+        run('unread_notifications', () =>
+          prisma.notification.count({
+            where: { user_id: req.user!.id, read_at: null },
+          })
+        ),
+        run('unread_messages', () =>
+          viewerPromise.then(async v => {
+            const verifiedV = await ensureOAuthUserVerified(v as any);
+            return verifiedV?.email_verified
+              ? prisma.message.count({ where: { recipient_id: req.user!.id, read: false } })
+              : 0;
+          })
+        ),
       ]);
-
-      const sliceNames = [
-        'posts',
-        'posts_followed_teams',
-        'highlights',
-        'ads',
-        'unread_notifications',
-        'unread_messages',
-      ] as const;
       const errors: Array<{ slice: (typeof sliceNames)[number]; code: string }> = [];
       for (let i = 0; i < settled.length; i++) {
         const r = settled[i];
@@ -578,12 +601,14 @@ feedRouter.get(
 
       res.set('Cache-Control', 'no-store, private');
       return res.json({
-        posts: pick(0, POSTS_FALLBACK),
-        posts_followed_teams: pick(1, POSTS_FALLBACK),
-        highlights: pick(2, HIGHLIGHTS_FALLBACK),
-        ads: pick(3, ADS_FALLBACK),
-        unread_notifications: pick(4, 0),
-        unread_messages: pick(5, 0),
+        ...(selected.has('posts') ? { posts: pick(0, POSTS_FALLBACK) } : {}),
+        ...(selected.has('posts_followed_teams')
+          ? { posts_followed_teams: pick(1, POSTS_FALLBACK) }
+          : {}),
+        ...(selected.has('highlights') ? { highlights: pick(2, HIGHLIGHTS_FALLBACK) } : {}),
+        ...(selected.has('ads') ? { ads: pick(3, ADS_FALLBACK) } : {}),
+        ...(selected.has('unread_notifications') ? { unread_notifications: pick(4, 0) } : {}),
+        ...(selected.has('unread_messages') ? { unread_messages: pick(5, 0) } : {}),
         errors,
       });
     } catch (error: any) {
