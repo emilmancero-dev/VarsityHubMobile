@@ -1438,8 +1438,8 @@ gamesRouter.get(
             // the game, so they must be pulled through here — mirrors the
             // /events serializer (routes/events.ts). Null for non-pro events.
             include: {
-              proHomeTeam: { select: { primary_color: true } },
-              proAwayTeam: { select: { primary_color: true } },
+              proHomeTeam: { select: { primary_color: true, league: true } },
+              proAwayTeam: { select: { primary_color: true, league: true } },
             },
           },
           _count: { select: { events: true } },
@@ -1452,8 +1452,8 @@ gamesRouter.get(
           },
           // Sport comes from either side of the matchup (both play the same
           // sport). Powers the map's sport filter; not rendered directly.
-          homeTeam: { select: { sport: true } },
-          awayTeam: { select: { sport: true } },
+          homeTeam: { select: { sport: true, primary_color: true } },
+          awayTeam: { select: { sport: true, primary_color: true } },
         },
       });
 
@@ -1519,10 +1519,10 @@ gamesRouter.get(
           sport,
           appearance: rest.appearance ?? null,
           event_id: event?.id ?? null,
-          // Pro-matchup colors for the feed card gradient. Null for non-pro
-          // games; the client falls back to a deterministic gradient.
-          pro_home_color: event?.proHomeTeam?.primary_color ?? null,
-          pro_away_color: event?.proAwayTeam?.primary_color ?? null,
+          // Team colors for the feed card gradient. Pro colors live on the
+          // linked event; school/team colors live on the Game relations.
+          pro_home_color: event?.proHomeTeam?.primary_color ?? homeTeam?.primary_color ?? null,
+          pro_away_color: event?.proAwayTeam?.primary_color ?? awayTeam?.primary_color ?? null,
           pro_league: event?.proHomeTeam?.league ?? event?.proAwayTeam?.league ?? null,
           venue_photo: venuePhotoFor(event?.location ?? rest.location),
           ...liveWindow,
@@ -2351,30 +2351,34 @@ gamesRouter.get(
         take: ids.length,
       });
 
-      const result: Record<string, boolean> = {};
+      // Returns a post COUNT per id (0 when none). Callers that only need a
+      // boolean ("has any posts") still read a count of 0 as falsy — the feed
+      // gold-border promotion and the post-counter pill both consume this.
+      const result: Record<string, number> = {};
       const foundGameIds = new Set<string>();
       for (const game of games as any[]) {
         foundGameIds.add(game.id);
-        result[game.id] =
-          (game._count?.posts ?? 0) > 0 || (game.events?.[0]?._count?.posts ?? 0) > 0;
+        result[game.id] = (game._count?.posts ?? 0) + (game.events?.[0]?._count?.posts ?? 0);
       }
 
-      // Owner "commandments" parity rule (2026-09-14): a standalone event page
-      // (game_id: null — no linked Game row) must be able to go gold the same
-      // way a game can, so the map pin and the feed border never disagree. Any
-      // id that didn't resolve to a Game is tried as a standalone event id.
+      // Any id that did not resolve to a Game is tried as an Event id. Linked
+      // events are included too because profile cards navigate by event id; the
+      // count represents the whole page (direct event posts + linked game posts).
       const missingIds = ids.filter(id => !foundGameIds.has(id));
       if (missingIds.length > 0) {
         const events = await prisma.event.findMany({
-          where: { id: { in: missingIds }, game_id: null },
+          where: { id: { in: missingIds } },
           select: {
             id: true,
             _count: { select: { posts: { where: visiblePostWhere } } },
+            game: {
+              select: { _count: { select: { posts: { where: visiblePostWhere } } } },
+            },
           },
           take: missingIds.length,
         });
         for (const event of events as any[]) {
-          result[event.id] = (event._count?.posts ?? 0) > 0;
+          result[event.id] = (event._count?.posts ?? 0) + (event.game?._count?.posts ?? 0);
         }
       }
 

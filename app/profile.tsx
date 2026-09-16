@@ -1,6 +1,6 @@
-import { Organization, Team, User } from '@/api/entities';
+import { Game, Organization, Team, User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
-import { GameCard } from '@/components/ui/GameCard';
+import { EventFeedCard, EventPostCountBadge } from '@/components/ui/EventFeedCard';
 import { Colors } from '@/constants/Colors';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { useAuth } from '@/context/AuthProvider';
@@ -12,6 +12,7 @@ import events from '@/utils/events';
 import { resolveMediaType, resolvePostMedia } from '@/utils/media';
 import { optimizeImageUrl } from '@/utils/imageUrl';
 import { safeGoBack } from '@/utils/navigation';
+import { isGameLive, isGameOver } from '@/utils/liveWindow';
 import { buildPostGridViewerState, unwrapPostGridItem } from '@/utils/postGridViewer';
 import { getCoachAccessState } from '@/utils/roleChecks';
 import { getGradientForColor } from '@/utils/theme';
@@ -296,16 +297,26 @@ export default function ProfileScreen() {
       ? String(me.id)
       : null;
 
-  // Distinct event/game pages this user has posted to — a single bounded
-  // fetch (not paginated), used both to render the Events tab and to decide
-  // whether that tab shows at all (PDF: only once the user has posted to an
-  // event page).
+  // Event pages this user was geofence-verified at. The server reads its
+  // durable presence ledger and enforces profile/team privacy before this list
+  // reaches the client.
   const eventPagesQuery = useQuery({
     queryKey: ['profile-event-pages', profileUserId],
     enabled: !!profileUserId,
     queryFn: () => User.eventPagesForProfile(profileUserId as string),
   });
   const eventPages: any[] = eventPagesQuery.data?.items ?? [];
+  const eventPageIds = useMemo(
+    () => eventPages.map(item => String(item.id)).filter(Boolean),
+    [eventPages]
+  );
+  const eventPagePostCountsQuery = useQuery({
+    queryKey: ['profile-event-page-post-counts', eventPageIds],
+    enabled: eventPageIds.length > 0,
+    queryFn: () => Game.postsSummaryBatch(eventPageIds),
+  });
+  const eventPagePostCounts = eventPagePostCountsQuery.data ?? {};
+  const refetchEventPagePostCounts = eventPagePostCountsQuery.refetch;
   const hasEventPages = eventPages.length > 0;
   // A previously-persisted 'events' selection must not strand the user on a
   // hidden tab if this profile turns out to have no event-page posts.
@@ -555,11 +566,21 @@ export default function ProfileScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadProfile({ silent: true }), refetchActiveTab()]);
+      const refreshes: Promise<unknown>[] = [loadProfile({ silent: true }), refetchActiveTab()];
+      if (resolvedActiveTab === 'events' && eventPageIds.length > 0) {
+        refreshes.push(refetchEventPagePostCounts());
+      }
+      await Promise.all(refreshes);
     } finally {
       setRefreshing(false);
     }
-  }, [loadProfile, refetchActiveTab]);
+  }, [
+    eventPageIds.length,
+    loadProfile,
+    refetchActiveTab,
+    refetchEventPagePostCounts,
+    resolvedActiveTab,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -790,31 +811,6 @@ export default function ProfileScreen() {
           start={{ x: 0, y: 0.3 }}
           end={{ x: 0, y: 1 }}
         />
-
-        {/* Back Button - Only when viewing another user's profile */}
-        {viewingUserId && viewingUserId !== currentUserId ? (
-          <Pressable
-            testID="profile-back-button"
-            onPress={() => safeGoBack(router, viewedProfileFallback)}
-            hitSlop={12}
-            style={[
-              styles.controlButton,
-              {
-                position: 'absolute',
-                left: 16,
-                top: 12,
-                zIndex: 200,
-                elevation: 200,
-                backgroundColor:
-                  colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <Ionicons name="chevron-back" size={18} color={theme.text} />
-          </Pressable>
-        ) : null}
 
         {/* Settings Button & Follow Button - Top Right Corner */}
         <View style={[styles.headerControls, { top: 12 }]}>
@@ -1331,9 +1327,8 @@ export default function ProfileScreen() {
     </View>
   );
 
-  // Events tab: the event/game pages this user has posted to, rendered as
-  // the same GameCard used elsewhere in the app rather than the post-grid
-  // viewer (these are event pages, not individual posts).
+  // Events tab: event/game pages this user attended, using the same
+  // feed-style card as the main feed (these are pages, not individual posts).
   const renderEventPagesList = () => (
     <FlatList
       key="events"
@@ -1352,22 +1347,34 @@ export default function ProfileScreen() {
           </View>
         )
       }
-      renderItem={({ item }) => (
-        <GameCard
-          game={{
-            id: item.id,
-            title: item.title,
-            scheduled_date: item.date,
-            banner_url: item.banner_url,
-            cover_image_url: item.cover_image_url,
-            homeTeam: item.home_team,
-            awayTeam: item.away_team,
-            event_type: item.event_type,
-          }}
-          onPress={() => router.push(buildEventDetailRoute(item.event_id || item.id, item.game_id))}
-          style={{ marginBottom: 12 }}
-        />
-      )}
+      renderItem={({ item }) => {
+        const now = Date.now();
+        const isLive = isGameLive(item, now);
+        const showPostCount = isLive || isGameOver(item, now);
+        const postCount = Number(eventPagePostCounts[String(item.id)] ?? 0);
+        return (
+          <View style={{ marginBottom: 12 }}>
+            <EventFeedCard
+              item={item}
+              colorScheme={colorScheme}
+              isLive={isLive}
+              hasPosts={postCount > 0}
+              testID={`profile-event-card-${item.id}`}
+              onPress={() =>
+                router.push(buildEventDetailRoute(item.event_id || item.id, item.game_id))
+              }
+              badge={
+                showPostCount ? (
+                  <EventPostCountBadge
+                    count={postCount}
+                    testID={`profile-event-post-count-${item.id}`}
+                  />
+                ) : undefined
+              }
+            />
+          </View>
+        );
+      }}
     />
   );
 
@@ -1701,6 +1708,25 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <Stack.Screen options={{ title: 'Profile' }} />
+      {viewingUserId ? (
+        <Pressable
+          testID="profile-back-button"
+          onPress={() => safeGoBack(router, viewedProfileFallback)}
+          hitSlop={12}
+          style={[
+            styles.controlButton,
+            styles.persistentBackButton,
+            {
+              backgroundColor:
+                colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.78)' : 'rgba(255, 255, 255, 0.94)',
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={18} color={theme.text} />
+        </Pressable>
+      ) : null}
       {resolvedActiveTab === 'posts'
         ? renderPostGridList({
             data: posts,
@@ -1895,6 +1921,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 2,
+  },
+  persistentBackButton: {
+    position: 'absolute',
+    left: 16,
+    top: 12,
+    zIndex: 1000,
+    elevation: 1000,
   },
   backgroundEditButton: {
     position: 'absolute',

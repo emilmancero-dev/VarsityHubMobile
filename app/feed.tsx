@@ -35,7 +35,6 @@ import { getAuthSnapshot } from '@/utils/authState';
 import { toUserMessage } from '@/utils/toUserMessage';
 import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { format } from 'date-fns';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
@@ -49,7 +48,6 @@ import {
   mergeFeedGames,
   type FeedGameQueryPlan,
 } from '@/utils/feedGameQueries';
-import { getDeterministicGameCardGradient, proGameCardGradient } from '@/utils/feedGameCard';
 import {
   dedupeFeedEntities,
   filterProEventsAlreadyRepresentedByGames,
@@ -61,9 +59,8 @@ import {
 } from '@/utils/feedNormalization';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { getLiveBounds, isGameLive, isGameOver, shouldPinToFeed } from '@/utils/liveWindow';
-import { getVenuePhotoFallback } from '@/utils/venuePhotoFallback';
-import { HAS_POSTS_COLOR } from '@/utils/mapMarkerColor';
 import { optimizeImageUrl } from '@/utils/imageUrl';
+import { EventFeedCard, EventPostCountBadge } from '@/components/ui/EventFeedCard';
 import { prefetchGameSummary } from '@/utils/prefetch';
 import {
   getNotificationHrefForUser,
@@ -112,10 +109,14 @@ const RSVPBadge = ({
   gameItem,
   initialRsvp,
   onRSVPChange,
+  isLive = false,
+  postCount = 0,
 }: {
   gameItem: any;
   initialRsvp?: { going: boolean; count: number };
   onRSVPChange?: () => void;
+  isLive?: boolean;
+  postCount?: number;
 }) => {
   const colorScheme = useColorScheme();
   const router = useRouter();
@@ -185,54 +186,47 @@ const RSVPBadge = ({
     }
   };
 
-  const badgeText = isEventPast
-    ? 'Watching closed'
-    : isRsvped || rsvpCount > 0
-      ? `📺 ${rsvpCount}`
-      : '📺';
-  const badgeA11yLabel = isEventPast
-    ? `Watching closed. ${rsvpCount} watched`
-    : isRsvped
-      ? `${rsvpCount} watching - Tap to undo`
-      : rsvpCount > 0
-        ? `${rsvpCount} watching - Tap to mark as watching`
-        : 'Tap to mark as watching';
+  // Owner ask (Sept 2026): once an event is live — and for every event that has
+  // already happened — "Watching closed" is replaced by a counter of how many
+  // posts the event page has. Watching is only a pre-event action, so the toggle
+  // stays only for future events.
+  const showPostCounter = isLive || isEventPast;
+
+  if (showPostCounter) {
+    return <EventPostCountBadge count={postCount} testID="feed-post-counter" />;
+  }
+
+  const badgeText = isRsvped || rsvpCount > 0 ? `📺 ${rsvpCount}` : '📺';
+  const badgeA11yLabel = isRsvped
+    ? `${rsvpCount} watching - Tap to undo`
+    : rsvpCount > 0
+      ? `${rsvpCount} watching - Tap to mark as watching`
+      : 'Tap to mark as watching';
 
   return (
     <Pressable
       testID="feed-rsvp-button"
       onPress={handleRSVP}
-      disabled={isLoading || isEventPast}
+      disabled={isLoading}
       style={{
         position: 'absolute',
         right: 14,
         bottom: 14,
-        backgroundColor: isEventPast
-          ? 'rgba(127, 29, 29, 0.92)'
-          : isRsvped
-            ? 'rgba(34, 197, 94, 0.9)'
-            : colorScheme === 'dark'
-              ? 'rgba(30,41,59,0.85)'
-              : 'rgba(0,0,0,0.75)',
-        paddingHorizontal: isEventPast ? 10 : 12,
+        backgroundColor: isRsvped
+          ? 'rgba(34, 197, 94, 0.9)'
+          : colorScheme === 'dark'
+            ? 'rgba(30,41,59,0.85)'
+            : 'rgba(0,0,0,0.75)',
+        paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 20,
         zIndex: 1000,
-        opacity: isLoading || isEventPast ? 0.6 : 1,
+        opacity: isLoading ? 0.6 : 1,
       }}
       accessibilityRole={Platform.OS === 'web' ? undefined : 'button'}
       accessibilityLabel={badgeA11yLabel}
     >
-      <Text
-        style={{
-          color: 'white',
-          fontSize: isEventPast ? 11 : 12,
-          fontWeight: isEventPast ? '700' : '600',
-          letterSpacing: isEventPast ? 0.2 : 0,
-        }}
-      >
-        {badgeText}
-      </Text>
+      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{badgeText}</Text>
     </Pressable>
   );
 };
@@ -302,6 +296,9 @@ type FeedGameCardProps = {
   // Owner ask (Sept 2026): a live card's border goes red -> gold once someone
   // has posted about it. Undefined/false renders the original red.
   hasPosts?: boolean;
+  // Total posts on the event page — shown as the counter that replaces the
+  // "Watching closed" pill once the event is live or has occurred.
+  postCount?: number;
   testIDPrefix: string;
   voteSummary: VotePreviewEntry | null;
   rsvp: { going: boolean; count: number } | undefined;
@@ -319,6 +316,7 @@ const FeedGameCard = memo(function FeedGameCard({
   gameItem,
   isLive,
   hasPosts,
+  postCount,
   testIDPrefix,
   voteSummary,
   rsvp,
@@ -326,152 +324,33 @@ const FeedGameCard = memo(function FeedGameCard({
   onPress,
   onRSVPChange,
 }: FeedGameCardProps) {
-  const raw = gameItem as any;
   const isEventOnly = gameItem.source_type === 'event';
-  const firstMediaUrl =
-    Array.isArray(raw?.media) && raw.media.length > 0
-      ? raw.media[0]?.thumbnail_url || raw.media[0]?.url || null
-      : Array.isArray(raw?.posts) && raw.posts.length > 0
-        ? raw.posts[0]?.media_url || raw.posts[0]?.thumbnail_url || null
-        : null;
-  const venuePhoto = raw?.venue_photo ?? getVenuePhotoFallback(gameItem.location);
-  const venuePhotoUrl = venuePhoto?.url || null;
-  const banner =
-    gameItem.cover_image_url || raw?.banner_url || venuePhotoUrl || firstMediaUrl || null;
-  const hasBanner = typeof banner === 'string' && banner.length > 0;
-  // Venue-photo attribution is intentionally NOT shown on the feed card (owner
-  // ask 2026-08-06 — it cluttered the card preview). The CC BY-SA credit is
-  // rendered in the event page footer instead (GameDetailsScreen
-  // `venueCreditFooter`), where the photo is shown full-bleed as the hero.
-  // Pro games have no banner (and no logo, by design) — brand the card with the
-  // two teams' accent colors so it isn't a blank dark box. Non-pro games keep
-  // the deterministic gradient.
-  const gradient =
-    proGameCardGradient(raw?.pro_home_color, raw?.pro_away_color) ??
-    getDeterministicGameCardGradient(gameItem.id, gameItem.title);
-  // Display the SERVER-AUTHORITATIVE start, not the game row's own date. The
-  // server derives starts_at from the linked Event (serializeLiveWindow in
-  // lib/geofencing.ts), and the two genuinely disagree — a game row's date can
-  // be nudged independently of its event, which is what made Fanatics Fest
-  // Day 1 render "Jul 17, 3:05 AM" for a 1:00 PM Jul 16 event. isGameLive()
-  // already reads starts_at, so reading date here made the card's own LIVE
-  // badge and its printed time disagree. Fall back to date for payloads
-  // predating the server-computed bounds.
-  const startsAtMs = getLiveBounds(gameItem)?.startsAt;
-  const displayStart =
-    typeof startsAtMs === 'number' && !Number.isNaN(startsAtMs)
-      ? new Date(startsAtMs)
-      : gameItem.date
-        ? new Date(gameItem.date)
-        : null;
-  const eventDate = displayStart ? format(displayStart, 'MMM d') : 'TBD';
-  const eventTime = displayStart ? format(displayStart, 'h:mm a') : '';
-  const locationText = gameItem.location ? String(gameItem.location).split(',')[0] : 'Location TBD';
-  const reviewsCount =
-    typeof raw?.reviews_count === 'number'
-      ? raw.reviews_count
-      : Array.isArray(raw?.reviews)
-        ? raw.reviews.length
-        : raw?._count && typeof raw._count.reviews === 'number'
-          ? raw._count.reviews
-          : 0;
-  const mediaCount =
-    typeof raw?.media_count === 'number'
-      ? raw.media_count
-      : Array.isArray(raw?.media)
-        ? raw.media.length
-        : 0;
   const voteText = voteSummary
     ? `${voteSummary.teamALabelShort} ${voteSummary.pctA}% | ${voteSummary.teamBLabelShort} ${voteSummary.pctB}%`
     : null;
-  const scoreText =
-    typeof raw?.home_score === 'number' && typeof raw?.away_score === 'number'
-      ? `${raw.home_score} - ${raw.away_score}`
-      : null;
-  const entityLabel = isEventOnly ? 'Event' : 'Game';
 
   return (
-    <Pressable
+    <EventFeedCard
+      item={gameItem as any}
+      colorScheme={colorScheme}
+      isLive={isLive}
+      hasPosts={hasPosts}
+      voteText={voteText}
       testID={`${testIDPrefix}-game-card-${gameItem.id}`}
-      style={[
-        styles.singleEventCard,
-        isLive ? { borderWidth: 2, borderColor: hasPosts ? HAS_POSTS_COLOR : '#EF4444' } : null,
-      ]}
       onPressIn={() => {
         if (!isEventOnly) prefetchGameSummary(String(gameItem.id));
       }}
       onPress={() => onPress(gameItem)}
-      accessibilityRole="button"
-      accessibilityLabel={`${gameItem.title || entityLabel} on ${eventDate}${eventTime ? ` at ${eventTime}` : ''}${isLive ? ' — LIVE NOW' : ''}`}
-    >
-      <LinearGradient
-        colors={gradient}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-      {hasBanner && <FullBleedCardImage uri={optimizeImageUrl(banner!, 400) || banner!} />}
-      <LinearGradient
-        colors={
-          colorScheme === 'dark'
-            ? ['rgba(15,23,42,0.1)', 'rgba(15,23,42,0.9)']
-            : ['rgba(15,23,42,0.05)', 'rgba(15,23,42,0.85)']
-        }
-        style={[styles.gridShade, { pointerEvents: 'none' }]}
-      />
-      <View style={styles.gridContent}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <View style={styles.gridDateChip}>
-            <MaterialIcons name="event" size={12} color="#FFFFFF" />
-            <Text style={styles.gridDateText}>{eventDate}</Text>
-          </View>
-          {isLive ? (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: '#EF4444',
-                borderRadius: 4,
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                gap: 4,
-              }}
-            >
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' }} />
-              <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>
-                LIVE
-              </Text>
-            </View>
-          ) : null}
-        </View>
-        <Text style={styles.gridTitle} numberOfLines={2}>
-          {gameItem.title ? String(gameItem.title) : entityLabel}
-        </Text>
-        <Text style={styles.gridMeta} numberOfLines={1}>
-          {scoreText
-            ? `${scoreText} • ${eventTime ? `${eventTime} • ${locationText}` : locationText}`
-            : eventTime
-              ? `${eventTime} • ${locationText}`
-              : locationText}
-        </Text>
-        <View style={styles.gridStatsRow}>
-          <View style={styles.gridStat}>
-            <MaterialIcons name="chat-bubble-outline" size={12} color="#F9FAFB" />
-            <Text style={styles.gridStatText}>{reviewsCount}</Text>
-          </View>
-          <View style={styles.gridStat}>
-            <MaterialIcons name="image" size={12} color="#F9FAFB" />
-            <Text style={styles.gridStatText}>{mediaCount}</Text>
-          </View>
-        </View>
-        {voteText ? (
-          <Text style={styles.gridVoteText} numberOfLines={1}>
-            {voteText}
-          </Text>
-        ) : null}
-      </View>
-      <RSVPBadge gameItem={gameItem} initialRsvp={rsvp} onRSVPChange={onRSVPChange} />
-    </Pressable>
+      badge={
+        <RSVPBadge
+          gameItem={gameItem}
+          initialRsvp={rsvp}
+          onRSVPChange={onRSVPChange}
+          isLive={isLive}
+          postCount={postCount}
+        />
+      }
+    />
   );
 });
 
@@ -525,8 +404,11 @@ export default function FeedScreen() {
   const [voteSummaries, setVoteSummaries] = useState<Record<string, VotePreviewEntry>>({});
   // Owner ask (Sept 2026): a live game that gets a post should move to the top
   // of its section and its border should go from red to gold. Keyed by game id.
-  const postsActivityRef = useRef<Record<string, boolean>>({});
-  const [postsActivity, setPostsActivity] = useState<Record<string, boolean>>({});
+  // Post counts per live/recent event id, keyed by game/event id. The count
+  // drives both the gold-border promotion (count > 0) and the post-counter pill
+  // that replaces "Watching closed".
+  const postsActivityRef = useRef<Record<string, number>>({});
+  const [postsActivity, setPostsActivity] = useState<Record<string, number>>({});
   const rsvpSummariesRef = useRef<Record<string, { going: boolean; count: number }>>({});
   const [rsvpSummaries, setRsvpSummaries] = useState<
     Record<string, { going: boolean; count: number }>
@@ -601,8 +483,10 @@ export default function FeedScreen() {
     }
   }, []);
 
-  // Only live games/events matter for the gold-border/top-of-feed promotion,
-  // so this stays a small, cheap batch — not every card in the feed. Event-only
+  // Live AND past events need post counts: live cards get the gold-border/
+  // top-of-feed promotion (count > 0), and every live-or-past card shows the
+  // post-counter pill in place of "Watching closed" (owner ask, Sept 2026).
+  // Future cards keep the watch toggle, so they're skipped here. Event-only
   // pages (source_type === 'event') are included too — /games/posts-summary
   // falls back to a standalone-event lookup for any id that isn't a Game, so
   // they can go gold on the feed the same way they already can on the map
@@ -610,7 +494,7 @@ export default function FeedScreen() {
   const preloadPostsActivity = useCallback(async (gameList: GameItem[]) => {
     const now = Date.now();
     const ids = gameList
-      .filter(game => isGameLive(game, now))
+      .filter(game => isGameLive(game, now) || isGameOver(game, now))
       .map(game => String(game.id))
       .filter(id => id)
       .slice(0, 50);
@@ -620,7 +504,7 @@ export default function FeedScreen() {
       const next = { ...postsActivityRef.current };
       let changed = false;
       ids.forEach(id => {
-        const value = Boolean((batch as Record<string, boolean>)?.[id]);
+        const value = Number((batch as Record<string, number>)?.[id] ?? 0);
         if (next[id] !== value) {
           next[id] = value;
           changed = true;
@@ -1868,7 +1752,8 @@ export default function FeedScreen() {
         <FeedGameCard
           gameItem={gameItem}
           isLive={isLive}
-          hasPosts={Boolean(postsActivity[String(gameItem.id)])}
+          hasPosts={(postsActivity[String(gameItem.id)] || 0) > 0}
+          postCount={postsActivity[String(gameItem.id)] || 0}
           testIDPrefix={testIDPrefix}
           voteSummary={voteSummaries[String(gameItem.id)] || null}
           rsvp={rsvpSummaries[String((gameItem as any).event_id || '')]}

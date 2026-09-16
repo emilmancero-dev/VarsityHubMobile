@@ -370,8 +370,8 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
             proAwayTeam: { select: { league: true, primary_color: true } },
           },
         },
-        homeTeam: { select: { sport: true } },
-        awayTeam: { select: { sport: true } },
+        homeTeam: { select: { sport: true, primary_color: true } },
+        awayTeam: { select: { sport: true, primary_color: true } },
       },
     } as any),
     db.event.findMany({
@@ -391,7 +391,7 @@ export async function listEventDiscoveryItems(db: Db, params: EventDiscoveryPara
       take: queryLimit,
       include: {
         _count: postCount,
-        team: { select: { sport: true } },
+        team: { select: { sport: true, primary_color: true } },
         sportsLeague: {
           select: { id: true, slug: true, name: true, sport_slug: true, level: true, gender: true },
         },

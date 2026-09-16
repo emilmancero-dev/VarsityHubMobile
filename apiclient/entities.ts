@@ -323,10 +323,13 @@ export const Game = {
     const qs = '?ids=' + ids.map(id => encodeURIComponent(id)).join(',');
     return httpGet('/games/votes-summary' + qs);
   },
-  postsSummaryBatch: (ids: string[]): Promise<Record<string, boolean>> => {
+  // Post counts per event/game id (0 when a page has no posts). A count of 0 is
+  // falsy, so callers that only need "has any posts" can still read it as a
+  // boolean.
+  postsSummaryBatch: (ids: string[]): Promise<Record<string, number>> => {
     if (ids.length === 0) return Promise.resolve({});
     const qs = '?ids=' + ids.map(id => encodeURIComponent(id)).join(',');
-    return httpGet('/games/posts-summary' + qs) as Promise<Record<string, boolean>>;
+    return httpGet('/games/posts-summary' + qs) as Promise<Record<string, number>>;
   },
   castVote: (id: string, team: 'A' | 'B') =>
     httpPost(`/games/${encodeURIComponent(id)}/votes`, { team }),
