@@ -246,8 +246,16 @@ async function prepareUploadInput(
     const compressed = await compressImageForUpload(finalUri, finalMimeType);
     finalUri = normalizeLocalUploadUri(compressed.uri);
     finalMimeType = compressed.mimeType || finalMimeType;
-    if (finalMimeType === 'image/jpeg')
-      finalFilename = `${finalFilename.replace(/\.[^.]+$/, '')}.jpg`;
+    const imageExtension: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+    };
+    if (imageExtension[finalMimeType])
+      finalFilename = `${finalFilename.replace(/\.[^.]+$/, '')}.${imageExtension[finalMimeType]}`;
     const imageSize =
       Platform.OS === 'web'
         ? (await (await fetch(finalUri)).blob()).size

@@ -56,6 +56,7 @@ function fileToRoute(file: string): DeclaredRoute {
   let rel = path.relative(APP_DIR, file).replace(/\\/g, '/');
   rel = rel.replace(/\.web\.(ts|tsx)$/, '');
   rel = rel.replace(/\.(ts|tsx)$/, '');
+  if (rel === 'index') rel = '';
   if (rel.endsWith('/index')) rel = rel.slice(0, -'/index'.length);
 
   const route = normalizeRouteLike(rel);
@@ -157,6 +158,9 @@ function resolveDeclaredRoute(
 }
 
 describe('route registry', () => {
+  it('maps the root index to / just like nested index routes', () => {
+    expect(fileToRoute(path.join(APP_DIR, 'index.tsx')).route).toBe('/');
+  });
   const declaredRoutes = walk(APP_DIR).filter(isRoutableAppFile).map(fileToRoute);
 
   const navigationCalls = SOURCE_DIRS.flatMap(dir => walk(path.join(ROOT, dir)))

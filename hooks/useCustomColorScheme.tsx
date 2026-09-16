@@ -7,6 +7,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { Platform, useColorScheme as useSystemColorScheme } from 'react-native';
 import { useAuth } from '@/context/AuthProvider';
@@ -23,6 +24,18 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_STORAGE_KEY = 'vh_theme_preference';
+
+const subscribeToHydration = () => () => {};
+const clientIsHydrated = () => true;
+const serverIsHydrated = () => false;
+
+function useHydratedSystemColorScheme() {
+  const systemColorScheme = useSystemColorScheme();
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientIsHydrated, serverIsHydrated);
+  // Static HTML cannot know the browser's media preference. React uses the
+  // server snapshot on hydration, then applies the real preference immediately.
+  return Platform.OS === 'web' && !hydrated ? 'light' : systemColorScheme;
+}
 
 function storageKeyForUser(userId?: string | null) {
   if (!userId) return THEME_STORAGE_KEY + '_global';
@@ -53,7 +66,7 @@ async function setStoredTheme(key: string, theme: ColorScheme): Promise<void> {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemColorScheme = useSystemColorScheme();
+  const systemColorScheme = useHydratedSystemColorScheme();
   const { user } = useAuth();
   const [themePreference, setThemePreferenceState] = useState<ColorScheme>('system');
   const currentStorageKey = useRef<string>(storageKeyForUser(null));
@@ -111,7 +124,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useCustomColorScheme(): ActualColorScheme {
-  const systemColorScheme = useSystemColorScheme();
+  const systemColorScheme = useHydratedSystemColorScheme();
   const context = useContext(ThemeContext);
   if (context === undefined) {
     // Fallback if used outside provider

@@ -518,10 +518,13 @@ const serializeEvent = (
     league_name: event.sportsLeague?.name ?? null,
     league_level: event.sportsLeague?.level ?? null,
     league_gender: event.sportsLeague?.gender ?? null,
-    // Pro teams carry no logo (trademark), only an accent color. The card uses
-    // these two to render a branded gradient when a pro event has no banner.
-    pro_home_color: event.proHomeTeam?.primary_color ?? null,
-    pro_away_color: event.proAwayTeam?.primary_color ?? null,
+    // Team colors power the card gradient when an event has no banner.
+    pro_home_color:
+      event.proHomeTeam?.primary_color ??
+      event.game?.homeTeam?.primary_color ??
+      event.team?.primary_color ??
+      null,
+    pro_away_color: event.proAwayTeam?.primary_color ?? event.game?.awayTeam?.primary_color ?? null,
     pro_league: event.proHomeTeam?.league ?? event.proAwayTeam?.league ?? null,
     venue_photo: venuePhotoFor(event.location),
     ...serializeLiveWindow(event.date, event.live_window_hours_after_start),
@@ -915,7 +918,7 @@ eventsRouter.get(
         // Sport for the map filter: a fan event is tied to a team; a
         // game-linked event borrows its matchup's sport; a pro event derives
         // it from its league.
-        team: { select: { sport: true } },
+        team: { select: { sport: true, primary_color: true } },
         sportsLeague: {
           select: { slug: true, name: true, sport_slug: true, level: true, gender: true },
         },
@@ -932,8 +935,8 @@ eventsRouter.get(
             longitude: true,
             venue_lat: true,
             venue_lng: true,
-            homeTeam: { select: { sport: true } },
-            awayTeam: { select: { sport: true } },
+            homeTeam: { select: { sport: true, primary_color: true } },
+            awayTeam: { select: { sport: true, primary_color: true } },
           },
         },
       },

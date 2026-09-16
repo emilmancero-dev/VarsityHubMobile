@@ -40,6 +40,22 @@ const PLAY_STORE_URL =
   process.env.ANDROID_PLAY_STORE_URL ||
   'https://play.google.com/store/apps/details?id=com.varsityhub.varsityhub';
 
+function publicAppOrigin(): string {
+  try {
+    const configured = new URL(process.env.APP_BASE_URL || 'https://varsityhub.app');
+    if (
+      (configured.protocol === 'https:' || configured.protocol === 'http:') &&
+      !configured.username &&
+      !configured.password
+    ) {
+      return configured.origin;
+    }
+  } catch {
+    // Invalid deployment configuration must not become a clickable unsafe URL.
+  }
+  return 'https://varsityhub.app';
+}
+
 /** Routes the OS may try to deep-link via universal links. Mirrors the
  *  AASA `paths` and Android `intentFilters` pathPrefixes. Anything else
  *  on a shareable host falls through unhandled. */
@@ -203,15 +219,10 @@ function renderLanding(meta: LandingMeta, legalBaseUrl: string): string {
 }
 
 function fullUrl(req: Request): string {
-  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
-  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host;
-  return `${proto}://${host}${req.originalUrl}`;
-}
-
-function requestOrigin(req: Request): string {
-  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
-  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host;
-  return `${proto}://${host}`;
+  // Host/forwarded headers are caller-controlled, even when HTML-escaped.
+  // Concatenate a path, never resolve an absolute request target over our origin.
+  const target = req.originalUrl.startsWith('/') ? req.originalUrl : '/';
+  return `${publicAppOrigin()}${target}`;
 }
 
 function genericLanding(req: Request): LandingMeta {
@@ -262,7 +273,7 @@ async function postLanding(req: Request, res: Response, next: NextFunction) {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  return res.send(renderLanding(meta, requestOrigin(req)));
+  return res.send(renderLanding(meta, publicAppOrigin()));
 }
 
 async function gameLanding(req: Request, res: Response, next: NextFunction) {
@@ -305,7 +316,7 @@ async function gameLanding(req: Request, res: Response, next: NextFunction) {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  return res.send(renderLanding(meta, requestOrigin(req)));
+  return res.send(renderLanding(meta, publicAppOrigin()));
 }
 
 async function teamLanding(req: Request, res: Response, next: NextFunction) {
@@ -336,7 +347,7 @@ async function teamLanding(req: Request, res: Response, next: NextFunction) {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  return res.send(renderLanding(meta, requestOrigin(req)));
+  return res.send(renderLanding(meta, publicAppOrigin()));
 }
 
 // Sport program label — deliberately NOT importing the client sports
@@ -402,7 +413,7 @@ async function programLanding(req: Request, res: Response, next: NextFunction) {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  return res.send(renderLanding(meta, requestOrigin(req)));
+  return res.send(renderLanding(meta, publicAppOrigin()));
 }
 
 async function userLanding(req: Request, res: Response, next: NextFunction) {
@@ -444,7 +455,7 @@ async function userLanding(req: Request, res: Response, next: NextFunction) {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  return res.send(renderLanding(meta, requestOrigin(req)));
+  return res.send(renderLanding(meta, publicAppOrigin()));
 }
 
 async function eventLanding(req: Request, res: Response, next: NextFunction) {
@@ -503,14 +514,14 @@ async function eventLanding(req: Request, res: Response, next: NextFunction) {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  return res.send(renderLanding(meta, requestOrigin(req)));
+  return res.send(renderLanding(meta, publicAppOrigin()));
 }
 
 function genericLandingHandler(req: Request, res: Response, next: NextFunction) {
   if (!wantsHtml(req)) return next();
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  return res.send(renderLanding(genericLanding(req), requestOrigin(req)));
+  return res.send(renderLanding(genericLanding(req), publicAppOrigin()));
 }
 
 // The app's share sheet emits query-style links (/share?type=post&id=…). Route

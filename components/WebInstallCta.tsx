@@ -18,15 +18,18 @@ export function WebInstallCta() {
   const colorScheme = useColorScheme() ?? 'light';
   const { width } = useWindowDimensions();
   const [dismissed, setDismissed] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
+    setMounted(true);
     setDismissed(window.localStorage.getItem(DISMISS_KEY) === 'true');
   }, []);
 
   if (Platform.OS !== 'web') return null;
 
-  if (dismissed) return null;
+  // Server and initial browser markup must agree before reading viewport.
+  if (!mounted || dismissed) return null;
 
   const palette = Colors[colorScheme];
 

@@ -32,7 +32,11 @@ import {
 } from '@/utils/eventPresentation';
 import { recordEventPostingUnlock } from '@/utils/eventPostingUnlock';
 import { stripLinksFromDescription } from '@/utils/publicDescriptions';
-import { buildEventScrapbookPlan, eventScrapbookSeed } from '@/utils/eventPostGrid';
+import {
+  buildEventScrapbookPlan,
+  eventScrapbookSeed,
+  mergeEventVmRefresh,
+} from '@/utils/eventPostGrid';
 import { optimizeImageUrl } from '@/utils/imageUrl';
 import { materializeICloudAssetIfNeeded } from '@/utils/materializeICloudAsset';
 import { replaceAsRedirect, safeGoBack } from '@/utils/navigation';
@@ -1044,8 +1048,16 @@ const GameDetailsScreen = () => {
 
   const loadVirtualFromEvent = useCallback(
     async (eventIdValue: string) => {
-      setPostsHydrated(false);
-      postsHydrationGameIdRef.current = `event-${eventIdValue}`;
+      // Soft refresh (focus regain, pull-to-refresh, or a realtime socket event)
+      // re-runs this for the SAME event. Only reset the hydration flag when we're
+      // actually switching to a different event — otherwise the Posts grid flashes
+      // back to "Loading…" and blanks out on every refresh while the deferred
+      // Post.getByEvent re-fetch is in flight (the reported flicker). The setVm
+      // below preserves the existing posts/media in the same-event case.
+      const eventKey = `event-${eventIdValue}`;
+      const isSameEvent = postsHydrationGameIdRef.current === eventKey;
+      if (!isSameEvent) setPostsHydrated(false);
+      postsHydrationGameIdRef.current = eventKey;
       const event = await Event.get(eventIdValue);
       if (event?.game_id) {
         replaceToCanonicalGame(String(event.game_id));
@@ -1082,7 +1094,11 @@ const GameDetailsScreen = () => {
         // and skips the geofence even on a finished event (server is authoritative).
         canUploadStory: Boolean((event as any)?.can_upload_story),
       };
-      setVm(vmPayload);
+      // Stale-while-revalidate: on a same-event soft refresh keep the posts/media
+      // already on screen so the grid never blanks to [] before the deferred
+      // re-fetch lands. A genuinely new event starts clean at []. The deferred
+      // fetches below then update the arrays in place. See mergeEventVmRefresh.
+      setVm(prev => mergeEventVmRefresh(prev, vmPayload));
 
       // Hydrate RSVP in the background so event details can render immediately.
       void retryWithBackoff(() => Event.rsvpStatus(eventIdValue), {
@@ -1123,7 +1139,10 @@ const GameDetailsScreen = () => {
             : Array.isArray(postsResult?.items)
               ? postsResult.items
               : [];
-          if (!items.length) return;
+          // Apply the fetched set authoritatively (a resolved promise is a real
+          // 200 — retryWithBackoff rejects on transient failure, so an empty
+          // array here means the event genuinely has no posts). This is what lets
+          // a refresh reflect deletions now that posts are preserved across loads.
           setVm(prev => {
             if (!prev || prev.eventId !== eventIdValue || prev.gameId) return prev;
             return { ...prev, posts: items };

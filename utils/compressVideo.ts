@@ -1,4 +1,8 @@
-import { persistPreparedMedia, deleteConfirmedMediaDraft } from './mediaDraftFiles';
+import {
+  persistPreparedMedia,
+  deleteConfirmedMediaDraft,
+  isOwnedMediaDraft,
+} from './mediaDraftFiles';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -14,11 +18,13 @@ import {
   VIDEO_BITRATE_HEADROOM,
 } from '@/constants/video';
 import { captureException } from '@/utils/sentry';
+import { throwIfUploadAborted } from './resumableUpload';
 
 // Module-level dynamic require (OfflineBanner pattern): resolves at bundle
 // time, never crashes binaries that predate the native module.
 let CompressorVideo: {
   compress: (uri: string, opts: object, onProgress?: (fraction: number) => void) => Promise<string>;
+  cancelCompression?: (id: string) => void;
 } | null = null;
 // getVideoMetaData reads width/height/size/duration from the file header
 // natively — no transcode — so we can decide whether a clip needs compressing
@@ -64,8 +70,10 @@ function clampFraction(value: number): number {
  */
 export async function compressVideoSafe(
   uri: string,
-  onProgress?: (fraction: number) => void
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal
 ): Promise<string> {
+  throwIfUploadAborted(signal);
   if (!CompressorVideo) {
     if (!reportedModuleMissing) {
       reportedModuleMissing = true;
@@ -75,7 +83,27 @@ export async function compressVideoSafe(
     }
     return uri;
   }
+  let cancellationId: string | undefined;
+  let reportedCancelFailure = false;
+  const cancel = () => {
+    // Existing Android binaries cancel the coroutine before it can settle the
+    // JS promise. Keep the encoder slot until normal completion, then reject
+    // the cancelled preparation without persisting or uploading its result.
+    // An OTA cannot repair that native implementation.
+    if (Platform.OS === 'android') return;
+    if (!cancellationId) return;
+    try {
+      CompressorVideo?.cancelCompression?.(cancellationId);
+    } catch (error) {
+      if (!reportedCancelFailure) {
+        reportedCancelFailure = true;
+        captureException(error, { tags: { context: 'video_compress', stage: 'cancel_failed' } });
+      }
+    }
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
   try {
+    throwIfUploadAborted(signal);
     // Progress arrives many times per second on both platforms; collapse it to
     // whole-percent transitions so the UI does at most 100 state updates per
     // pass instead of one per encoded frame. Deliberately NOT using the
@@ -83,14 +111,22 @@ export async function compressVideoSafe(
     // `round(pct) % divider === 0`, so any percentage the encoder skips over is
     // silently dropped and the bar can stall for good.
     let lastReportedPct = -1;
-    const forward = onProgress
-      ? (fraction: number) => {
-          const pct = Math.round(clampFraction(fraction) * 100);
-          if (pct === lastReportedPct) return;
-          lastReportedPct = pct;
-          onProgress(pct / 100);
-        }
-      : undefined;
+    const forward =
+      onProgress || signal
+        ? (fraction: number) => {
+            if (signal?.aborted) {
+              // Native registration can lag the JS cancellation-ID callback.
+              // A late progress event proves the job exists: retry its cancel,
+              // but never publish progress from a cancelled preparation.
+              cancel();
+              return;
+            }
+            const pct = Math.round(clampFraction(fraction) * 100);
+            if (pct === lastReportedPct) return;
+            lastReportedPct = pct;
+            onProgress?.(pct / 100);
+          }
+        : undefined;
     const compressed: string = await CompressorVideo.compress(
       uri,
       {
@@ -105,17 +141,32 @@ export async function compressVideoSafe(
         // landscape (1920x1080); the 150MB MAX_VIDEO_SIZE guard + post-compress
         // size check still bound the result.
         maxSize: VIDEO_MAX_LONG_EDGE_PX,
+        ...(signal
+          ? {
+              getCancellationId: (id: string) => {
+                cancellationId = id;
+                // The installed JS wrapper invokes this BEFORE starting native work.
+                throwIfUploadAborted(signal);
+              },
+            }
+          : {}),
       },
       forward
     );
+    throwIfUploadAborted(signal);
     return compressed ?? uri;
   } catch (e) {
+    // User cancellation is not an encoder failure and must never fall back to
+    // the original video. Await native settlement so encoders cannot overlap.
+    throwIfUploadAborted(signal);
     // Compression failed mid-way — fall back to the original, but make the
     // failure visible (an empty catch here hid a 3-month compression outage).
     captureException(e instanceof Error ? e : new Error(String(e)), {
       tags: { context: 'video_compress', stage: 'compress_failed' },
     });
     return uri;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
   }
 }
 
@@ -132,6 +183,7 @@ export async function getVideoFileSize(uri: string): Promise<number> {
 }
 
 type PrepareVideoForUploadOptions = {
+  signal?: AbortSignal;
   compressionThresholdBytes?: number;
   /**
    * 0..1 progress for the compression pass. Not called at all when the clip is
@@ -195,10 +247,12 @@ async function prepareVideoUncached(
 }> {
   const sizeThresholdBytes = options.compressionThresholdBytes ?? MAX_VIDEO_SIZE_BYTES;
   const originalSizeBytes = await getVideoFileSize(uri);
+  throwIfUploadAborted(options.signal);
   if (!Number.isFinite(originalSizeBytes) || originalSizeBytes <= 0) {
     throw new Error('Could not read the selected video file. Please select it again.');
   }
   const metadata = await readVideoMetadata(uri);
+  throwIfUploadAborted(options.signal);
   // Match the composer/trimmer tolerance for frame and AAC/container rounding.
   if (metadata.duration > POST_MAX_DURATION_S + 0.25) {
     throw new Error(
@@ -231,7 +285,7 @@ async function prepareVideoUncached(
     };
   }
 
-  const compressedUri = await compressVideoSafe(uri, options.onCompressProgress);
+  const compressedUri = await compressVideoSafe(uri, options.onCompressProgress, options.signal);
   if (compressedUri === uri && (overBitrate || overResolution)) {
     throw new Error(
       'Could not prepare this video for upload. Please retry or select a shorter clip.'
@@ -240,6 +294,7 @@ async function prepareVideoUncached(
   let finalUri = compressedUri;
   let finalSizeBytes =
     compressedUri !== uri ? await getVideoFileSize(compressedUri) : originalSizeBytes;
+  throwIfUploadAborted(options.signal);
 
   if (!Number.isFinite(finalSizeBytes) || finalSizeBytes <= 0) {
     throw new Error('Could not read the prepared video file. Please select it again.');
@@ -321,13 +376,16 @@ export function prepareVideoForUpload(
   options: PrepareVideoForUploadOptions = {}
 ): Promise<PreparedVideo> {
   const work = preparationQueue.then(async () => {
+    throwIfUploadAborted(options.signal);
     if (Platform.OS === 'web') {
       // Browser Blob sources cannot be inspected by the native FileSystem SDK.
       // Preserve original codec; the verified server pipeline makes playback derivatives.
-      const response = await fetch(uri);
+      const response = await fetch(uri, { signal: options.signal });
+      throwIfUploadAborted(options.signal);
       if (!response.ok)
         throw new Error('Could not read the selected video file. Please select it again.');
       const size = (await response.blob()).size;
+      throwIfUploadAborted(options.signal);
       if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_VIDEO_SIZE_BYTES) {
         throw new Error(
           `Video is unreadable or too large. The upload limit is ${MAX_VIDEO_SIZE_MB} MB.`
@@ -336,6 +394,7 @@ export function prepareVideoForUpload(
       return { uri, originalSizeBytes: size, finalSizeBytes: size, wasCompressed: false };
     }
     const source = await FileSystem.getInfoAsync(uri);
+    throwIfUploadAborted(options.signal);
     if (!source.exists || source.isDirectory || !Number.isFinite(source.size) || source.size <= 0) {
       throw new Error('Could not read the selected video file. Please select it again.');
     }
@@ -354,6 +413,7 @@ export function prepareVideoForUpload(
         ])
       : null;
     const entries = key ? await readPreparedEntries() : [];
+    throwIfUploadAborted(options.signal);
     const cached = entries.find(
       entry =>
         entry.key === key ||
@@ -378,6 +438,7 @@ export function prepareVideoForUpload(
     );
     if (cached) {
       const output = await FileSystem.getInfoAsync(cached.result.uri);
+      throwIfUploadAborted(options.signal);
       const outputSize = output.exists && !output.isDirectory ? output.size : 0;
       if (
         outputSize === cached.result.finalSizeBytes &&
@@ -390,21 +451,47 @@ export function prepareVideoForUpload(
       }
     }
     const prepared = await prepareVideoUncached(uri, options);
+    throwIfUploadAborted(options.signal);
     const result = { ...prepared, uri: await persistPreparedMedia(prepared.uri) };
-    if (key) {
-      // Index eviction never deletes source/output files: drafts or active
-      // resumable uploads may still reference them. Confirmed saves own cleanup.
-      const output = await FileSystem.getInfoAsync(result.uri);
-      const outputModified = output.exists ? output.modificationTime : undefined;
-      const next = [
-        ...entries.filter(entry => entry.key !== key),
-        { key, result, outputModified },
-      ].slice(-5);
-      try {
-        await AsyncStorage.setItem(PREPARED_VIDEO_CACHE_KEY, JSON.stringify(next));
-      } catch (error) {
-        captureException(error, { tags: { context: 'video_preparation_cache', stage: 'write' } });
+    let indexed = false;
+    try {
+      if (key) {
+        // Once the durable copy exists, finish indexing it even if cancellation
+        // arrived during the copy/stat. Retry and confirmed-save cleanup must
+        // still be able to find it. The final abort check prevents upload.
+        // Index eviction never deletes source/output files: drafts or active
+        // resumable uploads may still reference them. Confirmed saves own cleanup.
+        const output = await FileSystem.getInfoAsync(result.uri);
+        const outputModified = output.exists ? output.modificationTime : undefined;
+        const next = [
+          ...entries.filter(entry => entry.key !== key),
+          { key, result, outputModified },
+        ].slice(-5);
+        try {
+          await AsyncStorage.setItem(PREPARED_VIDEO_CACHE_KEY, JSON.stringify(next));
+          indexed = true;
+        } catch (error) {
+          captureException(error, { tags: { context: 'video_preparation_cache', stage: 'write' } });
+        }
       }
+    } finally {
+      if (
+        options.signal?.aborted &&
+        !indexed &&
+        result.uri !== prepared.uri &&
+        isOwnedMediaDraft(result.uri)
+      ) {
+        // Only this call's new, unreferenced copy is disposable. A reused file
+        // may belong to another draft; never delete it on cancellation.
+        try {
+          await FileSystem.deleteAsync(result.uri, { idempotent: true });
+        } catch (error) {
+          captureException(error, {
+            tags: { context: 'video_preparation_cache', stage: 'cancel_cleanup' },
+          });
+        }
+      }
+      throwIfUploadAborted(options.signal);
     }
     return result;
   });

@@ -11,12 +11,13 @@ import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
+export const unstable_settings = { initialRouteName: 'feed/index' };
+
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
   const hiddenTabScreenNames = [
-    'index',
     'notifications/index',
     'messages/index',
     'feed/game/[id]',
@@ -122,7 +123,7 @@ export default function TabLayout() {
 
   return (
     <ErrorBoundary>
-      <Tabs backBehavior="history" screenOptions={screenOptions}>
+      <Tabs initialRouteName="feed/index" backBehavior="history" screenOptions={screenOptions}>
         <Tabs.Screen
           name="feed/index"
           options={{

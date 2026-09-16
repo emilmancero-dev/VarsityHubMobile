@@ -1,5 +1,9 @@
 # Comprehensive System Architecture Audit
 
+> **Historical snapshot:** This report records its 2026-03-18 review and is not
+> a current compliance certificate. Use [COMMANDMENTS.md](./COMMANDMENTS.md) and
+> the latest `npm run verify:commandments` report for current status.
+
 **Audit Type:** Security & Architecture Validation  
 **Date:** 2026-03-18  
 **Methodology:** System mapping → Gap identification → Severity classification → Fix implementation

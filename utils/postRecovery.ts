@@ -3,6 +3,8 @@ export type PostRecovery = {
   ownerId: string;
   sourceUri?: string;
   upload?: { url: string; posterUrl?: string; meta?: Record<string, number> };
+  /** Keep the same identity when correcting an explicitly rejected legacy body. */
+  clientRequestId?: string;
   pendingPayload?: Record<string, any>;
 };
 export function recoveryForOwner(
@@ -20,19 +22,31 @@ export function newPostRequestId(): string {
   return `${Date.now().toString(36)}-${Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join('')}`;
 }
 
-/** Release only a fresh request's explicit editable rejection. An existing or
+/** Release a fresh request's explicit editable rejection. An existing or
  * restored pending key may already have committed, even if a later retry is
- * rejected before the server's replay lookup. Never replace that unknown key. */
+ * rejected before the server's replay lookup. A post-replay length rejection
+ * can unfreeze its body, but must preserve that key for the corrected retry. */
 export function recoveryAfterPostRejection(
   recovery: PostRecovery | null,
   error: unknown,
   firstDispatch: boolean
 ): PostRecovery | null {
-  if (!firstDispatch || !recovery?.pendingPayload || !error || typeof error !== 'object')
-    return null;
+  if (!recovery?.pendingPayload || !error || typeof error !== 'object') return null;
   const rejected = error as { status?: unknown; data?: any; isProtocolError?: unknown };
   if (rejected.isProtocolError || !rejected.data || typeof rejected.data !== 'object') return null;
   const { status, data } = rejected;
+  if (
+    status === 400 &&
+    data.code === 'POST_CONTENT_TOO_LONG' &&
+    typeof recovery.pendingPayload.client_request_id === 'string' &&
+    recovery.pendingPayload.client_request_id.length > 0
+  ) {
+    // This outcome is emitted after replay lookup. Retain the SAME key even
+    // when unfreezing text: a late competing commit must conflict, not duplicate.
+    const { pendingPayload, ...retained } = recovery;
+    return { ...retained, clientRequestId: pendingPayload.client_request_id };
+  }
+  if (!firstDispatch) return null;
   const editable =
     (status === 400 && data.error === 'Invalid payload' && Array.isArray(data.issues)) ||
     (status === 404 && data.error === 'Team not found') ||

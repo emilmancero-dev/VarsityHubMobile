@@ -4,7 +4,8 @@
  * personalization queries mount after the InteractionManager deferral and an
  * upcoming game row renders.
  */
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 
 beforeAll(() => jest.useFakeTimers());
 afterAll(() => jest.useRealTimers());
@@ -55,6 +56,11 @@ jest.mock('@/hooks/useDeviceLocation', () => ({
 const mockGameList = jest.fn();
 const mockEventFilter = jest.fn();
 const mockTrendingPage = jest.fn();
+const mockSuggested = jest.fn();
+const mockHttpGet = jest.fn();
+const mockTeamFollow = jest.fn();
+const mockTeamUnfollow = jest.fn();
+const mockSearch = jest.fn();
 jest.mock('@/api/entities', () => ({
   __esModule: true,
   Game: { list: (...args: any[]) => mockGameList(...args), create: jest.fn() },
@@ -64,18 +70,22 @@ jest.mock('@/api/entities', () => ({
     listPage: jest.fn().mockResolvedValue({ items: [] }),
     list: jest.fn().mockResolvedValue([]),
   },
-  Team: { allMembers: jest.fn().mockResolvedValue([]) },
+  Team: {
+    allMembers: jest.fn().mockResolvedValue([]),
+    follow: (...args: any[]) => mockTeamFollow(...args),
+    unfollow: (...args: any[]) => mockTeamUnfollow(...args),
+  },
   User: {
     listAll: jest.fn().mockResolvedValue([]),
-    suggested: jest.fn().mockResolvedValue({ items: [] }),
+    suggested: (...args: any[]) => mockSuggested(...args),
     follow: jest.fn(),
     unfollow: jest.fn(),
   },
-  Search: { unified: jest.fn().mockResolvedValue({}) },
+  Search: { unified: (...args: any[]) => mockSearch(...args) },
   Organization: { list: jest.fn().mockResolvedValue([]) },
 }));
 jest.mock('@/api/http', () => ({
-  httpGet: jest.fn().mockResolvedValue({ items: [] }),
+  httpGet: (...args: any[]) => mockHttpGet(...args),
 }));
 jest.mock('@/context/AuthProvider', () => ({
   useAuth: () => ({
@@ -111,9 +121,121 @@ beforeEach(() => {
   mockGameList.mockReset().mockResolvedValue([sampleGame]);
   mockEventFilter.mockReset().mockResolvedValue([]);
   mockTrendingPage.mockReset().mockResolvedValue({ items: [] });
+  mockSuggested.mockReset().mockResolvedValue({ items: [] });
+  mockHttpGet.mockReset().mockResolvedValue({ items: [] });
+  mockTeamFollow.mockReset().mockResolvedValue({});
+  mockTeamUnfollow.mockReset().mockResolvedValue({});
+  mockSearch.mockReset().mockResolvedValue({});
 });
 
 describe('MobileCommunityScreen (react-query render smoke)', () => {
+  it('reloads the followed calendar after following and unfollowing a team', async () => {
+    mockSearch.mockResolvedValue({ teams: [{ id: 't1', name: 'Tigers', is_following: false }] });
+    render(
+      <QueryWrapper>
+        <MobileCommunityScreen />
+      </QueryWrapper>
+    );
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    expect(await screen.findByText('Tigers vs Sharks')).toBeTruthy();
+    await waitFor(() =>
+      expect(mockHttpGet).toHaveBeenCalledWith('/event-discovery?scope=following')
+    );
+    fireEvent.changeText(
+      screen.getByPlaceholderText('Search people, teams, organizations, games, events, or zip...'),
+      'Tigers'
+    );
+    act(() => {
+      jest.advanceTimersByTime(250);
+    });
+    const follow = await screen.findByLabelText('Follow team Tigers');
+    mockHttpGet.mockClear();
+    fireEvent.press(follow, { stopPropagation: jest.fn() });
+    await waitFor(() => expect(mockTeamFollow).toHaveBeenCalledWith('t1'));
+    await waitFor(() =>
+      expect(mockHttpGet).toHaveBeenCalledWith('/event-discovery?scope=following')
+    );
+    mockHttpGet.mockClear();
+    fireEvent.press(await screen.findByLabelText('Unfollow team Tigers'), {
+      stopPropagation: jest.fn(),
+    });
+    await waitFor(() => expect(mockTeamUnfollow).toHaveBeenCalledWith('t1'));
+    await waitFor(() =>
+      expect(mockHttpGet).toHaveBeenCalledWith('/event-discovery?scope=following')
+    );
+  });
+  it('refreshes the followed calendar together with games, posts and suggestions', async () => {
+    const view = render(
+      <QueryWrapper>
+        <MobileCommunityScreen />
+      </QueryWrapper>
+    );
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    expect(await screen.findByText('Tigers vs Sharks')).toBeTruthy();
+    await waitFor(() =>
+      expect(mockHttpGet).toHaveBeenCalledWith('/event-discovery?scope=following')
+    );
+    mockHttpGet.mockClear();
+    mockSuggested.mockClear();
+    await act(async () => {
+      await view.UNSAFE_getByType(RefreshControl).props.onRefresh();
+    });
+    expect(mockHttpGet).toHaveBeenCalledWith('/event-discovery?scope=following');
+    expect(mockSuggested).toHaveBeenCalledTimes(1);
+  });
+  it('shows games while suggestions are still pending, with only one suggestions request', async () => {
+    mockSuggested.mockReturnValue(new Promise(() => {}));
+    render(
+      <QueryWrapper>
+        <MobileCommunityScreen />
+      </QueryWrapper>
+    );
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    expect(await screen.findByText('Tigers vs Sharks')).toBeTruthy();
+    expect(mockSuggested).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a posts error instead of converting a failed request into empty success', async () => {
+    mockTrendingPage.mockRejectedValue(
+      Object.assign(new Error('Network unavailable'), { status: 503 })
+    );
+    render(
+      <QueryWrapper>
+        <MobileCommunityScreen />
+      </QueryWrapper>
+    );
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    expect(await screen.findByText('Tigers vs Sharks')).toBeTruthy();
+    expect(
+      await screen.findByText('Posts are temporarily unavailable. Pull to refresh to try again.')
+    ).toBeTruthy();
+  });
+
+  it('shows a suggestions error without holding the games list', async () => {
+    mockSuggested.mockRejectedValue(new Error('Network unavailable'));
+    render(
+      <QueryWrapper>
+        <MobileCommunityScreen />
+      </QueryWrapper>
+    );
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    expect(await screen.findByText('Tigers vs Sharks')).toBeTruthy();
+    expect(
+      await screen.findByText(
+        'People suggestions are temporarily unavailable. Pull to refresh to try again.'
+      )
+    ).toBeTruthy();
+  });
   it('mounts, runs the games + personalization queries, and renders a game row', async () => {
     render(
       <QueryWrapper>

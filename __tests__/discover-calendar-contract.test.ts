@@ -29,7 +29,9 @@ describe('Discover followed calendar contract', () => {
   it('keeps authenticated-only discover queries behind the signed-in gate', () => {
     expect(screenSource).toContain('const suggestedQueryKey = useMemo(');
     expect(screenSource).toContain('enabled: interactionsDone && isSignedIn');
-    expect(screenSource).toContain('...(isSignedIn ? [refetchSuggested()] : [])');
+    expect(screenSource).toContain(
+      '...(isSignedIn ? [refetchSuggested(), refetchFollowingCalendar()] : [])'
+    );
     expect(screenSource).toContain(
       'user ? await getAuthSnapshot(checkAuth, user).catch(() => null) : null'
     );

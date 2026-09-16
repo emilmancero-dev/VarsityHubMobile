@@ -7,6 +7,7 @@ const { execFileSync } = require('node:child_process');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 const manifestPath = path.join(root, 'config/matrix-coverage.json');
+const workflowManifestPath = path.join(root, 'config/commandment-workflows.json');
 function scanSource(file, source) {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const rows = [];
@@ -162,6 +163,94 @@ function checkCoverage(rows, entries) {
   }
   return { drift, errors, gaps };
 }
+function evaluateWorkflowRegistry(registry, io = {}) {
+  const exists = io.exists || (file => fs.existsSync(path.join(root, file)));
+  const read = io.read || (file => fs.readFileSync(path.join(root, file), 'utf8'));
+  const claims = Array.isArray(registry?.claims) ? registry.claims : [];
+  const workflows = Array.isArray(registry?.workflows) ? registry.workflows : [];
+  const errors = [];
+  const workflowById = new Map();
+  const claimIds = new Set();
+
+  for (const claim of claims) {
+    if (!/^CMD-[A-Z0-9-]+$/.test(claim.id || '')) errors.push(`Invalid claim ID: ${claim.id}`);
+    if (claimIds.has(claim.id)) errors.push(`Duplicate claim ID: ${claim.id}`);
+    claimIds.add(claim.id);
+    if (!['CURRENT', 'POLICY', 'OPEN', 'ROADMAP'].includes(claim.status))
+      errors.push(`Invalid claim status: ${claim.id}`);
+  }
+
+  for (const workflow of workflows) {
+    if (!/^FLOW-[A-Z0-9-]+$/.test(workflow.id || ''))
+      errors.push(`Invalid workflow ID: ${workflow.id}`);
+    if (workflowById.has(workflow.id)) errors.push(`Duplicate workflow ID: ${workflow.id}`);
+    workflowById.set(workflow.id, workflow);
+    if (!['critical', 'high', 'normal', 'infrastructure'].includes(workflow.risk))
+      errors.push(`Invalid workflow risk: ${workflow.id}`);
+    if (!['verified', 'partial', 'blocked', 'planned'].includes(workflow.status))
+      errors.push(`Invalid workflow status: ${workflow.id}`);
+
+    const evidence = Array.isArray(workflow.evidence) ? workflow.evidence : [];
+    const requiredTypes =
+      workflow.risk === 'critical'
+        ? ['automated', 'integration', 'device']
+        : workflow.risk === 'high'
+          ? ['automated']
+          : [];
+    for (const type of requiredTypes) {
+      if (!evidence.some(item => item.type === type))
+        errors.push(`${workflow.id} requires ${type} evidence`);
+    }
+    for (const item of evidence) {
+      if (!item.file || !exists(item.file)) {
+        errors.push(`${workflow.id} evidence file missing: ${item.file || '(none)'}`);
+        continue;
+      }
+      if (item.cases?.length) {
+        const source = read(item.file);
+        for (const name of item.cases)
+          if (!source.includes(name)) errors.push(`${workflow.id} evidence case missing: ${name}`);
+      }
+    }
+  }
+
+  for (const claim of claims) {
+    const mappings = Array.isArray(claim.workflows) ? claim.workflows : [];
+    if (['CURRENT', 'POLICY'].includes(claim.status) && mappings.length === 0)
+      errors.push(`${claim.id} has no workflow`);
+    for (const workflowId of mappings)
+      if (!workflowById.has(workflowId))
+        errors.push(`${claim.id} references unknown ${workflowId}`);
+  }
+
+  const releaseBlocking = workflows.filter(workflow => {
+    if (!['critical', 'high'].includes(workflow.risk)) return false;
+    if (workflow.status !== 'verified') return true;
+    return errors.some(error => error.startsWith(workflow.id));
+  });
+  const verifiedCurrentClaims = claims.filter(claim => {
+    if (claim.status !== 'CURRENT' || !claim.workflows?.length) return false;
+    return claim.workflows.every(id => {
+      const workflow = workflowById.get(id);
+      return workflow?.status === 'verified' && !errors.some(error => error.startsWith(id));
+    });
+  }).length;
+
+  return {
+    errors,
+    releaseBlockingWorkflows: releaseBlocking.map(workflow => workflow.id),
+    summary: {
+      totalClaims: claims.length,
+      verifiedCurrentClaims,
+      policyClaims: claims.filter(claim => claim.status === 'POLICY').length,
+      openClaims: claims.filter(claim => claim.status === 'OPEN').length,
+      roadmapClaims: claims.filter(claim => claim.status === 'ROADMAP').length,
+      totalWorkflows: workflows.length,
+      verifiedWorkflows: workflows.filter(workflow => workflow.status === 'verified').length,
+      releaseBlockingWorkflows: releaseBlocking.length,
+    },
+  };
+}
 function main() {
   const rows = discover();
   const manifest = fs.existsSync(manifestPath)
@@ -178,6 +267,8 @@ function main() {
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   }
   const result = checkCoverage(rows, manifest.entries);
+  const workflowRegistry = JSON.parse(fs.readFileSync(workflowManifestPath, 'utf8'));
+  const workflowResult = evaluateWorkflowRegistry(workflowRegistry);
   const counts = {};
   for (const row of rows) {
     const key = `${row.kind}/${manifest.entries[row.id]?.status || 'unmapped'}`;
@@ -187,12 +278,27 @@ function main() {
     generatedAt: new Date().toISOString(),
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
     counts,
+    workflowReadiness: workflowResult,
     ...result,
     rows: rows.map(r => ({ ...r, ...manifest.entries[r.id] })),
   };
   const out = path.join(root, 'artifacts/matrix-audit');
   fs.mkdirSync(out, { recursive: true });
   fs.writeFileSync(path.join(out, 'inventory.json'), JSON.stringify(report, null, 2) + '\n');
+  fs.writeFileSync(
+    path.join(out, 'workflow-readiness.json'),
+    JSON.stringify(
+      {
+        generatedAt: report.generatedAt,
+        commit: report.commit,
+        ...workflowResult,
+        claims: workflowRegistry.claims,
+        workflows: workflowRegistry.workflows,
+      },
+      null,
+      2
+    ) + '\n'
+  );
   const lines = [
     '# Matrix coverage inventory',
     '',
@@ -202,7 +308,7 @@ function main() {
     '| --- | ---: |',
     ...Object.entries(counts).map(([k, v]) => `| ${k} | ${v} |`),
     '',
-    `Drift: ${result.drift.length}; invalid evidence: ${result.errors.length}; coverage gaps: ${result.gaps.length}.`,
+    `Drift: ${result.drift.length}; invalid surface evidence: ${result.errors.length}; unclassified surfaces: ${result.gaps.length}.`,
     '',
     '| Source | Kind | Status | Discovered surface |',
     '| --- | --- | --- | --- |',
@@ -212,13 +318,34 @@ function main() {
     ),
   ];
   fs.writeFileSync(path.join(out, 'inventory.md'), lines.join('\n') + '\n');
+  const workflowLines = [
+    '# Commandment workflow readiness',
+    '',
+    `Commit: \`${report.commit}\``,
+    '',
+    '| Metric | Count |',
+    '| --- | ---: |',
+    ...Object.entries(workflowResult.summary).map(([key, value]) => `| ${key} | ${value} |`),
+    '',
+    '| Workflow | Risk | Status | Blocked by |',
+    '| --- | --- | --- | --- |',
+    ...workflowRegistry.workflows.map(
+      workflow =>
+        `| ${workflow.id} | ${workflow.risk} | ${workflow.status} | ${workflow.blockedBy || ''} |`
+    ),
+    '',
+    'Raw surface inventory is diagnostic only. Unclassified controls and calls do not equal product defects.',
+  ];
+  fs.writeFileSync(path.join(out, 'workflow-readiness.md'), workflowLines.join('\n') + '\n');
   console.log(
     JSON.stringify(
       {
         counts,
         drift: result.drift.length,
         errors: result.errors,
-        coverageGaps: result.gaps.length,
+        unclassifiedSurfaces: result.gaps.length,
+        workflowReadiness: workflowResult.summary,
+        releaseBlockingWorkflows: workflowResult.releaseBlockingWorkflows,
         report: 'artifacts/matrix-audit/inventory.md',
       },
       null,
@@ -228,9 +355,10 @@ function main() {
   if (
     result.drift.length ||
     result.errors.length ||
-    (process.argv.includes('--strict') && result.gaps.length)
+    (process.argv.includes('--strict') &&
+      (workflowResult.errors.length || workflowResult.releaseBlockingWorkflows.length))
   )
     process.exitCode = 1;
 }
-module.exports = { scanSource, checkCoverage, discover };
+module.exports = { scanSource, checkCoverage, discover, evaluateWorkflowRegistry };
 if (require.main === module) main();

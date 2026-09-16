@@ -546,7 +546,12 @@ function CommunityDiscoverScreen() {
   // canonical event cards by the single /event-discovery?scope=following
   // endpoint (future-only, unbounded window). Replaces the former three queries
   // (followed games, followed events, managed-team games/events).
-  const { data: followingCalendarData, isPending: followingCalendarPending } = useQuery({
+  const {
+    data: followingCalendarData,
+    isPending: followingCalendarPending,
+    refetch: refetchFollowingCalendar,
+    isError: followingCalendarError,
+  } = useQuery({
     queryKey: ['discover-following-calendar', viewerId ?? 'guest'],
     enabled: interactionsDone && isSignedIn,
     queryFn: async () => {
@@ -571,55 +576,10 @@ function CommunityDiscoverScreen() {
     queryKey: personalizationQueryKey,
     enabled: interactionsDone,
     queryFn: async () => {
-      const snapshot: any = user ? await getAuthSnapshot(checkAuth, user).catch(() => null) : null;
-
-      // Fetch posts and people in parallel — people used to wait for posts to finish
-      const fetchPosts = async (): Promise<any[]> => {
-        try {
-          let items: any[] = [];
-          try {
-            const trending = await Post.trendingPage(undefined, 20);
-            items = Array.isArray(trending.items) ? trending.items : [];
-          } catch {
-            const postsPage = await Post.listPage(undefined, 20, '-created_date');
-            items = Array.isArray(postsPage.items) ? postsPage.items : [];
-          }
-          if (items.length === 0) {
-            try {
-              const fallback = await Post.list('-created_at', 20);
-              items = Array.isArray(fallback) ? fallback : [];
-            } catch {
-              /* empty */
-            }
-          }
-          return items;
-        } catch {
-          try {
-            const fallback = await Post.list('-created_at', 20);
-            return Array.isArray(fallback) ? fallback : [];
-          } catch {
-            return [];
-          }
-        }
-      };
-
-      const fetchPeople = async (): Promise<any[]> => {
-        try {
-          if (!snapshot?.id) return [];
-          const suggested = await User.suggested(20);
-          const arr = Array.isArray(suggested)
-            ? suggested
-            : Array.isArray((suggested as any)?.items)
-              ? (suggested as any).items
-              : [];
-          return arr.slice(0, 20);
-        } catch (peopleError) {
-          if (__DEV__) console.warn('Discover load: nearby people failed', peopleError);
-        }
-        return [];
-      };
-
-      const [items, people] = await Promise.all([fetchPosts(), fetchPeople()]);
+      // The API client owns endpoint compatibility. Network failures must reach
+      // this query's error state, not trigger more list requests or become [].
+      const trending = await Post.trendingPage(undefined, 20);
+      const items: any[] = Array.isArray(trending.items) ? trending.items : [];
 
       // Split ONCE at fetch time (posts don't jump tabs when a follow toggles)
       const followingOnly = items.filter(
@@ -628,25 +588,17 @@ function CommunityDiscoverScreen() {
       const nonFollowing = items.filter(
         (p: any) => !(p && (p.is_following_author || p.is_following))
       );
-      // Filter out users whose display_name and username are both system-generated IDs
-      const filteredPeople = people.filter((u: any) => {
-        const name = u?.display_name || u?.username;
-        return name && !isInternalId(name);
-      });
-
       return {
         followingPosts: followingOnly.slice(0, 12),
         discoverPosts: (nonFollowing.length ? nonFollowing : items).slice(0, 12),
-        nearbyPeople: filteredPeople,
       };
     },
   });
   const followingPosts = personalization?.followingPosts ?? [];
   const discoverPosts = personalization?.discoverPosts ?? [];
-  const nearbyPeople = personalization?.nearbyPeople ?? [];
   const personalizationNotice =
     personalizationIsError && personalization === undefined
-      ? 'Personalized suggestions are temporarily unavailable. Pull to refresh to try again.'
+      ? 'Posts are temporarily unavailable. Pull to refresh to try again.'
       : null;
 
   // Patch both cached post arrays (optimistic follow toggle, delete, edit);
@@ -671,19 +623,25 @@ function CommunityDiscoverScreen() {
     () => ['discover-suggested-people', viewerId ?? 'guest'],
     [viewerId]
   );
-  const { data: suggestedData, refetch: refetchSuggested } = useQuery({
+  const {
+    data: suggestedData,
+    refetch: refetchSuggested,
+    isPending: suggestedPending,
+    isError: suggestedError,
+  } = useQuery({
     queryKey: suggestedQueryKey,
     enabled: interactionsDone && isSignedIn,
     queryFn: async () => {
-      const res: any = await User.suggested(10);
-      const items = Array.isArray(res?.items) ? res.items : [];
+      const res: any = await User.suggested(20);
+      const items = Array.isArray(res) ? res : Array.isArray(res?.items) ? res.items : [];
       return items.filter((u: any) => {
         const name = u?.display_name || u?.username;
         return name && !isInternalId(name);
       });
     },
   });
-  const suggestedPeople = suggestedData ?? [];
+  const nearbyPeople: any[] = suggestedData ?? [];
+  const suggestedPeople = nearbyPeople.slice(0, 10);
   const patchSuggestedPeople = useCallback(
     (mapPeople: (people: any[]) => any[]) => {
       queryClient.setQueryData(suggestedQueryKey, (old: any) => (old ? mapPeople(old) : old));
@@ -691,16 +649,15 @@ function CommunityDiscoverScreen() {
     [queryClient, suggestedQueryKey]
   );
 
-  // Full-screen skeleton until both primary queries have data (isPending only —
-  // background revalidation never re-shows it; see lib/queryClient.ts).
-  const loading = gamesPending || personalizationPending;
+  // Optional people/posts requests never hold the primary games skeleton.
+  const loading = gamesPending;
 
   const refreshAll = useCallback(async () => {
     // refetch() resolves (never throws); failed refreshes keep cached data.
     await Promise.all([
       refetchGames(),
       refetchPersonalization(),
-      ...(isSignedIn ? [refetchSuggested()] : []),
+      ...(isSignedIn ? [refetchSuggested(), refetchFollowingCalendar()] : []),
       ...(viewMode === 'map' ? [refetchMapEvents()] : []),
     ]);
   }, [
@@ -708,6 +665,7 @@ function CommunityDiscoverScreen() {
     refetchGames,
     refetchPersonalization,
     refetchSuggested,
+    refetchFollowingCalendar,
     refetchMapEvents,
     viewMode,
   ]);
@@ -1922,7 +1880,15 @@ function CommunityDiscoverScreen() {
       {/* Calendar - Right below search */}
       {renderCalendar()}
 
-      {calendarGames.length === 0 && calendarEvents.length === 0 && !followingCalendarPending ? (
+      {followingCalendarError && followingCalendarData === undefined ? (
+        <Text style={{ color: Colors[colorScheme].mutedText }}>
+          Your followed calendar is temporarily unavailable. Pull to refresh to try again.
+        </Text>
+      ) : null}
+      {calendarGames.length === 0 &&
+      calendarEvents.length === 0 &&
+      !followingCalendarPending &&
+      !followingCalendarError ? (
         <Text style={[styles.helper, { color: Colors[colorScheme].mutedText }]}>
           You&apos;re not following any teams yet — search above to find and follow teams, and their
           games and events show up here.
@@ -2434,16 +2400,32 @@ function CommunityDiscoverScreen() {
           {personalizationNotice}
         </Text>
       ) : null}
+      {personalizationPending ? (
+        <ActivityIndicator accessibilityLabel="Loading posts" color={Colors[colorScheme].tint} />
+      ) : null}
+      {suggestedError && suggestedData === undefined ? (
+        <Text style={{ color: Colors[colorScheme].mutedText }}>
+          People suggestions are temporarily unavailable. Pull to refresh to try again.
+        </Text>
+      ) : null}
+      {isSignedIn && suggestedPending ? (
+        <ActivityIndicator
+          accessibilityLabel="Loading people suggestions"
+          color={Colors[colorScheme].tint}
+        />
+      ) : null}
 
       <Text style={[styles.sectionTitle, { color: Colors[colorScheme].text }]}>
         {tab === 'following' ? 'From people you follow' : 'Discover new posts'}
       </Text>
       {(tab === 'following' ? followingPosts : discoverPosts).length === 0 ? (
-        <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText }]}>
-          {tab === 'following'
-            ? 'Follow people to see their posts here.'
-            : 'New posts will appear here soon.'}
-        </Text>
+        personalizationPending || personalizationIsError ? null : (
+          <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText }]}>
+            {tab === 'following'
+              ? 'Follow people to see their posts here.'
+              : 'New posts will appear here soon.'}
+          </Text>
+        )
       ) : (
         <View style={{ marginBottom: 12, gap: 10 }}>
           {(tab === 'following' ? followingPosts : discoverPosts).map((p, _i, _arr) => {

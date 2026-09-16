@@ -48,7 +48,7 @@ async function performUpload(uri: string, name: string, mime: string, options?: 
   if (Platform.OS !== 'web') {
     // Every native video entry point enforces preparation. Cached prepared
     // outputs are reused, so screens that expose encoder progress do not encode twice.
-    const prepared = await prepareVideoForUpload(uri);
+    const prepared = await prepareVideoForUpload(uri, { signal });
     if (prepared.wasCompressed) {
       name = `${name.replace(/\.[^.]+$/, '')}.mp4`;
       mime = 'video/mp4';

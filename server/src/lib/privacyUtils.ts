@@ -33,7 +33,16 @@ export function invalidatePrivateTeamIdsCache(): void {
  * Returns IDs of private-profile users whose content should be hidden from the viewer.
  * Excludes the viewer themselves and users the viewer already follows.
  */
-export async function getExcludedPrivateAuthorIds(viewerId: string | null): Promise<string[]> {
+export function getExcludedPrivateAuthorIds(
+  viewerId: string | null,
+  cache?: BlockedCache
+): Promise<string[]> {
+  return reuseRequestDecision(cache, `private-authors:${JSON.stringify(viewerId)}`, () =>
+    loadExcludedPrivateAuthorIds(viewerId)
+  );
+}
+
+async function loadExcludedPrivateAuthorIds(viewerId: string | null): Promise<string[]> {
   let privateUsers: { id: string }[];
 
   // Try Redis first (distributed — works across multiple Railway instances)
@@ -86,7 +95,16 @@ export async function getExcludedPrivateAuthorIds(viewerId: string | null): Prom
  * Returns IDs of private teams whose profile/listing should be hidden from the
  * viewer. Team members, team followers, and org admins are allowed through.
  */
-export async function getExcludedPrivateTeamIds(viewerId: string | null): Promise<string[]> {
+export function getExcludedPrivateTeamIds(
+  viewerId: string | null,
+  cache?: BlockedCache
+): Promise<string[]> {
+  return reuseRequestDecision(cache, `private-teams:${JSON.stringify(viewerId)}`, () =>
+    loadExcludedPrivateTeamIds(viewerId)
+  );
+}
+
+async function loadExcludedPrivateTeamIds(viewerId: string | null): Promise<string[]> {
   let privateTeams: Array<{ id: string; organization_id: string | null }>;
 
   const cached = await cacheGet<Array<{ id: string; organization_id: string | null }>>(
@@ -259,6 +277,21 @@ export function mergeAndWhere<T extends { AND?: unknown }>(where: T, clause: obj
  * automatic cleanup when the request ends.
  */
 export type BlockedCache = Map<string, Promise<string[]>>;
+
+// Extend the existing request-local map, not a new cross-request cache. Keep a
+// rejection for the entire request so every sibling fails closed consistently.
+function reuseRequestDecision(
+  cache: BlockedCache | undefined,
+  key: string,
+  load: () => Promise<string[]>
+): Promise<string[]> {
+  if (!cache) return load();
+  const existing = cache.get(key);
+  if (existing) return existing;
+  const pending = load();
+  cache.set(key, pending);
+  return pending;
+}
 
 // Short-lived cross-request in-process fallback for blocked-user lists (used when Redis unavailable).
 // With Redis, invalidation is distributed across all Railway instances.

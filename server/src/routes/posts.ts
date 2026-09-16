@@ -14,6 +14,13 @@ import {
 } from '../lib/feedPostSerializer.js';
 import { prisma } from '../lib/prisma.js';
 import {
+  encodePostPageCursor,
+  postPageBoundary,
+  postPageResponseCursor,
+  writesPostPageCursorV2,
+} from '../lib/postPageCursor.js';
+import { ValidationError } from '../lib/errors/ValidationError.js';
+import {
   buildPrivateTeamPostVisibilityWhere,
   getBlockedUserIds,
   getExcludedPrivateAuthorIds,
@@ -253,8 +260,8 @@ const buildFollowedPostsWhereClause = (
   ];
 };
 
-const trendingScore = (upvotes: number, createdAt: Date): number => {
-  const ageHours = Math.max((Date.now() - createdAt.getTime()) / 3600000, 0);
+const trendingScore = (upvotes: number, createdAt: Date, asOf: number): number => {
+  const ageHours = Math.max((asOf - createdAt.getTime()) / 3600000, 0);
   return (upvotes || 0) / Math.pow(ageHours + 2, 1.5);
 };
 
@@ -273,8 +280,12 @@ postsRouter.get(
       sort === 'trending'
         ? [{ created_at: 'desc' as const }] // Fetch by recency; we'll re-sort by score
         : hasTeamFilter
-          ? [{ is_pinned: 'desc' as const }, { created_at: 'desc' as const }] // Pinned first on team feed
-          : [{ created_at: 'desc' as const }];
+          ? [
+              { is_pinned: 'desc' as const },
+              { created_at: 'desc' as const },
+              { id: 'desc' as const },
+            ] // Pinned first on team feed
+          : [{ created_at: 'desc' as const }, { id: 'desc' as const }];
 
     const where: Record<string, any> = { deleted_at: null };
 
@@ -459,9 +470,28 @@ postsRouter.get(
 
     // Trending: fetch pool, compute time-decay score, sort, paginate
     if (sort === 'trending') {
+      const legacyCursor = cursor?.startsWith('t:') ?? false;
+      const cursorParts = cursor?.slice(legacyCursor ? 2 : 3).split('|');
+      const asOf = cursor && !legacyCursor ? Number(cursorParts?.[3]) : Date.now();
+      if (
+        cursor &&
+        ((!legacyCursor && !cursor.startsWith('t2:')) ||
+          cursor.length > 1024 ||
+          cursorParts?.length !== (legacyCursor ? 3 : 4) ||
+          !Number.isFinite(Number(cursorParts?.[0])) ||
+          !cursorParts?.[0] ||
+          !Number.isFinite(Date.parse(cursorParts?.[1] ?? '')) ||
+          !cursorParts?.[2] ||
+          !Number.isFinite(asOf) ||
+          asOf <= 0 ||
+          asOf > Date.now() + 60_000)
+      )
+        throw new ValidationError('Invalid page cursor. Refresh the list.', {
+          errorCode: 'INVALID_CURSOR',
+        });
       const poolQuery: any = {
         where,
-        orderBy: [{ created_at: 'desc' as const }],
+        orderBy: [{ created_at: 'desc' as const }, { id: 'desc' as const }],
         include: {
           author: { select: { id: true, username: true, display_name: true, avatar_url: true } },
           team: { select: { id: true, name: true, logo_url: true } },
@@ -500,7 +530,8 @@ postsRouter.get(
           post: p,
           score: trendingScore(
             p.upvotes_count ?? 0,
-            p.created_at instanceof Date ? p.created_at : new Date(p.created_at)
+            p.created_at instanceof Date ? p.created_at : new Date(p.created_at),
+            asOf
           ),
           createdAt: p.created_at instanceof Date ? p.created_at : new Date(p.created_at),
         }))
@@ -512,15 +543,23 @@ postsRouter.get(
           );
         });
       let filtered = ranked;
-      if (cursor && cursor.startsWith('t:')) {
-        const parts = cursor.slice(2).split('|');
-        if (parts.length >= 3) {
-          const [scoreStr, createdAtStr, id] = parts;
+      if (cursor && cursorParts) {
+        const [scoreStr, createdAtStr, id] = cursorParts;
+        if (legacyCursor) {
+          // The old cursor points at the first unseen row, but its score has
+          // aged. Resume at that row in today's ranked pool, not its old score.
+          const anchor = ranked.findIndex(r => r.post.id === id);
+          if (anchor < 0)
+            throw new ValidationError('Expired page cursor. Refresh the list.', {
+              errorCode: 'INVALID_CURSOR',
+            });
+          filtered = ranked.slice(anchor);
+        } else {
           const cursorScore = parseFloat(scoreStr);
           const cursorTime = new Date(createdAtStr).getTime();
           filtered = ranked.filter(r => {
-            if (r.score < cursorScore - 1e-9) return true;
-            if (Math.abs(r.score - cursorScore) <= 1e-9) {
+            if (r.score < cursorScore) return true;
+            if (r.score === cursorScore) {
               if (r.createdAt.getTime() < cursorTime) return true;
               if (r.createdAt.getTime() === cursorTime)
                 return String(r.post.id).localeCompare(id) < 0;
@@ -530,10 +569,14 @@ postsRouter.get(
         }
       }
       const items = filtered.slice(0, limit);
-      const nextRow = filtered[limit];
-      const nextCursor = nextRow
-        ? `t:${nextRow.score}|${nextRow.createdAt.toISOString()}|${nextRow.post.id}`
-        : null;
+      const lastRow = items[items.length - 1];
+      const firstUnseen = filtered[limit];
+      const nextCursor =
+        filtered.length > limit && lastRow
+          ? writesPostPageCursorV2()
+            ? `t2:${lastRow.score}|${lastRow.createdAt.toISOString()}|${lastRow.post.id}|${asOf}`
+            : `t:${firstUnseen.score}|${firstUnseen.createdAt.toISOString()}|${firstUnseen.post.id}`
+          : null;
       const postIds = items.map((p: any) => p.post.id);
       const authorIds = items.map((p: any) => p.post.author_id).filter(Boolean);
       const pollIds = items.map((p: any) => p.post.poll?.id).filter(Boolean);
@@ -549,8 +592,17 @@ postsRouter.get(
       return res.json(response);
     }
 
+    const boundary = await postPageBoundary(
+      cursor,
+      id =>
+        prisma.post.findFirst({
+          where: { AND: [where, { id }] },
+          select: { id: true, created_at: true, is_pinned: true },
+        }),
+      hasTeamFilter
+    );
     const query: any = {
-      where,
+      where: { AND: [where, boundary] },
       orderBy,
       include: {
         author: { select: { id: true, username: true, display_name: true, avatar_url: true } },
@@ -561,39 +613,68 @@ postsRouter.get(
       // Over-fetch when location filtering is active to compensate for filtered-out posts
       take: userCoords ? Math.min((limit + 1) * 3, 150) : limit + 1,
     };
-    if (cursor) {
-      query.cursor = { id: cursor };
-      query.skip = 1;
-    }
-
     let rows: any[] = [];
-    try {
-      // audit-allow unbounded: query object already includes a bounded take derived from limit
-      rows = await prisma.post.findMany(query);
-    } catch (error: any) {
-      if (!isMissingPollSchemaError(error)) {
-        console.error('[posts] Failed to fetch posts:', error);
-        return res.status(500).json({ error: 'Failed to fetch posts' });
+    let lastScanned: any = null;
+    let exhausted = false;
+    // Bounded scan: keep sparse nearby results reachable without an unbounded query.
+    // A full scan budget returns a raw continuation, even if this page is empty.
+    for (let batch = 0; batch < (userCoords ? 10 : 1); batch++) {
+      let rawRows: any[];
+      try {
+        // audit-allow unbounded: query object already includes a bounded take derived from limit
+        rawRows = await prisma.post.findMany(query);
+      } catch (error: any) {
+        if (!isMissingPollSchemaError(error)) {
+          console.error('[posts] Failed to fetch posts:', error);
+          return res.status(500).json({ error: 'Failed to fetch posts' });
+        }
+        logPollSchemaFallback('GET /posts', error);
+        const fallbackQuery = { ...query, include: { ...query.include } };
+        delete fallbackQuery.include.poll;
+        // audit-allow unbounded: fallbackQuery preserves the same take-bound as query
+        rawRows = await prisma.post.findMany(fallbackQuery);
       }
-      logPollSchemaFallback('GET /posts', error);
-      const fallbackQuery = { ...query, include: { ...query.include } };
-      delete fallbackQuery.include.poll;
-      // audit-allow unbounded: fallbackQuery preserves the same take-bound as query
-      rows = await prisma.post.findMany(fallbackQuery);
-    }
-
-    // Apply location filter: keep posts without coords + posts within radius
-    if (userCoords) {
-      rows = rows.filter((post: any) => {
-        if (post.lat == null || post.lng == null) return true; // no location → always show
-        return (
-          haversineDistance(userCoords!.lat, userCoords!.lon, post.lat, post.lng) <= feedRadius
-        );
-      });
+      exhausted = rawRows.length < query.take;
+      lastScanned = rawRows[rawRows.length - 1] ?? lastScanned;
+      rows.push(
+        ...rawRows.filter((post: any) => {
+          if (!userCoords) return true;
+          if (post.lat == null || post.lng == null) return true; // no location → always show
+          return (
+            haversineDistance(userCoords!.lat, userCoords!.lon, post.lat, post.lng) <= feedRadius
+          );
+        })
+      );
+      if (rows.length > limit || exhausted) break;
+      const nextBoundary = await postPageBoundary(
+        encodePostPageCursor(lastScanned, hasTeamFilter),
+        async () => null,
+        hasTeamFilter
+      );
+      query.where = { AND: [where, nextBoundary] };
     }
 
     const items = rows.slice(0, limit);
-    const nextCursor = rows.length > limit ? rows[limit].id : null;
+    let nextCursor = postPageResponseCursor(rows, limit, hasTeamFilter);
+    if (rows.length <= limit && !exhausted && lastScanned) {
+      if (writesPostPageCursorV2()) {
+        nextCursor = encodePostPageCursor(lastScanned, hasTeamFilter);
+      } else {
+        // A legacy cursor names the first UNSEEN row, never lastScanned (which
+        // may already be in this page). Keep authorization on the bounded peek.
+        const afterScanned = await postPageBoundary(
+          encodePostPageCursor(lastScanned, hasTeamFilter),
+          async () => null,
+          hasTeamFilter
+        );
+        const firstUnscanned = await prisma.post.findFirst({
+          where: { AND: [where, afterScanned] },
+          orderBy,
+          select: { id: true },
+        });
+        nextCursor = firstUnscanned?.id ?? null;
+      }
+    }
 
     const postIds: string[] = items.map((p: any) => p.id);
     const authorIds: string[] = items.map((p: any) => p.author_id).filter(Boolean);
@@ -696,6 +777,7 @@ const locationSchema = z
 const mediaUrlMessage = MEDIA_URL_MESSAGE;
 const POST_MAX_DURATION_S = 90;
 const MAX_VIDEO_SIZE_BYTES = 150 * 1024 * 1024;
+const POST_CONTENT_MAX_LENGTH = 800;
 
 const createPostSchema = z
   .object({
@@ -706,6 +788,8 @@ const createPostSchema = z
       .regex(/^[a-zA-Z0-9_-]+$/)
       .optional(),
     title: z.string().min(1).max(200).optional(),
+    // Parse historical request envelopes for exact idempotent replay only.
+    // Every NEW write is capped at POST_CONTENT_MAX_LENGTH after replay lookup.
     content: z.string().max(4000).optional(),
     type: z.string().max(50).optional(),
     media_url: z.string().trim().min(1).refine(isAllowedPostMediaUrl, mediaUrlMessage).optional(),
@@ -818,6 +902,13 @@ postsRouter.post(
       return true;
     };
     if (await replayPost()) return;
+    if (data.content && data.content.length > POST_CONTENT_MAX_LENGTH) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        code: 'POST_CONTENT_TOO_LONG',
+        issues: [{ path: ['content'], message: 'Posts are limited to 800 characters.' }],
+      });
+    }
     // Normalize batch media: media_urls (new) takes precedence when present,
     // media_url (legacy single-item clients) is the fallback. The canonical
     // list is capped at 5 (PDF commandments: "up to 5 items per post"); the
@@ -1546,21 +1637,27 @@ postsRouter.get(
       commentWhere.author_id = { notIn: blockedIds };
     }
     const query: any = {
-      where: commentWhere,
+      where: {
+        AND: [
+          commentWhere,
+          await postPageBoundary(cursor, cursorId =>
+            prisma.comment.findFirst({
+              where: { ...commentWhere, id: cursorId },
+              select: { id: true, created_at: true },
+            })
+          ),
+        ],
+      },
       orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
       include: {
         author: { select: { id: true, username: true, display_name: true, avatar_url: true } },
       },
       take: limit + 1,
     };
-    if (cursor) {
-      query.cursor = { id: cursor };
-      query.skip = 1;
-    }
     // audit-allow unbounded: comment query object already includes take: limit + 1
     const rows = await prisma.comment.findMany(query);
     const items = rows.slice(0, limit);
-    const nextCursor = rows.length > limit ? rows[limit].id : null;
+    const nextCursor = postPageResponseCursor(rows, limit);
     res.json({ items, nextCursor });
   })
 );
@@ -2237,7 +2334,7 @@ postsRouter.patch(
     const userId = req.user!.id;
 
     const schema = z.object({
-      content: z.string().min(1).max(4000).optional(), // VAL-1: Aligned with frontend maxLength=4000
+      content: z.string().min(1).max(POST_CONTENT_MAX_LENGTH).optional(),
       title: z.string().max(200).optional(),
       is_pinned: z.boolean().optional(),
     });

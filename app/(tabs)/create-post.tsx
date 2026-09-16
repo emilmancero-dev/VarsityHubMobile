@@ -73,8 +73,11 @@ import { materializeICloudAssetIfNeeded } from '@/utils/materializeICloudAsset';
 import { pickerAllMediaTypesProp, pickerMediaTypeFor } from '@/utils/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
+
+const POST_CONTENT_MAX_LENGTH = 800;
+const POST_CONTENT_LIMIT_MESSAGE =
+  'Posts are limited to 800 characters. Shorten your text to continue.';
 
 // Media validation constants
 const ALLOWED_IMAGE_TYPES = [
@@ -108,26 +111,6 @@ const getFileSizeFromUri = async (uri: string): Promise<number> => {
   } catch (error) {
     if (__DEV__) console.warn('Could not determine file size:', error);
     return 0;
-  }
-};
-
-const prepareImageForPostUpload = async (uri: string, fileSize: number): Promise<string> => {
-  // Skip resize for small images (under 2MB) — already fast enough.
-  if (fileSize <= 2 * 1024 * 1024) return uri;
-
-  try {
-    const result = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1280 } }], {
-      compress: 0.8,
-      format: ImageManipulator.SaveFormat.JPEG,
-    });
-    return result.uri;
-  } catch (error: any) {
-    if (__DEV__)
-      console.warn(
-        '[CreatePost] Image manipulation failed, using original:',
-        error?.message || error
-      );
-    return uri;
   }
 };
 
@@ -186,6 +169,7 @@ function CreatePostScreen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [precisionBannerDismissed, setPrecisionBannerDismissed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cancellingUpload, setCancellingUpload] = useState(false);
   // Phase + the progress of THAT phase. `mediaUploadPercent` folds the two into
   // the single forward-only bar the user sees (utils/uploadProgress.ts).
   const [mediaPhase, setMediaPhase] = useState<MediaUploadPhase>('uploading');
@@ -244,17 +228,19 @@ function CreatePostScreen() {
   const draftLoadedRef = useRef(false);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      router.replace('/create');
-      return;
-    }
-    if (!(user as any)?.email_verified) {
-      // nav-safe: auth gate -> email verification
-      router.replace('/verify-identity?method=email');
-    }
-  }, [authLoading, router, user]);
+  useFocusEffect(
+    useCallback(() => {
+      if (authLoading) return;
+      if (!user) {
+        router.replace('/create');
+        return;
+      }
+      if (!(user as any)?.email_verified) {
+        // nav-safe: auth gate -> email verification
+        router.replace('/verify-identity?method=email');
+      }
+    }, [authLoading, router, user])
+  );
 
   // Reset trim state and content consent when media changes
   useEffect(() => {
@@ -418,20 +404,31 @@ function CreatePostScreen() {
   // Request location permission before event uploads. Event-page posts require
   // device-origin GPS server-side; asking only after media selection can waste
   // an upload and make the final create step look broken.
-  useEffect(() => {
-    const shouldRequestForSelectedEvent = Boolean(gameId) || Boolean(eventId);
-    const shouldRequestForSuggestions = !hasAutoSuggested && !gameId && !eventId;
-    if (
-      permissionGranted === false &&
-      (shouldRequestForSelectedEvent || shouldRequestForSuggestions)
-    ) {
-      requestPermission().catch(() => {
-        setLocationError(
-          "Unable to access device location. You can still post, but event suggestions won't be available."
-        );
-      });
-    }
-  }, [permissionGranted, hasAutoSuggested, eventId, gameId, postType, requestPermission]);
+  useFocusEffect(
+    useCallback(() => {
+      if (authLoading || !user?.email_verified) return;
+      const shouldRequestForSelectedEvent = Boolean(gameId) || Boolean(eventId);
+      const shouldRequestForSuggestions = !hasAutoSuggested && !gameId && !eventId;
+      if (
+        permissionGranted === false &&
+        (shouldRequestForSelectedEvent || shouldRequestForSuggestions)
+      ) {
+        requestPermission().catch(() => {
+          setLocationError(
+            "Unable to access device location. You can still post, but event suggestions won't be available."
+          );
+        });
+      }
+    }, [
+      authLoading,
+      user?.email_verified,
+      permissionGranted,
+      hasAutoSuggested,
+      eventId,
+      gameId,
+      requestPermission,
+    ])
+  );
 
   useEffect(() => {
     if (_locError) {
@@ -636,9 +633,8 @@ function CreatePostScreen() {
             return;
           }
 
-          const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
           prepared.push({
-            uri,
+            uri: a.uri,
             mime: mimeType,
             durationS: typeof a.duration === 'number' ? a.duration / 1000 : undefined,
           });
@@ -738,9 +734,8 @@ function CreatePostScreen() {
           return;
         }
 
-        const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
         setPicked({
-          uri,
+          uri: a.uri,
           type: media,
           mime: mimeType,
           durationS: typeof a.duration === 'number' ? a.duration / 1000 : undefined,
@@ -851,6 +846,15 @@ function CreatePostScreen() {
   ]);
 
   const onSubmit = async () => {
+    // Restored drafts and programmatic mention insertion can exceed maxLength.
+    // Preserve exact pending requests: only the server can confirm an old commit.
+    if (
+      content.length > POST_CONTENT_MAX_LENGTH &&
+      !recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload
+    ) {
+      setError(POST_CONTENT_LIMIT_MESSAGE);
+      return;
+    }
     // First, show preview
     const trimmedContent = content.trim();
     if (!trimmedContent && !picked?.uri) {
@@ -948,6 +952,10 @@ function CreatePostScreen() {
     const hadPendingPayload = Boolean(
       recoveryForOwner(recoveryRef.current, user?.id)?.pendingPayload
     );
+    if (!hadPendingPayload && content.length > POST_CONTENT_MAX_LENGTH) {
+      setError(POST_CONTENT_LIMIT_MESSAGE);
+      return;
+    }
     // 90s highlight cap: an over-limit pick must go through the trimmer (which
     // clamps its window to the cap) before it can post. Trimmed output is
     // capped by construction, so only the untrimmed original needs checking.
@@ -967,6 +975,7 @@ function CreatePostScreen() {
     submittingRef.current = true;
     const uploadController = new AbortController();
     uploadAbortRef.current = uploadController;
+    setCancellingUpload(false);
     setSavingPost(false);
     setSubmitting(true);
     setMediaPhase(picked?.type === 'video' ? 'compressing' : 'uploading');
@@ -1034,6 +1043,7 @@ function CreatePostScreen() {
         const prepared =
           picked.type === 'video'
             ? await prepareVideoForUpload(sourceUri, {
+                signal: uploadController.signal,
                 onCompressProgress: fraction => setPhaseProgress(fraction * 100),
               })
             : null;
@@ -1079,6 +1089,7 @@ function CreatePostScreen() {
         if (typeof res?.bytes === 'number') mediaMeta.media_bytes = res.bytes;
         if (typeof res?.duration === 'number') mediaMeta.media_duration_s = res.duration;
         await persistRecovery({
+          ...recoveryForOwner(recoveryRef.current, ownerId),
           ownerId,
           sourceUri: source,
           upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
@@ -1122,6 +1133,7 @@ function CreatePostScreen() {
           }
         }
         await persistRecovery({
+          ...recoveryForOwner(recoveryRef.current, ownerId),
           ownerId,
           sourceUri: source,
           upload: { url: finalMediaUrl, posterUrl: finalPosterUrl, meta: mediaMeta },
@@ -1190,7 +1202,8 @@ function CreatePostScreen() {
       setSavingPost(true);
       const pendingPayload = recoveryForOwner(recoveryRef.current, ownerId)?.pendingPayload || {
         ...payload,
-        client_request_id: newPostRequestId(),
+        client_request_id:
+          recoveryForOwner(recoveryRef.current, ownerId)?.clientRequestId || newPostRequestId(),
       };
       await persistRecovery({
         ...recoveryForOwner(recoveryRef.current, ownerId),
@@ -1293,6 +1306,8 @@ function CreatePostScreen() {
         setPostSuccess(true);
         setTimeout(() => safeGoBack(router, '/(tabs)/feed'), 800);
         return;
+      } else if (e?.status === 400 && e?.data?.code === 'POST_CONTENT_TOO_LONG') {
+        setError(POST_CONTENT_LIMIT_MESSAGE);
       } else if (issues.length) {
         setError('Please check your post and try again.');
       } else {
@@ -1367,6 +1382,7 @@ function CreatePostScreen() {
     } finally {
       submittingRef.current = false;
       uploadAbortRef.current = null;
+      setCancellingUpload(false);
       setSavingPost(false);
       setSubmitting(false);
       setPhaseProgress(0);
@@ -1525,17 +1541,18 @@ function CreatePostScreen() {
                   color: Colors[colorScheme].text,
                 },
               ]}
-              maxLength={4000}
+              maxLength={POST_CONTENT_MAX_LENGTH}
             />
             <Text style={[styles.helper, { color: Colors[colorScheme].mutedText }]}>
               Use # to tag teams and @ to mention players
             </Text>
-            {content.length > 800 ? (
+            {content.length > POST_CONTENT_MAX_LENGTH ? (
               <Text
                 testID="create-post-long-content-warning"
                 style={[styles.helper, { color: '#B8860B' }]}
               >
-                {content.length}/4000 — posts over 800 characters may be truncated in some views.
+                {content.length}/800 — shorten your text before posting. Your draft has not been
+                truncated.
               </Text>
             ) : null}
           </View>
@@ -2334,19 +2351,27 @@ function CreatePostScreen() {
                       marginTop: 4,
                     }}
                   >
-                    {mediaUploadLabel(mediaPhase, phaseProgress, mediaCompressShare)}
+                    {cancellingUpload
+                      ? 'Cancelling upload… waiting for media preparation to finish safely.'
+                      : mediaUploadLabel(mediaPhase, phaseProgress, mediaCompressShare)}
                   </Text>
                 </View>
               )}
 
               {submitting && !savingPost && (
                 <Pressable
-                  onPress={() => uploadAbortRef.current?.abort()}
+                  onPress={() => {
+                    setCancellingUpload(true);
+                    uploadAbortRef.current?.abort();
+                  }}
+                  disabled={cancellingUpload}
                   accessibilityRole="button"
-                  accessibilityLabel="Cancel upload"
+                  accessibilityLabel={cancellingUpload ? 'Cancelling upload' : 'Cancel upload'}
                   style={{ padding: 12, alignItems: 'center' }}
                 >
-                  <Text style={{ color: Colors[colorScheme].text }}>Cancel upload</Text>
+                  <Text style={{ color: Colors[colorScheme].text }}>
+                    {cancellingUpload ? 'Cancelling upload…' : 'Cancel upload'}
+                  </Text>
                 </Pressable>
               )}
               {submitting && savingPost && (

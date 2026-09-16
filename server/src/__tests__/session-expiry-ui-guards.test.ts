@@ -23,8 +23,13 @@ describe('session expiry UI guards', () => {
     expect(gameDetailsSource).toContain(
       "import { showUploadErrorAlert } from '@/utils/uploadErrorAlert';"
     );
-    expect(gameDetailsSource).toMatch(/logTag: 'story\.upload\.photo'/);
-    expect(gameDetailsSource).toMatch(/logTag: 'story\.upload\.video'/);
+    expect(gameDetailsSource).toContain("showStoryUploadError(err, 'story.upload.photo')");
+    expect(gameDetailsSource).toContain("showStoryUploadError(err, 'story.upload.video')");
+    const storyErrorHelper = gameDetailsSource.slice(
+      gameDetailsSource.indexOf('const showStoryUploadError ='),
+      gameDetailsSource.indexOf('const GameDetailsScreen =')
+    );
+    expect(storyErrorHelper).toMatch(/showUploadErrorAlert\(err,\s*\{[^}]*\blogTag\s*,/);
     expect(gameDetailsSource).not.toContain(
       "Alert.alert('Session expired', 'Please sign in again to upload stories.'"
     );

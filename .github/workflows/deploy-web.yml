@@ -1,7 +1,7 @@
 name: Deploy Web to Vercel
 
-# Auto-deploys the static web export to Vercel production on every push to
-# main that touches web-relevant code. Vercel's own Git integration can't be
+# Explicit release stage after candidate CI and backend runtime verification.
+# Confirm Vercel is still the intended host before dispatch. Its Git integration can't be
 # used directly here: it auto-detects the api/ directory as serverless
 # functions and fails on the server's TypeScript build (see
 # scripts/deploy-web-static.sh, which builds a clean api/-free deploy dir
@@ -11,15 +11,10 @@ name: Deploy Web to Vercel
 
 on:
   workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'server/**'
-      - 'docs/**'
-      - '.github/**'
-      - 'ios/**'
-      - 'android/**'
-      - '**/*.md'
+
+concurrency:
+  group: production-web
+  cancel-in-progress: false
 
 jobs:
   deploy:

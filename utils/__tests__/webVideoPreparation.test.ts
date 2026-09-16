@@ -30,3 +30,19 @@ it.each([0, 150 * 1024 * 1024 + 1])('rejects invalid browser video size %s', asy
   await expect(prepareVideoForUpload('blob:video')).rejects.toThrow('too large');
   expect(FileSystem.getInfoAsync).not.toHaveBeenCalled();
 });
+
+it('propagates browser cancellation and refuses a body completed after cancel', async () => {
+  const controller = new AbortController();
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    blob: async () => {
+      controller.abort();
+      return { size: 123456 };
+    },
+  })) as any;
+  await expect(
+    prepareVideoForUpload('blob:video', { signal: controller.signal })
+  ).rejects.toMatchObject({ name: 'AbortError' });
+  expect(global.fetch).toHaveBeenCalledWith('blob:video', { signal: controller.signal });
+  expect(FileSystem.getInfoAsync).not.toHaveBeenCalled();
+});

@@ -57,6 +57,46 @@ describe('share-landing — content-type branching', () => {
     eventFindUnique.mockReset().mockResolvedValue(null as any);
   });
 
+  it.each([
+    { proto: 'javascript:alert(1)//', host: 'varsityhub.app' },
+    { proto: 'https', host: 'attacker.example' },
+  ])('does not build public links from forwarded headers %p', async ({ proto, host }) => {
+    const res = await request(makeApp())
+      .get('/share?type=post&id=abc')
+      .set('Accept', 'text/html')
+      .set('Host', 'attacker.example')
+      .set('X-Forwarded-Proto', proto)
+      .set('X-Forwarded-Host', host);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('href="javascript:');
+    expect(res.text).not.toContain('attacker.example');
+    const origin = new URL(process.env.APP_BASE_URL || 'https://varsityhub.app').origin;
+    expect(res.text).toContain(`href="${origin}/share?type=post&amp;id=abc"`);
+    expect(res.text).toContain(`href="${origin}/privacy-policy"`);
+  });
+
+  it.each([
+    ['javascript:alert(1)', 'https://varsityhub.app'],
+    ['https://user:password@attacker.example', 'https://varsityhub.app'],
+    ['not-a-url', 'https://varsityhub.app'],
+    ['http://localhost:4000/config-path?ignored=1', 'http://localhost:4000'],
+    ['https://varsityhub.app/', 'https://varsityhub.app'],
+  ])('uses a safe configured public origin for %s', async (configured, origin) => {
+    const previous = process.env.APP_BASE_URL;
+    process.env.APP_BASE_URL = configured;
+    try {
+      const res = await request(makeApp()).get('/share?ref=one&x=two').set('Accept', 'text/html');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain(`href="${origin}/share?ref=one&amp;x=two"`);
+      expect(res.text).toContain(`href="${origin}/privacy-policy"`);
+      expect(res.text).not.toContain('attacker.example');
+      expect(res.text).not.toContain('href="javascript:');
+    } finally {
+      if (previous === undefined) delete process.env.APP_BASE_URL;
+      else process.env.APP_BASE_URL = previous;
+    }
+  });
+
   it('JSON client (Accept: application/json) falls through to API', async () => {
     const app = makeApp();
     const res = await request(app).get('/posts/abc').set('Accept', 'application/json');

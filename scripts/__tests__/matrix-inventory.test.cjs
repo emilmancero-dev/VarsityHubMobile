@@ -1,6 +1,61 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { scanSource, checkCoverage } = require('../audit-matrix.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
+const { scanSource, checkCoverage, evaluateWorkflowRegistry } = require('../audit-matrix.cjs');
+
+test('workflow readiness is based on claims and evidence, not raw surface count', () => {
+  assert.equal(typeof evaluateWorkflowRegistry, 'function');
+  const result = evaluateWorkflowRegistry(
+    {
+      claims: [
+        { id: 'CMD-A', status: 'CURRENT', workflows: ['FLOW-A'] },
+        { id: 'CMD-B', status: 'ROADMAP', workflows: [] },
+      ],
+      workflows: [
+        {
+          id: 'FLOW-A',
+          risk: 'high',
+          status: 'verified',
+          evidence: [{ type: 'automated', file: 'tests/a.test.ts', cases: ['works'] }],
+        },
+      ],
+    },
+    {
+      exists: file => file === 'tests/a.test.ts',
+      read: () => "test('works', () => {})",
+    }
+  );
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.summary.totalClaims, 2);
+  assert.equal(result.summary.verifiedCurrentClaims, 1);
+  assert.equal(result.summary.roadmapClaims, 1);
+  assert.equal(result.summary.releaseBlockingWorkflows, 0);
+});
+
+test('current claims without workflows and critical workflows without required evidence block release', () => {
+  const result = evaluateWorkflowRegistry(
+    {
+      claims: [
+        { id: 'CMD-A', status: 'CURRENT', workflows: [] },
+        { id: 'CMD-B', status: 'CURRENT', workflows: ['FLOW-B'] },
+      ],
+      workflows: [{ id: 'FLOW-B', risk: 'critical', status: 'verified', evidence: [] }],
+    },
+    { exists: () => false, read: () => '' }
+  );
+  assert.ok(result.errors.some(error => error.includes('CMD-A')));
+  assert.ok(result.errors.some(error => error.includes('FLOW-B')));
+  assert.equal(result.summary.releaseBlockingWorkflows, 1);
+});
+
+test('matrix runner disables Watchman for isolated server Jest suites', () => {
+  const runner = fs.readFileSync(path.join(__dirname, '..', 'run-matrix-audit.cjs'), 'utf8');
+  assert.match(
+    runner,
+    /\[\s*'--prefix',\s*'server',\s*'test',\s*'--',\s*'--watchman=false',\s*'--runInBand'/
+  );
+});
 test('discovers multiline routes, dynamic navigation, controls and API calls without comments', () => {
   const rows = scanSource(
     'app/tools.tsx',

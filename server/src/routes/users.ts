@@ -11,6 +11,7 @@ import { prisma } from '../lib/prisma.js';
 import {
   formatDobYmd,
   getUserAge,
+  isVerifiedAdult,
   parseDobLocal,
   requiresParentalConsent,
 } from '../lib/userAge.js';
@@ -37,6 +38,7 @@ import {
   isTeamHiddenFromViewer,
 } from '../lib/privacyUtils.js';
 import { isReservedUsername } from '../lib/reservedUsernames.js';
+import { serializeLiveWindow } from '../lib/geofencing.js';
 
 export const usersRouter = Router();
 registerIdValidation(usersRouter);
@@ -927,11 +929,11 @@ usersRouter.get(
   })
 );
 
-// GET /users/:id/event-pages — distinct event/game pages this user has
-// posted to. Owner "VARSITYHUB COMMANDMENTS" PDF: profile Events tab, shown
-// only once a user has posted to at least one event page. Single bounded
-// page, no cursor — a fan realistically posts to a handful of event pages
-// (not thousands), which keeps the dedup logic below simple and correct.
+// GET /users/:id/event-pages — event pages this user was verified at. The
+// EventPostingUnlock ledger is written by the first geofence-passing post/story
+// and survives content deletion, so this is actual presence rather than an RSVP
+// or an arbitrary post association. readProfileContentRequest and the team
+// checks below keep profile/team privacy server-authoritative.
 usersRouter.get(
   '/:id/event-pages',
   asyncHandler(async (req: AuthedRequest, res) => {
@@ -942,121 +944,94 @@ usersRouter.get(
       }
 
       const isAdmin = currentUserId ? await getIsAdmin(req as any) : false;
-      const excludedTeamIds = isAdmin ? [] : await getExcludedPrivateTeamIds(currentUserId);
-      const privateTeamPostWhere = buildPrivateTeamPostVisibilityWhere(excludedTeamIds);
-
-      // Not distinct at the DB level — the same event page can have posts
-      // with event_id set on some rows and null on others (e.g. a game whose
-      // linked event was attached after the first post). Over-fetch raw rows
-      // and dedupe by page key in application code, most-recent-post first.
-      const rows = await prisma.post.findMany({
+      const rows = await prisma.eventPostingUnlock.findMany({
         where: {
-          author_id: id,
-          deleted_at: null,
-          OR: [{ game_id: { not: null } }, { event_id: { not: null } }],
-          ...(privateTeamPostWhere ? { AND: [privateTeamPostWhere] } : {}),
+          user_id: id,
+          event: {
+            date: { lte: new Date() },
+            approval_status: 'approved',
+            status: { not: 'cancelled' },
+          },
         },
-        select: { game_id: true, event_id: true, created_at: true },
-        orderBy: { created_at: 'desc' },
-        take: 300,
+        select: {
+          event: {
+            select: {
+              id: true,
+              title: true,
+              date: true,
+              location: true,
+              banner_url: true,
+              event_type: true,
+              team_id: true,
+              game_id: true,
+              live_window_hours_after_start: true,
+              team: { select: { sport: true, primary_color: true } },
+              sportsLeague: { select: { sport_slug: true } },
+              proHomeTeam: { select: { league: true, primary_color: true } },
+              proAwayTeam: { select: { league: true, primary_color: true } },
+              game: {
+                select: {
+                  id: true,
+                  cover_image_url: true,
+                  banner_url: true,
+                  home_team_id: true,
+                  away_team_id: true,
+                  homeTeam: { select: { sport: true, primary_color: true } },
+                  awayTeam: { select: { sport: true, primary_color: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { unlocked_at: 'desc' },
+        take: 50,
       });
 
-      const pageOrder: string[] = [];
-      const pageKind: Record<string, 'game' | 'event'> = {};
-      for (const row of rows) {
-        const key = row.game_id || row.event_id;
-        if (!key || pageKind[key]) continue;
-        pageKind[key] = row.game_id ? 'game' : 'event';
-        pageOrder.push(key);
-        if (pageOrder.length >= 50) break;
-      }
-
-      const gameIds = pageOrder.filter(k => pageKind[k] === 'game');
-      const eventIds = pageOrder.filter(k => pageKind[k] === 'event');
-
-      const [games, events] = await Promise.all([
-        gameIds.length
-          ? prisma.game.findMany({
-              where: { id: { in: gameIds } },
-              select: {
-                id: true,
-                title: true,
-                date: true,
-                banner_url: true,
-                cover_image_url: true,
-                event_type: true,
-                home_team_id: true,
-                away_team_id: true,
-                home_team: true,
-                away_team: true,
-              },
-              take: gameIds.length,
-            })
-          : Promise.resolve([]),
-        eventIds.length
-          ? prisma.event.findMany({
-              where: { id: { in: eventIds } },
-              select: { id: true, title: true, date: true, banner_url: true, event_type: true },
-              take: eventIds.length,
-            })
-          : Promise.resolve([]),
-      ]);
-
-      // A fan's own post to a game whose team later went private shouldn't
-      // resurrect that team's page on their public profile.
-      const visibleGames = isAdmin
-        ? games
-        : (
-            await Promise.all(
-              games.map(async g => {
-                const [homeHidden, awayHidden] = await Promise.all([
-                  g.home_team_id ? isTeamHiddenFromViewer(g.home_team_id, currentUserId) : false,
-                  g.away_team_id ? isTeamHiddenFromViewer(g.away_team_id, currentUserId) : false,
-                ]);
-                return homeHidden || awayHidden ? null : g;
-              })
-            )
-          ).filter((g): g is (typeof games)[number] => g !== null);
-
-      const gameById = new Map(visibleGames.map(g => [g.id, g]));
-      const eventById = new Map(events.map(e => [e.id, e]));
-
-      const items = pageOrder
-        .map(key => {
-          if (pageKind[key] === 'game') {
-            const g = gameById.get(key);
-            if (!g) return null;
+      const items = (
+        await Promise.all(
+          rows.map(async row => {
+            const e = row.event;
+            if (!isAdmin) {
+              const teamIds = [e.team_id, e.game?.home_team_id, e.game?.away_team_id].filter(
+                (teamId): teamId is string => !!teamId
+              );
+              const hidden = await Promise.all(
+                teamIds.map(teamId => isTeamHiddenFromViewer(teamId, currentUserId))
+              );
+              if (hidden.some(Boolean)) return null;
+            }
+            const liveWindow = serializeLiveWindow(e.date, e.live_window_hours_after_start);
             return {
-              id: g.id,
-              game_id: g.id,
-              event_id: null,
-              type: 'game' as const,
-              title: g.title,
-              date: g.date instanceof Date ? g.date.toISOString() : g.date,
-              banner_url: g.banner_url,
-              cover_image_url: g.cover_image_url,
-              event_type: g.event_type,
-              home_team: g.home_team,
-              away_team: g.away_team,
+              id: e.id,
+              game_id: e.game_id,
+              event_id: e.id,
+              type: 'event' as const,
+              source_type: 'event' as const,
+              title: e.title,
+              date: e.date instanceof Date ? e.date.toISOString() : e.date,
+              location: e.location ?? null,
+              banner_url: e.banner_url ?? e.game?.banner_url ?? null,
+              cover_image_url: e.game?.cover_image_url ?? null,
+              event_type: e.event_type,
+              sport:
+                e.team?.sport ??
+                e.game?.homeTeam?.sport ??
+                e.game?.awayTeam?.sport ??
+                e.sportsLeague?.sport_slug ??
+                null,
+              pro_league: e.proHomeTeam?.league ?? e.proAwayTeam?.league ?? null,
+              pro_home_color:
+                e.proHomeTeam?.primary_color ??
+                e.game?.homeTeam?.primary_color ??
+                e.team?.primary_color ??
+                null,
+              pro_away_color:
+                e.proAwayTeam?.primary_color ?? e.game?.awayTeam?.primary_color ?? null,
+              ...liveWindow,
             };
-          }
-          const e = eventById.get(key);
-          if (!e) return null;
-          return {
-            id: e.id,
-            game_id: null,
-            event_id: e.id,
-            type: 'event' as const,
-            title: e.title,
-            date: e.date instanceof Date ? e.date.toISOString() : e.date,
-            banner_url: e.banner_url,
-            cover_image_url: null,
-            event_type: e.event_type,
-            home_team: null,
-            away_team: null,
-          };
-        })
-        .filter((item): item is NonNullable<typeof item> => item !== null);
+          })
+        )
+      ).filter((item): item is NonNullable<typeof item> => item !== null);
 
       return res.json({ items, count: items.length });
     } catch (err) {
@@ -1668,6 +1643,8 @@ usersRouter.get(
       },
       select: {
         ...publicUserSelect,
+        date_of_birth: true,
+        preferences: true,
         role: true,
         approval_status: true,
         _count: { select: { followers: { where: { status: 'accepted' } } } },
@@ -1698,6 +1675,8 @@ usersRouter.get(
 
     // Sort: mutual score desc, then follower count desc
     const scored = candidates
+      // Canonical age policy fails closed for unknown DOB, including legacy rows.
+      .filter(candidate => isVerifiedAdult(candidate))
       .map(c => ({ ...c, mutualScore: mutualScores.get(c.id) ?? 0 }))
       .sort((a, b) => b.mutualScore - a.mutualScore || b._count.followers - a._count.followers)
       .slice(0, limit);

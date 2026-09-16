@@ -31,7 +31,7 @@ const JAVITS = { latitude: 40.75687, longitude: -74.001762 };
 const FEST_DAY1 = {
   date: '2026-07-17T03:39:26.960Z',
   starts_at: '2026-07-16T17:00:00.000Z',
-  live_from: null, // no early cutoff — posting open up to live_until (owner rule 2026-08-28)
+  live_from: '2026-07-16T15:00:00.000Z', // 2h before start (owner rule 2026-09-14)
   live_until: '2026-07-17T11:00:00.000Z',
   ...JAVITS,
 };
@@ -57,14 +57,13 @@ describe('server-computed bounds win over the game row date', () => {
     expect(isGameOver(FEST_DAY1, at('2026-07-17T11:00:01Z'))).toBe(true);
   });
 
-  it('is not LIVE before it starts, but posting has no early cutoff (open before start)', () => {
-    // The LIVE badge only lights at start, but posting is open well before it —
-    // no early cutoff (owner rule 2026-08-28), geofence is the only presence gate.
+  it('opens posting two hours before start while LIVE begins at start', () => {
     expect(isGameLive(FEST_DAY1, at('2026-07-16T16:30:00Z'))).toBe(false);
     expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T16:30:00Z'))).toBe(true);
-    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T05:30:00Z'))).toBe(true);
-    // Even a full day early, posting is open (it only closes at live_until).
-    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-15T12:00:00Z'))).toBe(true);
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T14:59:59.999Z'))).toBe(false);
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-16T15:00:00Z'))).toBe(true);
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-15T12:00:00Z'))).toBe(false);
+    expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-17T11:00:00Z'))).toBe(true);
     // Past the cutoff it closes.
     expect(isPostingWindowOpen(FEST_DAY1, at('2026-07-17T11:00:01Z'))).toBe(false);
   });
@@ -73,9 +72,11 @@ describe('server-computed bounds win over the game row date', () => {
 describe('fallback for payloads without server bounds', () => {
   const legacy = { date: '2026-07-16T17:00:00.000Z' };
 
-  it('falls back to the server default (3h), not the old 2h feed constant', () => {
+  it('falls back to the server default six hours after start', () => {
     expect(isGameLive(legacy, at('2026-07-16T19:30:00Z'))).toBe(true); // 2.5h in
-    expect(isGameLive(legacy, at('2026-07-16T20:30:00Z'))).toBe(false); // past 3h
+    expect(isGameLive(legacy, at('2026-07-16T20:30:00Z'))).toBe(true);
+    expect(isGameLive(legacy, at('2026-07-16T23:00:00Z'))).toBe(true);
+    expect(isGameLive(legacy, at('2026-07-16T23:00:00.001Z'))).toBe(false);
   });
 
   it('returns null bounds when there is no usable date at all', () => {

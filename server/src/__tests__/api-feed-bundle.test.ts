@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
+import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import { describeDb } from './helpers/dbTestSuite.js';
 import bcrypt from 'bcrypt';
 import request from 'supertest';
@@ -232,6 +232,37 @@ describeDb('GET /feed/bundle', () => {
     }
   });
 
+  it('computes only people posts when that is the requested section', async () => {
+    const postReads = jest.spyOn(prisma.post, 'findMany');
+    const adReads = jest.spyOn(prisma.ad, 'findMany');
+    const notifications = jest.spyOn(prisma.notification, 'count');
+    const messages = jest.spyOn(prisma.message, 'count');
+    try {
+      const res = await request(app)
+        .get('/feed/bundle')
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .query({ sections: 'posts', posts_limit: 2 })
+        .expect(200);
+      expect(res.body.posts.items.map((p: { id: string }) => p.id)).toContain(postIds[0]);
+      expect(Object.keys(res.body).sort()).toEqual(['errors', 'posts']);
+      expect(postReads).toHaveBeenCalledTimes(1);
+      expect(adReads).not.toHaveBeenCalled();
+      expect(notifications).not.toHaveBeenCalled();
+      expect(messages).not.toHaveBeenCalled();
+    } finally {
+      jest.restoreAllMocks();
+    }
+  });
+  it.each(['', 'posts,unknown', 'posts,', 'unknown'])(
+    'rejects invalid section selection %s',
+    async sections => {
+      await request(app)
+        .get('/feed/bundle')
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .query({ sections })
+        .expect(400);
+    }
+  );
   it('returns the bundled feed contract with unread counts and reservation-free ads', async () => {
     const res = await request(app)
       .get('/feed/bundle')

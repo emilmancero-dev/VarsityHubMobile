@@ -163,4 +163,5 @@ tmp-*.jpg
 
 # Generated matrix inventory and verification logs
 /artifacts/matrix-audit/
+/artifacts/commandments-verification.json
 .env*

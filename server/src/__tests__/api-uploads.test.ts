@@ -136,7 +136,7 @@ describeDb('Uploads API Endpoints', () => {
 
       expect([200, 503]).toContain(res.statusCode);
       if (res.statusCode === 503) {
-        expect(res.body.error).toContain('Direct upload not available');
+        expect(res.body.error).toBe('Uploads are temporarily unavailable. Please try again later.');
       }
     });
   });

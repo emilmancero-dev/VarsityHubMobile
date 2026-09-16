@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Image as RNImage,
   InteractionManager,
@@ -35,7 +36,6 @@ import { getAuthSnapshot } from '@/utils/authState';
 import { toUserMessage } from '@/utils/toUserMessage';
 import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { format } from 'date-fns';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
@@ -49,7 +49,6 @@ import {
   mergeFeedGames,
   type FeedGameQueryPlan,
 } from '@/utils/feedGameQueries';
-import { getDeterministicGameCardGradient, proGameCardGradient } from '@/utils/feedGameCard';
 import {
   dedupeFeedEntities,
   filterProEventsAlreadyRepresentedByGames,
@@ -61,9 +60,8 @@ import {
 } from '@/utils/feedNormalization';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { getLiveBounds, isGameLive, isGameOver, shouldPinToFeed } from '@/utils/liveWindow';
-import { getVenuePhotoFallback } from '@/utils/venuePhotoFallback';
-import { HAS_POSTS_COLOR } from '@/utils/mapMarkerColor';
 import { optimizeImageUrl } from '@/utils/imageUrl';
+import { EventFeedCard, EventPostCountBadge } from '@/components/ui/EventFeedCard';
 import { prefetchGameSummary } from '@/utils/prefetch';
 import {
   getNotificationHrefForUser,
@@ -112,10 +110,14 @@ const RSVPBadge = ({
   gameItem,
   initialRsvp,
   onRSVPChange,
+  isLive = false,
+  postCount = 0,
 }: {
   gameItem: any;
   initialRsvp?: { going: boolean; count: number };
   onRSVPChange?: () => void;
+  isLive?: boolean;
+  postCount?: number;
 }) => {
   const colorScheme = useColorScheme();
   const router = useRouter();
@@ -185,54 +187,47 @@ const RSVPBadge = ({
     }
   };
 
-  const badgeText = isEventPast
-    ? 'Watching closed'
-    : isRsvped || rsvpCount > 0
-      ? `📺 ${rsvpCount}`
-      : '📺';
-  const badgeA11yLabel = isEventPast
-    ? `Watching closed. ${rsvpCount} watched`
-    : isRsvped
-      ? `${rsvpCount} watching - Tap to undo`
-      : rsvpCount > 0
-        ? `${rsvpCount} watching - Tap to mark as watching`
-        : 'Tap to mark as watching';
+  // Owner ask (Sept 2026): once an event is live — and for every event that has
+  // already happened — "Watching closed" is replaced by a counter of how many
+  // posts the event page has. Watching is only a pre-event action, so the toggle
+  // stays only for future events.
+  const showPostCounter = isLive || isEventPast;
+
+  if (showPostCounter) {
+    return <EventPostCountBadge count={postCount} testID="feed-post-counter" />;
+  }
+
+  const badgeText = isRsvped || rsvpCount > 0 ? `📺 ${rsvpCount}` : '📺';
+  const badgeA11yLabel = isRsvped
+    ? `${rsvpCount} watching - Tap to undo`
+    : rsvpCount > 0
+      ? `${rsvpCount} watching - Tap to mark as watching`
+      : 'Tap to mark as watching';
 
   return (
     <Pressable
       testID="feed-rsvp-button"
       onPress={handleRSVP}
-      disabled={isLoading || isEventPast}
+      disabled={isLoading}
       style={{
         position: 'absolute',
         right: 14,
         bottom: 14,
-        backgroundColor: isEventPast
-          ? 'rgba(127, 29, 29, 0.92)'
-          : isRsvped
-            ? 'rgba(34, 197, 94, 0.9)'
-            : colorScheme === 'dark'
-              ? 'rgba(30,41,59,0.85)'
-              : 'rgba(0,0,0,0.75)',
-        paddingHorizontal: isEventPast ? 10 : 12,
+        backgroundColor: isRsvped
+          ? 'rgba(34, 197, 94, 0.9)'
+          : colorScheme === 'dark'
+            ? 'rgba(30,41,59,0.85)'
+            : 'rgba(0,0,0,0.75)',
+        paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 20,
         zIndex: 1000,
-        opacity: isLoading || isEventPast ? 0.6 : 1,
+        opacity: isLoading ? 0.6 : 1,
       }}
       accessibilityRole={Platform.OS === 'web' ? undefined : 'button'}
       accessibilityLabel={badgeA11yLabel}
     >
-      <Text
-        style={{
-          color: 'white',
-          fontSize: isEventPast ? 11 : 12,
-          fontWeight: isEventPast ? '700' : '600',
-          letterSpacing: isEventPast ? 0.2 : 0,
-        }}
-      >
-        {badgeText}
-      </Text>
+      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{badgeText}</Text>
     </Pressable>
   );
 };
@@ -302,6 +297,9 @@ type FeedGameCardProps = {
   // Owner ask (Sept 2026): a live card's border goes red -> gold once someone
   // has posted about it. Undefined/false renders the original red.
   hasPosts?: boolean;
+  // Total posts on the event page — shown as the counter that replaces the
+  // "Watching closed" pill once the event is live or has occurred.
+  postCount?: number;
   testIDPrefix: string;
   voteSummary: VotePreviewEntry | null;
   rsvp: { going: boolean; count: number } | undefined;
@@ -319,6 +317,7 @@ const FeedGameCard = memo(function FeedGameCard({
   gameItem,
   isLive,
   hasPosts,
+  postCount,
   testIDPrefix,
   voteSummary,
   rsvp,
@@ -326,152 +325,33 @@ const FeedGameCard = memo(function FeedGameCard({
   onPress,
   onRSVPChange,
 }: FeedGameCardProps) {
-  const raw = gameItem as any;
   const isEventOnly = gameItem.source_type === 'event';
-  const firstMediaUrl =
-    Array.isArray(raw?.media) && raw.media.length > 0
-      ? raw.media[0]?.thumbnail_url || raw.media[0]?.url || null
-      : Array.isArray(raw?.posts) && raw.posts.length > 0
-        ? raw.posts[0]?.media_url || raw.posts[0]?.thumbnail_url || null
-        : null;
-  const venuePhoto = raw?.venue_photo ?? getVenuePhotoFallback(gameItem.location);
-  const venuePhotoUrl = venuePhoto?.url || null;
-  const banner =
-    gameItem.cover_image_url || raw?.banner_url || venuePhotoUrl || firstMediaUrl || null;
-  const hasBanner = typeof banner === 'string' && banner.length > 0;
-  // Venue-photo attribution is intentionally NOT shown on the feed card (owner
-  // ask 2026-08-06 — it cluttered the card preview). The CC BY-SA credit is
-  // rendered in the event page footer instead (GameDetailsScreen
-  // `venueCreditFooter`), where the photo is shown full-bleed as the hero.
-  // Pro games have no banner (and no logo, by design) — brand the card with the
-  // two teams' accent colors so it isn't a blank dark box. Non-pro games keep
-  // the deterministic gradient.
-  const gradient =
-    proGameCardGradient(raw?.pro_home_color, raw?.pro_away_color) ??
-    getDeterministicGameCardGradient(gameItem.id, gameItem.title);
-  // Display the SERVER-AUTHORITATIVE start, not the game row's own date. The
-  // server derives starts_at from the linked Event (serializeLiveWindow in
-  // lib/geofencing.ts), and the two genuinely disagree — a game row's date can
-  // be nudged independently of its event, which is what made Fanatics Fest
-  // Day 1 render "Jul 17, 3:05 AM" for a 1:00 PM Jul 16 event. isGameLive()
-  // already reads starts_at, so reading date here made the card's own LIVE
-  // badge and its printed time disagree. Fall back to date for payloads
-  // predating the server-computed bounds.
-  const startsAtMs = getLiveBounds(gameItem)?.startsAt;
-  const displayStart =
-    typeof startsAtMs === 'number' && !Number.isNaN(startsAtMs)
-      ? new Date(startsAtMs)
-      : gameItem.date
-        ? new Date(gameItem.date)
-        : null;
-  const eventDate = displayStart ? format(displayStart, 'MMM d') : 'TBD';
-  const eventTime = displayStart ? format(displayStart, 'h:mm a') : '';
-  const locationText = gameItem.location ? String(gameItem.location).split(',')[0] : 'Location TBD';
-  const reviewsCount =
-    typeof raw?.reviews_count === 'number'
-      ? raw.reviews_count
-      : Array.isArray(raw?.reviews)
-        ? raw.reviews.length
-        : raw?._count && typeof raw._count.reviews === 'number'
-          ? raw._count.reviews
-          : 0;
-  const mediaCount =
-    typeof raw?.media_count === 'number'
-      ? raw.media_count
-      : Array.isArray(raw?.media)
-        ? raw.media.length
-        : 0;
   const voteText = voteSummary
     ? `${voteSummary.teamALabelShort} ${voteSummary.pctA}% | ${voteSummary.teamBLabelShort} ${voteSummary.pctB}%`
     : null;
-  const scoreText =
-    typeof raw?.home_score === 'number' && typeof raw?.away_score === 'number'
-      ? `${raw.home_score} - ${raw.away_score}`
-      : null;
-  const entityLabel = isEventOnly ? 'Event' : 'Game';
 
   return (
-    <Pressable
+    <EventFeedCard
+      item={gameItem as any}
+      colorScheme={colorScheme}
+      isLive={isLive}
+      hasPosts={hasPosts}
+      voteText={voteText}
       testID={`${testIDPrefix}-game-card-${gameItem.id}`}
-      style={[
-        styles.singleEventCard,
-        isLive ? { borderWidth: 2, borderColor: hasPosts ? HAS_POSTS_COLOR : '#EF4444' } : null,
-      ]}
       onPressIn={() => {
         if (!isEventOnly) prefetchGameSummary(String(gameItem.id));
       }}
       onPress={() => onPress(gameItem)}
-      accessibilityRole="button"
-      accessibilityLabel={`${gameItem.title || entityLabel} on ${eventDate}${eventTime ? ` at ${eventTime}` : ''}${isLive ? ' — LIVE NOW' : ''}`}
-    >
-      <LinearGradient
-        colors={gradient}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-      {hasBanner && <FullBleedCardImage uri={optimizeImageUrl(banner!, 400) || banner!} />}
-      <LinearGradient
-        colors={
-          colorScheme === 'dark'
-            ? ['rgba(15,23,42,0.1)', 'rgba(15,23,42,0.9)']
-            : ['rgba(15,23,42,0.05)', 'rgba(15,23,42,0.85)']
-        }
-        style={[styles.gridShade, { pointerEvents: 'none' }]}
-      />
-      <View style={styles.gridContent}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <View style={styles.gridDateChip}>
-            <MaterialIcons name="event" size={12} color="#FFFFFF" />
-            <Text style={styles.gridDateText}>{eventDate}</Text>
-          </View>
-          {isLive ? (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: '#EF4444',
-                borderRadius: 4,
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                gap: 4,
-              }}
-            >
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' }} />
-              <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>
-                LIVE
-              </Text>
-            </View>
-          ) : null}
-        </View>
-        <Text style={styles.gridTitle} numberOfLines={2}>
-          {gameItem.title ? String(gameItem.title) : entityLabel}
-        </Text>
-        <Text style={styles.gridMeta} numberOfLines={1}>
-          {scoreText
-            ? `${scoreText} • ${eventTime ? `${eventTime} • ${locationText}` : locationText}`
-            : eventTime
-              ? `${eventTime} • ${locationText}`
-              : locationText}
-        </Text>
-        <View style={styles.gridStatsRow}>
-          <View style={styles.gridStat}>
-            <MaterialIcons name="chat-bubble-outline" size={12} color="#F9FAFB" />
-            <Text style={styles.gridStatText}>{reviewsCount}</Text>
-          </View>
-          <View style={styles.gridStat}>
-            <MaterialIcons name="image" size={12} color="#F9FAFB" />
-            <Text style={styles.gridStatText}>{mediaCount}</Text>
-          </View>
-        </View>
-        {voteText ? (
-          <Text style={styles.gridVoteText} numberOfLines={1}>
-            {voteText}
-          </Text>
-        ) : null}
-      </View>
-      <RSVPBadge gameItem={gameItem} initialRsvp={rsvp} onRSVPChange={onRSVPChange} />
-    </Pressable>
+      badge={
+        <RSVPBadge
+          gameItem={gameItem}
+          initialRsvp={rsvp}
+          onRSVPChange={onRSVPChange}
+          isLive={isLive}
+          postCount={postCount}
+        />
+      }
+    />
   );
 });
 
@@ -525,8 +405,11 @@ export default function FeedScreen() {
   const [voteSummaries, setVoteSummaries] = useState<Record<string, VotePreviewEntry>>({});
   // Owner ask (Sept 2026): a live game that gets a post should move to the top
   // of its section and its border should go from red to gold. Keyed by game id.
-  const postsActivityRef = useRef<Record<string, boolean>>({});
-  const [postsActivity, setPostsActivity] = useState<Record<string, boolean>>({});
+  // Post counts per live/recent event id, keyed by game/event id. The count
+  // drives both the gold-border promotion (count > 0) and the post-counter pill
+  // that replaces "Watching closed".
+  const postsActivityRef = useRef<Record<string, number>>({});
+  const [postsActivity, setPostsActivity] = useState<Record<string, number>>({});
   const rsvpSummariesRef = useRef<Record<string, { going: boolean; count: number }>>({});
   const [rsvpSummaries, setRsvpSummaries] = useState<
     Record<string, { going: boolean; count: number }>
@@ -557,6 +440,12 @@ export default function FeedScreen() {
   const feedQueryPlanRef = useRef<FeedGameQueryPlan | null>(null);
   const feedBundleParamsRef = useRef<FeedBundleParams | null>(null);
   const hasFocusedOnceRef = useRef(false);
+  const postsPollInFlightRef = useRef(false);
+  const unreadPollInFlightRef = useRef(false);
+  const refreshUnreadRef = useRef<() => Promise<void>>(async () => {});
+  const gamesForPollingRef = useRef(games);
+  gamesForPollingRef.current = games;
+  const pollingScopeRef = useRef<() => boolean>(() => false);
   const LOAD_COOLDOWN_MS = 30_000;
 
   useEffect(() => {
@@ -601,39 +490,52 @@ export default function FeedScreen() {
     }
   }, []);
 
-  // Only live games/events matter for the gold-border/top-of-feed promotion,
-  // so this stays a small, cheap batch — not every card in the feed. Event-only
+  // Live AND past events need post counts: live cards get the gold-border/
+  // top-of-feed promotion (count > 0), and every live-or-past card shows the
+  // post-counter pill in place of "Watching closed" (owner ask, Sept 2026).
+  // Future cards keep the watch toggle, so they're skipped here. Event-only
   // pages (source_type === 'event') are included too — /games/posts-summary
   // falls back to a standalone-event lookup for any id that isn't a Game, so
   // they can go gold on the feed the same way they already can on the map
   // (owner "commandments" parity rule, 2026-09-14).
-  const preloadPostsActivity = useCallback(async (gameList: GameItem[]) => {
-    const now = Date.now();
-    const ids = gameList
-      .filter(game => isGameLive(game, now))
-      .map(game => String(game.id))
-      .filter(id => id)
-      .slice(0, 50);
-    if (!ids.length) return;
-    try {
-      const batch = await Game.postsSummaryBatch(ids);
-      const next = { ...postsActivityRef.current };
-      let changed = false;
-      ids.forEach(id => {
-        const value = Boolean((batch as Record<string, boolean>)?.[id]);
-        if (next[id] !== value) {
-          next[id] = value;
-          changed = true;
+  const preloadPostsActivity = useCallback(
+    async (gameList: GameItem[], isCurrent = pollingScopeRef.current): Promise<void> => {
+      if (!isCurrent() || postsPollInFlightRef.current) return;
+      const now = Date.now();
+      const ids = gameList
+        .filter(game => isGameLive(game, now) || isGameOver(game, now))
+        .map(game => String(game.id))
+        .filter(id => id)
+        .slice(0, 50);
+      if (!ids.length) return;
+      postsPollInFlightRef.current = true;
+      try {
+        const batch = await Game.postsSummaryBatch(ids);
+        if (!isCurrent()) return;
+        const next = { ...postsActivityRef.current };
+        let changed = false;
+        ids.forEach(id => {
+          const value = Number((batch as Record<string, number>)?.[id] ?? 0);
+          if (next[id] !== value) {
+            next[id] = value;
+            changed = true;
+          }
+        });
+        if (changed) {
+          setPostsActivity(next);
+          postsActivityRef.current = next;
         }
-      });
-      if (changed) {
-        setPostsActivity(next);
-        postsActivityRef.current = next;
+      } catch (err) {
+        if (__DEV__) console.warn('Posts activity batch failed', err);
+      } finally {
+        postsPollInFlightRef.current = false;
+        if (!isCurrent() && pollingScopeRef.current()) {
+          void preloadPostsActivity(gamesForPollingRef.current, pollingScopeRef.current);
+        }
       }
-    } catch (err) {
-      if (__DEV__) console.warn('Posts activity batch failed', err);
-    }
-  }, []);
+    },
+    []
+  );
 
   const preloadRsvpSummaries = useCallback(async (gameList: GameItem[]) => {
     const now = Date.now();
@@ -697,7 +599,17 @@ export default function FeedScreen() {
       // Performance: skip silent reloads if data is fresh (< 30s old).
       // force=true (explicit pull-to-refresh) always refetches — a user pull
       // must never be a no-op.
-      if (silent && !force && Date.now() - lastLoadTimestampRef.current < LOAD_COOLDOWN_MS) return;
+      const invalidated = queryClient.getQueryState([
+        'feed-game-window',
+        user?.id ?? 'guest',
+      ])?.isInvalidated;
+      if (
+        silent &&
+        !force &&
+        !invalidated &&
+        Date.now() - lastLoadTimestampRef.current < LOAD_COOLDOWN_MS
+      )
+        return;
       // Deduplicate concurrent load calls
       if (loadInFlightRef.current && silent) return;
       loadInFlightRef.current = true;
@@ -716,24 +628,13 @@ export default function FeedScreen() {
             return null;
           });
 
-        // Resolve viewer coords BEFORE the games queries so the server can
-        // select nearest-first games ("always show games closest to them").
-        // Last-known position only — never getCurrentPositionAsync here, it
-        // can block the feed for seconds. No coords is fine: the server falls
-        // back to the signed-in viewer's zip preference. Coords are rounded
-        // to 2 decimals (~1km) so cache keys stay stable across small moves.
-        let viewerCoords: { lat: number; lng: number } | null = null;
+        // Last-known position supports at-venue pinning only. Feed's game
+        // requests are global; device coordinates must not change cache identity.
         try {
           const { status } = await Location.getForegroundPermissionsAsync();
           if (status === 'granted') {
             const loc = await Location.getLastKnownPositionAsync().catch(() => null);
             if (loc) {
-              viewerCoords = {
-                lat: Math.round(loc.coords.latitude * 100) / 100,
-                lng: Math.round(loc.coords.longitude * 100) / 100,
-              };
-              // Unrounded — the at-venue check runs against a 3km radius, which
-              // the ~1km rounding above would blur.
               setViewerPosition({
                 latitude: loc.coords.latitude,
                 longitude: loc.coords.longitude,
@@ -751,21 +652,27 @@ export default function FeedScreen() {
         // Upcoming and the past recap are separate queries with separate page
         // budgets (see utils/feedGameQueries.ts); the upcoming query is the
         // primary one — it owns the pagination cursor and the error state.
-        const queryPlan = buildFeedGameQueries(Date.now());
-        const proLookaheadTo = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString();
+        // Cache the window itself with the pages so remounts reuse their exact
+        // bounds. A refresh or stale window gets a new snapshot; cursors retain
+        // the originating plan via feedQueryPlanRef.
+        const viewerKey = user?.id ?? 'guest';
+        const queryPlan = await queryClient.fetchQuery({
+          queryKey: ['feed-game-window', viewerKey],
+          queryFn: () => buildFeedGameQueries(Date.now()),
+          staleTime: force ? 0 : LOAD_COOLDOWN_MS,
+        });
+        const proLookaheadTo = new Date(
+          Date.parse(queryPlan.past.options.dateTo!) + 45 * 24 * 60 * 60 * 1000
+        ).toISOString();
         feedQueryPlanRef.current = queryPlan;
         // First paint waits only for the core game pages. Pro/NCAA/event-only
         // rows are useful enrichment, but they should not hold the feed spinner.
         const [upcomingData, pastGamesData, marqueeGamesData] = await Promise.all([
           queryClient
             .fetchQuery({
-              queryKey: [
-                'feed-games-upcoming',
-                queryPlan.upcoming.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
+              queryKey: ['feed-games-upcoming', viewerKey, queryPlan.upcoming.options.dateFrom],
               queryFn: () => Game.list(queryPlan.upcoming.sort, queryPlan.upcoming.options),
+              staleTime: force ? 0 : LOAD_COOLDOWN_MS,
             })
             .catch((err: any) => {
               if (__DEV__) console.error('[Feed] Failed to load games:', err);
@@ -781,13 +688,9 @@ export default function FeedScreen() {
             }),
           queryClient
             .fetchQuery({
-              queryKey: [
-                'feed-games-past',
-                queryPlan.past.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
+              queryKey: ['feed-games-past', viewerKey, queryPlan.past.options.dateFrom],
               queryFn: () => Game.list(queryPlan.past.sort, queryPlan.past.options),
+              staleTime: force ? 0 : LOAD_COOLDOWN_MS,
             })
             .catch((err: any) => {
               if (__DEV__) console.warn('[Feed] Failed to load past games:', err);
@@ -795,13 +698,9 @@ export default function FeedScreen() {
             }),
           queryClient
             .fetchQuery({
-              queryKey: [
-                'feed-games-marquee',
-                queryPlan.marquee.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
+              queryKey: ['feed-games-marquee', viewerKey, queryPlan.marquee.options.dateFrom],
               queryFn: () => Game.list(queryPlan.marquee.sort, queryPlan.marquee.options),
+              staleTime: force ? 0 : LOAD_COOLDOWN_MS,
             })
             .catch((err: any) => {
               if (__DEV__) console.warn('[Feed] Failed to load marquee games:', err);
@@ -856,7 +755,12 @@ export default function FeedScreen() {
             ] = await Promise.all([
               queryClient
                 .fetchQuery({
-                  queryKey: ['feed-pro-events-upcoming', queryPlan.upcoming.options.dateFrom],
+                  queryKey: [
+                    'feed-pro-events-upcoming',
+                    viewerKey,
+                    queryPlan.upcoming.options.dateFrom,
+                  ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -878,9 +782,11 @@ export default function FeedScreen() {
                 .fetchQuery({
                   queryKey: [
                     'feed-pro-events-past',
+                    viewerKey,
                     queryPlan.past.options.dateFrom,
                     queryPlan.past.options.dateTo ?? null,
                   ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -902,9 +808,11 @@ export default function FeedScreen() {
                 .fetchQuery({
                   queryKey: [
                     'feed-varsityhub-events-upcoming',
+                    viewerKey,
                     queryPlan.upcoming.options.dateFrom,
                     queryPlan.upcoming.options.dateTo ?? null,
                   ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -925,9 +833,11 @@ export default function FeedScreen() {
                 .fetchQuery({
                   queryKey: [
                     'feed-varsityhub-events-past',
+                    viewerKey,
                     queryPlan.past.options.dateFrom,
                     queryPlan.past.options.dateTo ?? null,
                   ],
+                  staleTime: force ? 0 : LOAD_COOLDOWN_MS,
                   queryFn: () =>
                     Event.filter(
                       {
@@ -1196,14 +1106,20 @@ export default function FeedScreen() {
         const params: FeedBundleParams = {
           ...(feedBundleParamsRef.current ?? {}),
           posts_limit: SOCIAL_POSTS_PAGE_SIZE,
-          highlights_limit: 1,
-          ads_limit: 1,
+          sections: [isPeople ? 'posts' : 'posts_followed_teams'],
           ...(isPeople ? { posts_cursor: cursor } : { posts_followed_teams_cursor: cursor }),
         };
         const bundle = await Feed.bundle(params);
         const bundleErrors = Array.isArray((bundle as any)?.errors)
           ? ((bundle as any).errors as any[])
           : [];
+        const requestedSlice = isPeople ? 'posts' : 'posts_followed_teams';
+        if (
+          bundleErrors.some(error => error.slice === requestedSlice) ||
+          !Array.isArray(bundle?.[requestedSlice]?.items)
+        ) {
+          throw new Error('Requested feed section did not load');
+        }
         setSocialFeedWarning(
           bundleErrors.length
             ? 'Some feed sections could not load. Pull to refresh or try again.'
@@ -1269,24 +1185,19 @@ export default function FeedScreen() {
     return () => handle.cancel();
   }, [games, preloadVoteSummaries, preloadRsvpSummaries, preloadPostsActivity]);
 
-  // A live game can get its first post at any moment, and that's exactly what
-  // should promote it — polling only on full feed reloads would miss it for
-  // however long the fan stays on the screen. Re-check just the live games
-  // periodically while the feed is focused; cheap since preloadPostsActivity
-  // already scopes to isGameLive and caps at 50 ids.
-  useEffect(() => {
-    if (!games.length) return;
-    const interval = setInterval(() => {
-      void preloadPostsActivity(games);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [games, preloadPostsActivity]);
-
-  // Refresh feed data + unread counts on focus, then poll every 60s while visible.
-  // Single hook replaces two separate useFocusEffects that both fetched unread counts.
+  // Poll only while this screen is focused AND the app is active. Scope tokens
+  // discard results from before blur/background/account change; refs prevent
+  // slow requests overlapping even when a new focus lifecycle starts.
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
+      let active = AppState.currentState !== 'background' && AppState.currentState !== 'inactive';
+      let generation = 0;
+      const scope = () => {
+        const started = generation;
+        return () => mounted && active && started === generation;
+      };
+      pollingScopeRef.current = scope();
       if (hasFocusedOnceRef.current) {
         void load({ silent: true });
       } else {
@@ -1294,10 +1205,14 @@ export default function FeedScreen() {
       }
 
       const tick = async () => {
+        if (!mounted || !active || unreadPollInFlightRef.current) return;
+        unreadPollInFlightRef.current = true;
+        const isCurrent = scope();
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Notification poll timeout')), 10000)
-          );
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Notification poll timeout')), 10000);
+          });
           const [notifCountRes, unreadRes] = await Promise.all([
             Promise.race([
               NotificationApi.unreadCount().catch(() => 0),
@@ -1305,7 +1220,7 @@ export default function FeedScreen() {
             ]) as Promise<any>,
             Message.unreadCount().catch(() => ({ count: 0 })),
           ]);
-          if (!mounted) return;
+          if (!isCurrent()) return;
           const nc =
             typeof notifCountRes === 'number' ? notifCountRes : (notifCountRes?.count ?? 0);
           setUnreadNotifCount(nc);
@@ -1314,17 +1229,39 @@ export default function FeedScreen() {
           if (__DEV__ && err?.message !== 'Notification poll timeout') {
             if (__DEV__) console.warn('[Feed] Notification poll error:', err?.message);
           }
+        } finally {
+          clearTimeout(timeoutId);
+          unreadPollInFlightRef.current = false;
+          if (!isCurrent() && pollingScopeRef.current()) void refreshUnreadRef.current();
         }
       };
+      refreshUnreadRef.current = tick;
 
       // `load()` above now refreshes unread counts via /feed/bundle on focus.
       // Keep the interval as a lightweight fallback while the screen stays visible.
       const id = setInterval(tick, 120000);
+      const pollPosts = () => {
+        if (mounted && active) void preloadPostsActivity(gamesForPollingRef.current, scope());
+      };
+      const postsId = setInterval(pollPosts, 30000);
+      pollPosts();
+      const subscription = AppState.addEventListener('change', state => {
+        const wasActive = active;
+        active = state === 'active';
+        generation += 1;
+        pollingScopeRef.current = scope();
+        if (active && !wasActive) {
+          pollPosts();
+          void tick();
+        }
+      });
       return () => {
         mounted = false;
         clearInterval(id);
+        clearInterval(postsId);
+        subscription.remove();
       };
-    }, [load])
+    }, [load, preloadPostsActivity])
   );
 
   // Load notifications when modal opens
@@ -1868,7 +1805,8 @@ export default function FeedScreen() {
         <FeedGameCard
           gameItem={gameItem}
           isLive={isLive}
-          hasPosts={Boolean(postsActivity[String(gameItem.id)])}
+          hasPosts={(postsActivity[String(gameItem.id)] || 0) > 0}
+          postCount={postsActivity[String(gameItem.id)] || 0}
           testIDPrefix={testIDPrefix}
           voteSummary={voteSummaries[String(gameItem.id)] || null}
           rsvp={rsvpSummaries[String((gameItem as any).event_id || '')]}

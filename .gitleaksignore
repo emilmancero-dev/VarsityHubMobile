@@ -1,0 +1,5 @@
+# Historical false positive: a fabricated test-only signing key, used solely in
+# NODE_ENV=test with an unreachable localhost DB and an occupied localhost API.
+# The test now generates a fresh key per run. No real credential or path/rule
+# is exempted; this fingerprint covers only the original commit/file/line.
+f4a3822b54677902e73705c52f4970eacc8ca050:scripts/__tests__/org-manager-verifier-isolation.test.cjs:generic-api-key:34

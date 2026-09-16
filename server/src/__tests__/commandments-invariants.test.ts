@@ -21,7 +21,17 @@ const read = (...parts: string[]) => readFileSync(join(...parts), 'utf8');
 const geofencing = read(SERVER_ROOT, 'src/lib/geofencing.ts');
 const adPricing = read(SERVER_ROOT, 'src/utils/adPricing.ts');
 const posts = read(SERVER_ROOT, 'src/routes/posts.ts');
+const payments = read(SERVER_ROOT, 'src/routes/payments.ts');
+const approvalService = read(SERVER_ROOT, 'src/lib/approvalService.ts');
+const scheduler = read(SERVER_ROOT, 'src/jobs/scheduler.ts');
+const mediaUploadSession = read(SERVER_ROOT, 'src/lib/mediaUploadSession.ts');
 const espnAdapter = read(SERVER_ROOT, 'src/lib/proSchedule/espnAdapter.ts');
+const feed = read(REPO_ROOT, 'app/feed.tsx');
+const profile = read(REPO_ROOT, 'app/profile.tsx');
+const eventFeedCard = read(REPO_ROOT, 'components/ui/EventFeedCard.tsx');
+const mapMarkerColor = read(REPO_ROOT, 'utils/mapMarkerColor.ts');
+const videoConstants = read(REPO_ROOT, 'constants/video.ts');
+const usersRoute = read(SERVER_ROOT, 'src/routes/users.ts');
 const commandments = read(REPO_ROOT, 'docs/COMMANDMENTS.md');
 
 describe('commandments: live window', () => {
@@ -38,7 +48,9 @@ describe('commandments: live window', () => {
     expect(geofencing).toMatch(/COACH_ALL_DAY_EXTENDED_LIVE_WINDOW_HOURS\s*=\s*18\b/);
   });
   it('post grace window is 7 days', () => {
-    expect(geofencing).toMatch(/REGULAR_POST_GRACE_WINDOW_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+    expect(geofencing).toMatch(
+      /REGULAR_POST_GRACE_WINDOW_MS\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/
+    );
   });
 });
 
@@ -58,6 +70,8 @@ describe('commandments: posting caps', () => {
     // media_urls array in the create-post schema
     expect(posts).toMatch(/media_urls[\s\S]{0,200}?\.max\(5\)/);
   });
+  // Content boundaries are exercised through real create/edit HTTP requests in
+  // api-posts.test.ts, including exact replay of historical longer requests.
 });
 
 describe('commandments: ad pricing', () => {
@@ -88,7 +102,7 @@ describe('commandments: data source is ESPN, not SeatGeek', () => {
 
 describe('commandments: NCAA scope is D1, five ESPN leagues (not "all divisions")', () => {
   const ncaaLeagues = ['ncaaf', 'ncaamb', 'ncaawb', 'ncaabaseball', 'ncaamhockey'];
-  it.each(ncaaLeagues)('ingests NCAA league %s', (league) => {
+  it.each(ncaaLeagues)('ingests NCAA league %s', league => {
     expect(espnAdapter).toMatch(new RegExp(`\\b${league}\\s*:`));
   });
   it('the doc does not claim D1-D3 all-sports coverage as current', () => {
@@ -99,5 +113,45 @@ describe('commandments: NCAA scope is D1, five ESPN leagues (not "all divisions"
 describe('commandments: doc exists and is the reconciled edition', () => {
   it('is labeled code-verified', () => {
     expect(commandments).toMatch(/Code-Verified Edition/);
+  });
+
+  it('assigns stable IDs and explicit statuses to the event-card claims', () => {
+    expect(commandments).toMatch(/CMD-EVENT-005\s*\|\s*CURRENT/);
+    expect(commandments).toMatch(/CMD-EVENT-006\s*\|\s*CURRENT/);
+  });
+
+  it('documents the live and past post counter instead of stale Watching-closed behavior', () => {
+    expect(feed).toMatch(/const showPostCounter = isLive \|\| isEventPast/);
+    expect(commandments).toMatch(/live and past[^\n]*post count/i);
+  });
+
+  it('documents the profile Events tab as shipped attendance history', () => {
+    expect(profile).toMatch(/User\.eventPagesForProfile/);
+    expect(profile).toMatch(/<EventFeedCard/);
+    expect(usersRoute).toMatch(/eventPostingUnlock\.findMany/);
+    expect(commandments).toMatch(/profile Events tab[^\n]*SHIPPED/i);
+    expect(commandments).not.toMatch(/map legend, profile events\s+tab,/i);
+  });
+});
+
+describe('commandments: remaining registry invariants', () => {
+  it('purges zero-post event pages after the live window', () => {
+    expect(approvalService).toMatch(/export async function purgeUnpostedEventPages/);
+    expect(scheduler).toMatch(/await purgeUnpostedEventPages\(prisma\)/);
+  });
+
+  it('uses gold for event pages with posts on both map pins and live feed cards', () => {
+    expect(mapMarkerColor).toMatch(/HAS_POSTS_COLOR\s*=\s*'#D4AF37'/);
+    expect(mapMarkerColor).toMatch(/event\.has_posts === true\) return HAS_POSTS_COLOR/);
+    expect(eventFeedCard).toMatch(/borderColor: hasPosts \? HAS_POSTS_COLOR : '#EF4444'/);
+  });
+
+  it('enforces the 56-day ad booking horizon on both server payment paths', () => {
+    expect(payments.match(/MAX_BOOKING_HORIZON_DAYS = 56/g)).toHaveLength(2);
+  });
+
+  it('keeps the client and server media ceiling at 150 MB', () => {
+    expect(videoConstants).toMatch(/MAX_VIDEO_SIZE_BYTES = 150 \* 1024 \* 1024/);
+    expect(mediaUploadSession).toMatch(/MAX_BYTES = 150 \* 1024 \* 1024/);
   });
 });

@@ -41,8 +41,8 @@ describe('serializeGameCard', () => {
         proAwayTeam: null,
       },
     ],
-    homeTeam: { sport: 'football' },
-    awayTeam: null,
+    homeTeam: { sport: 'football', primary_color: '#003594' },
+    awayTeam: { sport: 'football', primary_color: '#A71930' },
   };
 
   it('serializes a game into the canonical card shape', () => {
@@ -58,6 +58,8 @@ describe('serializeGameCard', () => {
       latitude: 40,
       longitude: -73,
       sport: 'football',
+      pro_home_color: '#003594',
+      pro_away_color: '#A71930',
       status: null,
     });
     expect(card.map_visibility).toMatchObject({ visible: true, reason_code: null });
@@ -82,7 +84,7 @@ describe('serializeEventCard', () => {
     status: 'published',
     exclusive_poster_id: null,
     live_window_hours_after_start: 12,
-    team: { sport: 'basketball' },
+    team: { sport: 'basketball', primary_color: '#7C3AED' },
     proHomeTeam: null,
     proAwayTeam: null,
   };
@@ -100,6 +102,7 @@ describe('serializeEventCard', () => {
       latitude: 41,
       longitude: -74,
       sport: 'basketball',
+      pro_home_color: '#7C3AED',
       status: 'published',
     });
     expect(card.map_visibility.visible).toBe(true);
