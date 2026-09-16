@@ -60,6 +60,7 @@
     "verify:guardrails": "bash scripts/verify-guardrails.sh",
     "verify:confidence": "bash scripts/verify-confidence.sh",
     "verify:production-ready": "bash scripts/verify-production-ready.sh",
+    "verify:commandments": "node scripts/verify-commandments.cjs",
     "test:build": "bash scripts/test-build-config.sh",
     "audit:app": "bash scripts/comprehensive-app-audit.sh",
     "audit:pre-release": "bash scripts/pre-release-audit.sh",

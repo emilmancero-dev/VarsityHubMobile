@@ -1,5 +1,9 @@
 # VarsityHub Mobile - Comprehensive Security & Architecture Audit Report
 
+> **Historical snapshot:** Percentages and findings below describe the review at
+> the time it was written. Use [COMMANDMENTS.md](./COMMANDMENTS.md) and the latest
+> `npm run verify:commandments` report for current status.
+
 **Audit Date:** January 21, 2026
 **Audit Type:** Security & Architecture Validation Audit
 **Auditor:** Claude Sonnet 4.5 (Autonomous Agent)

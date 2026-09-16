@@ -1,5 +1,9 @@
 # Submission Readiness Audit — Security & Architecture Validation
 
+> **Historical snapshot:** This checklist records an earlier submission review.
+> Use [COMMANDMENTS.md](./COMMANDMENTS.md) and the latest
+> `npm run verify:commandments` report for current status.
+
 **Methodology:** Security & Architecture Validation Audit (system mapping → gap identification → severity classification → fixes).  
 **Date:** 2026-03-18  
 **Verdict:** **Conditional GO** — Ready for submission. Gaps 1–6 resolved; gap 7 (accessibility) in progress — sign-up and Create menu added.
