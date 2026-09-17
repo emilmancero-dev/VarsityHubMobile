@@ -22,7 +22,7 @@ spec. `OPEN` is a known unresolved difference. `ROADMAP` is future scope.
 | CMD-EVENT-002   | POLICY  | Posts and stories use the same flat 3 km geofence.                                       |
 | CMD-EVENT-003   | CURRENT | Eligible event posters receive a seven-day post grace period.                            |
 | CMD-EVENT-004   | CURRENT | A post accepts at most five media items and 4,000 text characters.                       |
-| CMD-EVENT-005   | CURRENT | Watching is a future-event action; live and past cards show the event-page post count.   |
+| CMD-EVENT-005   | CURRENT | Watching is a future-event action; live and past cards show no bottom-right count.       |
 | CMD-EVENT-006   | CURRENT | The profile Events tab is SHIPPED attendance history backed by verified posting unlocks. |
 | CMD-EVENT-007   | CURRENT | Event pages with zero posts are purged after their live window closes.                   |
 | CMD-FEED-001    | CURRENT | Event activity controls gold map pins and live-card borders.                             |

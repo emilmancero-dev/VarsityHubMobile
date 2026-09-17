@@ -60,7 +60,7 @@ import {
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { getLiveBounds, isGameLive, isGameOver, shouldPinToFeed } from '@/utils/liveWindow';
 import { optimizeImageUrl } from '@/utils/imageUrl';
-import { EventFeedCard, EventPostCountBadge } from '@/components/ui/EventFeedCard';
+import { EventFeedCard } from '@/components/ui/EventFeedCard';
 import { prefetchGameSummary } from '@/utils/prefetch';
 import {
   getNotificationHrefForUser,
@@ -110,13 +110,11 @@ const RSVPBadge = ({
   initialRsvp,
   onRSVPChange,
   isLive = false,
-  postCount = 0,
 }: {
   gameItem: any;
   initialRsvp?: { going: boolean; count: number };
   onRSVPChange?: () => void;
   isLive?: boolean;
-  postCount?: number;
 }) => {
   const colorScheme = useColorScheme();
   const router = useRouter();
@@ -186,15 +184,9 @@ const RSVPBadge = ({
     }
   };
 
-  // Owner ask (Sept 2026): once an event is live — and for every event that has
-  // already happened — "Watching closed" is replaced by a counter of how many
-  // posts the event page has. Watching is only a pre-event action, so the toggle
-  // stays only for future events.
-  const showPostCounter = isLive || isEventPast;
-
-  if (showPostCounter) {
-    return <EventPostCountBadge count={postCount} testID="feed-post-counter" />;
-  }
+  // Watching is a pre-event action. Live and past cards intentionally have no
+  // bottom-right count/control (owner note, September 15, 2026).
+  if (isLive || isEventPast) return null;
 
   const badgeText = isRsvped || rsvpCount > 0 ? `📺 ${rsvpCount}` : '📺';
   const badgeA11yLabel = isRsvped
@@ -296,9 +288,6 @@ type FeedGameCardProps = {
   // Owner ask (Sept 2026): a live card's border goes red -> gold once someone
   // has posted about it. Undefined/false renders the original red.
   hasPosts?: boolean;
-  // Total posts on the event page — shown as the counter that replaces the
-  // "Watching closed" pill once the event is live or has occurred.
-  postCount?: number;
   testIDPrefix: string;
   voteSummary: VotePreviewEntry | null;
   rsvp: { going: boolean; count: number } | undefined;
@@ -316,7 +305,6 @@ const FeedGameCard = memo(function FeedGameCard({
   gameItem,
   isLive,
   hasPosts,
-  postCount,
   testIDPrefix,
   voteSummary,
   rsvp,
@@ -347,7 +335,6 @@ const FeedGameCard = memo(function FeedGameCard({
           initialRsvp={rsvp}
           onRSVPChange={onRSVPChange}
           isLive={isLive}
-          postCount={postCount}
         />
       }
     />
@@ -1753,7 +1740,6 @@ export default function FeedScreen() {
           gameItem={gameItem}
           isLive={isLive}
           hasPosts={(postsActivity[String(gameItem.id)] || 0) > 0}
-          postCount={postsActivity[String(gameItem.id)] || 0}
           testIDPrefix={testIDPrefix}
           voteSummary={voteSummaries[String(gameItem.id)] || null}
           rsvp={rsvpSummaries[String((gameItem as any).event_id || '')]}

@@ -6,7 +6,7 @@ import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { formatCount, getCountryFlag, timeAgo } from '@/utils/format';
 import { toUserMessage } from '@/utils/toUserMessage';
 import { optimizeImageUrl } from '@/utils/imageUrl';
-import { resolvePostMedia } from '@/utils/media';
+import { clampFullscreenMediaOffset, resolvePostMedia } from '@/utils/media';
 import { safeGoBack } from '@/utils/navigation';
 import { promptForSignIn } from '@/utils/requireSignIn';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
@@ -52,7 +52,7 @@ import { sanitizeText } from '@/utils/formUtils';
 import { MAX_CONTENT_WIDTH } from '@/constants/layout';
 import { Ionicons } from '@expo/vector-icons';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SKELETON_3 = Array.from({ length: 3 });
 
 const getSportCategory = (title?: string | null, content?: string | null) => {
@@ -171,11 +171,17 @@ export default function PostDetailScreen() {
   const [_imageRotation, setImageRotation] = useState(0);
   const imageScale = useSharedValue(1);
   const savedScale = useSharedValue(1);
+  const imageTranslateX = useSharedValue(0);
+  const imageTranslateY = useSharedValue(0);
+  const panStartX = useSharedValue(0);
+  const panStartY = useSharedValue(0);
 
   const resetFullscreen = () => {
     setImageRotation(0);
     imageScale.value = 1;
     savedScale.value = 1;
+    imageTranslateX.value = 0;
+    imageTranslateY.value = 0;
   };
 
   const pinchGesture = Gesture.Pinch()
@@ -188,11 +194,28 @@ export default function PostDetailScreen() {
       if (imageScale.value < 1.05) {
         imageScale.value = withSpring(1);
         savedScale.value = 1;
+        imageTranslateX.value = withSpring(0);
+        imageTranslateY.value = withSpring(0);
+      } else {
+        imageTranslateX.value = clampFullscreenMediaOffset(
+          imageTranslateX.value,
+          imageScale.value,
+          SCREEN_WIDTH
+        );
+        imageTranslateY.value = clampFullscreenMediaOffset(
+          imageTranslateY.value,
+          imageScale.value,
+          SCREEN_HEIGHT
+        );
       }
     });
 
   const imageAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: imageScale.value }],
+    transform: [
+      { translateX: imageTranslateX.value },
+      { translateY: imageTranslateY.value },
+      { scale: imageScale.value },
+    ],
   }));
 
   // Fullscreen media is a single-image modal that used to trap the user on
@@ -219,10 +242,27 @@ export default function PostDetailScreen() {
     [currentPostIndex, postIdsArray.length]
   );
 
-  const fullscreenSwipeGesture = Gesture.Pan()
-    .activeOffsetX([-20, 20])
-    .failOffsetY([-15, 15])
+  const fullscreenPanGesture = Gesture.Pan()
+    .minDistance(8)
+    .onStart(() => {
+      panStartX.value = imageTranslateX.value;
+      panStartY.value = imageTranslateY.value;
+    })
+    .onUpdate(e => {
+      if (imageScale.value <= 1.02) return;
+      imageTranslateX.value = clampFullscreenMediaOffset(
+        panStartX.value + e.translationX,
+        imageScale.value,
+        SCREEN_WIDTH
+      );
+      imageTranslateY.value = clampFullscreenMediaOffset(
+        panStartY.value + e.translationY,
+        imageScale.value,
+        SCREEN_HEIGHT
+      );
+    })
     .onEnd(e => {
+      if (imageScale.value > 1.02) return;
       if (postIdsArray.length <= 1) return;
       if (e.translationX <= -60 || e.velocityX <= -600) {
         runOnJS(goToPostOffset)(1);
@@ -231,7 +271,7 @@ export default function PostDetailScreen() {
       }
     });
 
-  const fullscreenGesture = Gesture.Simultaneous(pinchGesture, fullscreenSwipeGesture);
+  const fullscreenGesture = Gesture.Simultaneous(pinchGesture, fullscreenPanGesture);
 
   // Skeleton loading component
   const SkeletonLoader = () => (

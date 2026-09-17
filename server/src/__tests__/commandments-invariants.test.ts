@@ -121,9 +121,10 @@ describe('commandments: doc exists and is the reconciled edition', () => {
     expect(commandments).toMatch(/CMD-EVENT-006\s*\|\s*CURRENT/);
   });
 
-  it('documents the live and past post counter instead of stale Watching-closed behavior', () => {
-    expect(feed).toMatch(/const showPostCounter = isLive \|\| isEventPast/);
-    expect(commandments).toMatch(/live and past[^\n]*post count/i);
+  it('documents that live and past event cards have no bottom-right counter', () => {
+    expect(feed).toMatch(/if \(isLive \|\| isEventPast\) return null/);
+    expect(feed).not.toMatch(/EventPostCountBadge/);
+    expect(commandments).toMatch(/live and past[^\n]*no bottom-right count/i);
   });
 
   it('documents the profile Events tab as shipped attendance history', () => {

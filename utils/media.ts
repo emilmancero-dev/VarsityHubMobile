@@ -5,6 +5,23 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
 
 export type ResolvedMediaType = 'image' | 'video' | null;
 
+/** Full-screen post media must remain completely visible inside its viewport. */
+export function getVerticalPostContentFit(): 'contain' {
+  return 'contain';
+}
+
+/** Bound a zoomed image translation to the extra scaled area. */
+export function clampFullscreenMediaOffset(
+  proposedOffset: number,
+  scale: number,
+  viewportSize: number
+): number {
+  'worklet';
+  if (!Number.isFinite(scale) || scale <= 1 || !Number.isFinite(viewportSize)) return 0;
+  const limit = Math.max(0, (viewportSize * (scale - 1)) / 2);
+  return Math.max(-limit, Math.min(limit, proposedOffset));
+}
+
 type MediaLike = {
   media_url?: string | null;
   preview_url?: string | null;

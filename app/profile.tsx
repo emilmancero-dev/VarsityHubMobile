@@ -1,6 +1,6 @@
-import { Game, Organization, Team, User } from '@/api/entities';
+import { Organization, Team, User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
-import { EventFeedCard, EventPostCountBadge } from '@/components/ui/EventFeedCard';
+import { EventFeedCard } from '@/components/ui/EventFeedCard';
 import { Colors } from '@/constants/Colors';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import { useAuth } from '@/context/AuthProvider';
@@ -12,7 +12,7 @@ import events from '@/utils/events';
 import { resolveMediaType, resolvePostMedia } from '@/utils/media';
 import { optimizeImageUrl } from '@/utils/imageUrl';
 import { safeGoBack } from '@/utils/navigation';
-import { isGameLive, isGameOver } from '@/utils/liveWindow';
+import { isGameLive } from '@/utils/liveWindow';
 import { buildPostGridViewerState, unwrapPostGridItem } from '@/utils/postGridViewer';
 import { getCoachAccessState } from '@/utils/roleChecks';
 import { getGradientForColor } from '@/utils/theme';
@@ -306,17 +306,6 @@ export default function ProfileScreen() {
     queryFn: () => User.eventPagesForProfile(profileUserId as string),
   });
   const eventPages: any[] = eventPagesQuery.data?.items ?? [];
-  const eventPageIds = useMemo(
-    () => eventPages.map(item => String(item.id)).filter(Boolean),
-    [eventPages]
-  );
-  const eventPagePostCountsQuery = useQuery({
-    queryKey: ['profile-event-page-post-counts', eventPageIds],
-    enabled: eventPageIds.length > 0,
-    queryFn: () => Game.postsSummaryBatch(eventPageIds),
-  });
-  const eventPagePostCounts = eventPagePostCountsQuery.data ?? {};
-  const refetchEventPagePostCounts = eventPagePostCountsQuery.refetch;
   const hasEventPages = eventPages.length > 0;
   // A previously-persisted 'events' selection must not strand the user on a
   // hidden tab if this profile turns out to have no event-page posts.
@@ -566,21 +555,11 @@ export default function ProfileScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const refreshes: Promise<unknown>[] = [loadProfile({ silent: true }), refetchActiveTab()];
-      if (resolvedActiveTab === 'events' && eventPageIds.length > 0) {
-        refreshes.push(refetchEventPagePostCounts());
-      }
-      await Promise.all(refreshes);
+      await Promise.all([loadProfile({ silent: true }), refetchActiveTab()]);
     } finally {
       setRefreshing(false);
     }
-  }, [
-    eventPageIds.length,
-    loadProfile,
-    refetchActiveTab,
-    refetchEventPagePostCounts,
-    resolvedActiveTab,
-  ]);
+  }, [loadProfile, refetchActiveTab]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1350,26 +1329,15 @@ export default function ProfileScreen() {
       renderItem={({ item }) => {
         const now = Date.now();
         const isLive = isGameLive(item, now);
-        const showPostCount = isLive || isGameOver(item, now);
-        const postCount = Number(eventPagePostCounts[String(item.id)] ?? 0);
         return (
           <View style={{ marginBottom: 12 }}>
             <EventFeedCard
               item={item}
               colorScheme={colorScheme}
               isLive={isLive}
-              hasPosts={postCount > 0}
               testID={`profile-event-card-${item.id}`}
               onPress={() =>
                 router.push(buildEventDetailRoute(item.event_id || item.id, item.game_id))
-              }
-              badge={
-                showPostCount ? (
-                  <EventPostCountBadge
-                    count={postCount}
-                    testID={`profile-event-post-count-${item.id}`}
-                  />
-                ) : undefined
               }
             />
           </View>

@@ -1,5 +1,23 @@
 import { describe, expect, it } from '@jest/globals';
-import { getCloudinaryVideoPreviewUrl, resolveMediaType, resolvePostMedia } from '../media';
+import {
+  clampFullscreenMediaOffset,
+  getCloudinaryVideoPreviewUrl,
+  getVerticalPostContentFit,
+  resolveMediaType,
+  resolvePostMedia,
+} from '../media';
+
+describe('full-post media presentation', () => {
+  it('shows the complete image or video in the vertical viewer', () => {
+    expect(getVerticalPostContentFit()).toBe('contain');
+  });
+
+  it('locks panning at normal scale and bounds it while zoomed', () => {
+    expect(clampFullscreenMediaOffset(80, 1, 390)).toBe(0);
+    expect(clampFullscreenMediaOffset(500, 2, 390)).toBe(195);
+    expect(clampFullscreenMediaOffset(-500, 2, 390)).toBe(-195);
+  });
+});
 
 describe('resolveMediaType', () => {
   it('returns null when there is no media url', () => {

@@ -56,20 +56,6 @@ export type EventFeedCardProps = {
   onPressIn?: () => void;
 };
 
-export function EventPostCountBadge({ count, testID }: { count: number; testID?: string }) {
-  const safeCount = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
-  return (
-    <View
-      testID={testID}
-      style={styles.postCountBadge}
-      accessibilityLabel={`${safeCount} ${safeCount === 1 ? 'post' : 'posts'}`}
-    >
-      <Text style={styles.postCountIcon}>📝</Text>
-      <Text style={styles.postCountText}>{safeCount}</Text>
-    </View>
-  );
-}
-
 /**
  * The single-column hero card used for game/event pages on the feed and on the
  * profile Events tab. One implementation so the two surfaces stay identical
@@ -261,19 +247,4 @@ const styles = StyleSheet.create({
   stat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statText: { color: '#F9FAFB', fontSize: 11, fontWeight: '600' },
   voteText: { color: '#E0F2FE', fontSize: 11, fontWeight: '600' },
-  postCountBadge: {
-    position: 'absolute',
-    right: 14,
-    bottom: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(15,23,42,0.85)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    zIndex: 1000,
-  },
-  postCountIcon: { fontSize: 12 },
-  postCountText: { color: 'white', fontSize: 12, fontWeight: '700' },
 });

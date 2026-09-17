@@ -5,10 +5,10 @@ jest.mock('expo-linear-gradient', () =>
   require('@/test-utils/screenMocks').expoLinearGradientMock()
 );
 
-import { EventFeedCard, EventPostCountBadge } from '../ui/EventFeedCard';
+import { EventFeedCard } from '../ui/EventFeedCard';
 
 describe('EventFeedCard', () => {
-  it('renders a compact sport title and a post count', () => {
+  it('renders a compact sport title without a post-count badge', () => {
     render(
       <EventFeedCard
         item={{
@@ -23,18 +23,11 @@ describe('EventFeedCard', () => {
           pro_away_color: '#041E42',
         }}
         colorScheme="dark"
-        badge={<EventPostCountBadge count={2} testID="post-count" />}
       />
     );
 
     expect(screen.getByText('🏈 Cowboys at Giants')).toBeTruthy();
     expect(screen.getByText(/MetLife Stadium/)).toBeTruthy();
-    expect(screen.getByTestId('post-count')).toBeTruthy();
-    expect(screen.getByLabelText('2 posts')).toBeTruthy();
-  });
-
-  it('normalizes invalid post counts to zero', () => {
-    render(<EventPostCountBadge count={Number.NaN} />);
-    expect(screen.getByLabelText('0 posts')).toBeTruthy();
+    expect(screen.queryByText('📝')).toBeNull();
   });
 });

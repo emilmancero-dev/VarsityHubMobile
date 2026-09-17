@@ -43,7 +43,7 @@ import { buildEventDetailRoute } from '@/utils/eventRoutes';
 import events from '@/utils/events';
 import { optimizeImageUrl, optimizeVideoUrl } from '@/utils/imageUrl';
 import { AppLinks, buildNativeSharePayload } from '@/utils/links';
-import { resolveMediaType } from '@/utils/media';
+import { getVerticalPostContentFit, resolveMediaType } from '@/utils/media';
 import { promptForSignIn } from '@/utils/requireSignIn';
 import { toUserMessage } from '@/utils/toUserMessage';
 
@@ -384,12 +384,16 @@ const FeedCard = memo(
                   once expo-video reports readyToPlay (which clears
                   isVideoLoading) — by then the first real frame is drawn. */}
               {posterSource && isVideoLoading ? (
-                <FastImage source={posterSource} style={styles.videoPoster} resizeMode="cover" />
+                <FastImage
+                  source={posterSource}
+                  style={styles.videoPoster}
+                  resizeMode={getVerticalPostContentFit()}
+                />
               ) : null}
               <VideoView
                 player={player}
                 style={styles.media}
-                contentFit="cover"
+                contentFit={getVerticalPostContentFit()}
                 nativeControls={false}
                 allowsFullscreen={false}
               />
@@ -413,7 +417,11 @@ const FeedCard = memo(
             </View>
           ) : post.media_url ? (
             imageSource ? (
-              <FastImage source={imageSource} style={styles.media} resizeMode="cover" />
+              <FastImage
+                source={imageSource}
+                style={styles.media}
+                resizeMode={getVerticalPostContentFit()}
+              />
             ) : null
           ) : (
             <View style={[styles.media, styles.textOnlyCard]}>
