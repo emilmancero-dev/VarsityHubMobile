@@ -25,7 +25,10 @@ chain end-to-end. That is what this device run records.
 - **iOS:** a Sandbox Apple ID (Settings → Developer → Sandbox Apple Account);
   ad IAP products `MOND_THURS` ($4.99) and `FRI_SUN` ($7.99) in
   "Ready to Submit" in App Store Connect.
-- **Android/web:** Stripe in **test mode**; use a test card (`4242…`).
+- **Android/web:** ad checkout currently runs on **Stripe** (test mode; card
+  `4242…`), not Google Play Billing. (Play has its own IAP; whether ad purchases
+  must move to Play Billing for policy compliance is an open decision, tracked
+  separately — test the shipped Stripe path here.)
 - A signed-in account able to book ads (business/advertiser).
 - Optional: tail Railway logs to watch the verify endpoints fire.
 
