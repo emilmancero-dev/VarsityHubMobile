@@ -987,78 +987,11 @@ usersRouter.get(
         take: 50,
       });
 
-      // A contribution is also evidence that this event page belongs in the
-      // user's Events/Games Attended history. Include direct event posts and
-      // stories, plus contributions attached through a linked game. The
-      // visibility checks below remain authoritative for every merged row.
-      const [contributedPosts, contributedStories] = await Promise.all([
-        prisma.post.findMany({
-          where: {
-            author_id: id,
-            deleted_at: null,
-            OR: [{ event_id: { not: null } }, { game_id: { not: null } }],
-          },
-          select: { event_id: true, game_id: true },
-          orderBy: { created_at: 'desc' },
-          take: 100,
-        }),
-        prisma.story.findMany({
-          where: { user_id: id, OR: [{ event_id: { not: null } }, { game_id: { not: null } }] },
-          select: { event_id: true, game_id: true },
-          orderBy: { created_at: 'desc' },
-          take: 100,
-        }),
-      ]);
-      const contributions = [...contributedPosts, ...contributedStories];
-      const contributedEventIds = contributions.flatMap(row =>
-        row.event_id ? [row.event_id] : []
-      );
-      const contributedGameIds = contributions.flatMap(row => (row.game_id ? [row.game_id] : []));
-      const alreadyVerified = new Set(verifiedRows.map(row => row.event.id));
-      const contributedEvents = contributions.length
-        ? await prisma.event.findMany({
-            where: {
-              date: { lte: new Date() },
-              approval_status: 'approved',
-              status: { not: 'cancelled' },
-              OR: [{ id: { in: contributedEventIds } }, { game_id: { in: contributedGameIds } }],
-            },
-            select: {
-              id: true,
-              title: true,
-              date: true,
-              location: true,
-              banner_url: true,
-              event_type: true,
-              team_id: true,
-              game_id: true,
-              live_window_hours_after_start: true,
-              team: { select: { sport: true, primary_color: true } },
-              sportsLeague: { select: { sport_slug: true } },
-              proHomeTeam: { select: { league: true, primary_color: true } },
-              proAwayTeam: { select: { league: true, primary_color: true } },
-              game: {
-                select: {
-                  id: true,
-                  cover_image_url: true,
-                  banner_url: true,
-                  home_team_id: true,
-                  away_team_id: true,
-                  homeTeam: { select: { sport: true, primary_color: true } },
-                  awayTeam: { select: { sport: true, primary_color: true } },
-                },
-              },
-            },
-            orderBy: { date: 'desc' },
-            take: 50,
-          })
-        : [];
-      const rows = [
-        ...verifiedRows,
-        ...contributedEvents
-          .filter(event => !alreadyVerified.has(event.id))
-          .map(event => ({ event })),
-      ];
+      // Events the user has BEEN TO only (owner rule): the geofence-verified
+      // presence ledger above is the sole source. We intentionally do NOT
+      // broaden this to every post/story the user tagged to an event — a
+      // tagged contribution is not proof of attendance.
+      const rows = verifiedRows;
 
       const items = (
         await Promise.all(

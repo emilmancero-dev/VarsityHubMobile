@@ -213,7 +213,7 @@ function RsvpHistoryScreen() {
       )}
       {!loading && upcoming.length === 0 && (
         <Text style={[styles.muted, { color: Colors[colorScheme].mutedText }]}>
-          No games attended yet. Events you contribute to will appear here.
+          No games attended yet. Events you've been to will appear here.
         </Text>
       )}
       {!loading && upcoming.length > 0 && (

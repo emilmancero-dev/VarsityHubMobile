@@ -1322,7 +1322,9 @@ export default function ProfileScreen() {
       ListEmptyComponent={
         eventPagesQuery.isLoading ? null : (
           <View style={styles.emptyContainer}>
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>No event pages yet</Text>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>
+              No events you&apos;ve been to yet
+            </Text>
           </View>
         )
       }
