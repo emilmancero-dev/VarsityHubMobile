@@ -1,5 +1,6 @@
 import { HAS_POSTS_COLOR } from '@/utils/mapMarkerColor';
-import { formatEventCardTitle } from '@/utils/eventTitle';
+import { formatEventCardTitle, proLeagueToSportSlug } from '@/utils/eventTitle';
+import { sportEmoji } from '@/constants/sports';
 import { getDeterministicGameCardGradient, proGameCardGradient } from '@/utils/feedGameCard';
 import { getLiveBounds } from '@/utils/liveWindow';
 import { optimizeImageUrl } from '@/utils/imageUrl';
@@ -126,6 +127,12 @@ export function EventFeedCard({
 
   const title = formatEventCardTitle(item) || entityLabel;
 
+  // No-picture placeholder: a gradient with the sport emoji centered where the
+  // photo would be (owner rule: emoji lives on the gradient, never in the
+  // title). Falls back to a generic marker only when the sport is unknown.
+  const placeholderEmoji =
+    sportEmoji(item.sport) ?? sportEmoji(proLeagueToSportSlug(item.pro_league)) ?? '🏟️';
+
   return (
     <Pressable
       testID={testID}
@@ -144,7 +151,15 @@ export function EventFeedCard({
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
-      {hasBanner && <FullBleedCardImage uri={optimizeImageUrl(banner!, 400) || banner!} />}
+      {hasBanner ? (
+        <FullBleedCardImage uri={optimizeImageUrl(banner!, 400) || banner!} />
+      ) : (
+        <View style={styles.placeholderEmojiWrap} pointerEvents="none">
+          <Text style={styles.placeholderEmoji} accessibilityElementsHidden>
+            {placeholderEmoji}
+          </Text>
+        </View>
+      )}
       <LinearGradient
         colors={
           colorScheme === 'dark'
@@ -218,6 +233,12 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   shade: { ...StyleSheet.absoluteFillObject },
+  placeholderEmojiWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeholderEmoji: { fontSize: 72, opacity: 0.9 },
   content: { position: 'absolute', left: 12, right: 12, bottom: 12, gap: 6 },
   dateChip: {
     alignSelf: 'flex-start',

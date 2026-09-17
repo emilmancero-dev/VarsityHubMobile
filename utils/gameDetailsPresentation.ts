@@ -53,6 +53,10 @@ export type GameVM = {
   venuePhotoCredit?: string | null;
   homeTeam?: string | null;
   awayTeam?: string | null;
+  // Sport / league for the no-image banner placeholder emoji (owner rule: a
+  // centered sport emoji on the gradient when there's no stadium photo).
+  sport?: string | null;
+  proLeague?: string | null;
   appearance?: string | null;
   coverImageUrl?: string | null;
   capacity?: number | null;

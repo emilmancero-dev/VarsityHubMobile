@@ -61,6 +61,8 @@ import {
   type GameVM,
   type TeamInfo,
 } from '@/utils/gameDetailsPresentation';
+import { sportEmoji } from '@/constants/sports';
+import { proLeagueToSportSlug } from '@/utils/eventTitle';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
@@ -939,6 +941,8 @@ const GameDetailsScreen = () => {
         coverImageUrl: cover,
         homeTeam,
         awayTeam,
+        sport: (summary as any)?.sport ?? (gameRecord as any)?.sport ?? null,
+        proLeague: (summary as any)?.pro_league ?? (gameRecord as any)?.pro_league ?? null,
         capacity: capacity ?? null,
         rsvpCount: rsvpCount ?? null,
         userRsvped,
@@ -2214,12 +2218,19 @@ const GameDetailsScreen = () => {
           onGoingPress={canRsvpNow ? onToggleRsvp : openRsvpSheet}
         />
       ) : (
-        <LinearGradient
-          colors={buildTeamColorGradient((homeTeamObj as any)?.color)}
-          style={styles.bannerImage}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
+        <View style={styles.bannerImage}>
+          <LinearGradient
+            colors={buildTeamColorGradient((homeTeamObj as any)?.color)}
+            style={StyleSheet.absoluteFillObject}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
+          <View style={styles.bannerPlaceholderEmojiWrap} pointerEvents="none">
+            <Text style={styles.bannerPlaceholderEmoji} accessibilityElementsHidden>
+              {sportEmoji(vm?.sport) ?? sportEmoji(proLeagueToSportSlug(vm?.proLeague)) ?? '🏟️'}
+            </Text>
+          </View>
+        </View>
       );
 
     return (
@@ -3632,6 +3643,12 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
       backgroundColor: colorScheme === 'dark' ? '#1E1E1E' : '#eff6ff',
     },
     bannerImage: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+    bannerPlaceholderEmojiWrap: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    bannerPlaceholderEmoji: { fontSize: 96, opacity: 0.92 },
     venueCreditFooter: {
       marginTop: 14,
       marginBottom: 4,

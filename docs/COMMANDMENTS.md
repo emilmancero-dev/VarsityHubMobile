@@ -222,3 +222,50 @@ post swipe.
 The profile Events tab is SHIPPED and documented by `CMD-EVENT-006`. Several
 dark-mode, gradient, and gold-border items also shipped in the 2026-09-14/15
 passes.
+
+---
+
+## 2026-09-17 — "Why are these still not fixed" screenshot audit
+
+Owner sent a second screenshot doc (11 items). Screenshots were taken ~Sep 16
+AM, **before** the surgical repairs shipped. The client fixes landed by HEAD
+`182b0d25` and were OTA-published to runtimes **1.0.5 and 1.0.6** (iOS +
+Android) on Sep 17 — verified via `eas update:list --branch production`.
+
+**Verified fixed + live (pinned by tests where noted):**
+
+- Emoji no longer in card titles (`utils/eventTitle.ts` returns title only;
+  `eventCardTitle` + `EventFeedCard` tests).
+- No post/RSVP control in the bottom corner of live/past cards (`feed.tsx`
+  RSVPBadge returns null for live/past).
+- Upvote is optimistic — increments immediately (`hooks/usePostInteractions.ts`).
+- Map sport filter + league-level filter coexist; sport persists across level
+  changes (`game-map.tsx`; `event-discovery-level` tests).
+- "Watching History" renamed **Games Attended** and repurposed to the
+  contributed-event ledger (`rsvp-history.tsx`).
+- Profile **Events tab** shows contributed event pages (`profile.tsx`,
+  `User.eventPagesForProfile`; `users-event-pages` test).
+- Multi-photo: up to 5, and each thumbnail's ✕ removes only itself
+  (`create-post.tsx`).
+
+**Shipped in this pass (2026-09-17):**
+
+- **No-picture placeholder** now renders the sport emoji **centered on the
+  gradient** on both the feed hero card (`components/ui/EventFeedCard.tsx`) and
+  the event-detail banner (`app/game-details/GameDetailsScreen.tsx`). This
+  replaces the short-lived title emoji and satisfies CMD-MAP-NCAA. Pinned by
+  `EventFeedCard.test.tsx`.
+
+**Still open (not an OTA):**
+
+- Minor-league games (G-League, MLS Next, …): no ingest source exists — the
+  ESPN adapter only covers pro + 5 NCAA D1 leagues. New adapter work.
+- Map "Other" appears to over-collect because most events carry no
+  `league_level`; fix is tier classification at ingest, not the filter.
+- Multi-photo **crop**: `create-post.tsx` uses `allowsEditing:false` because
+  native crop is incompatible with multi-select — needs a small in-app crop
+  editor (`expo-image-manipulator`), not a flag flip.
+- Video picker (iCloud) + in-app **camera modes** (panorama, slo-mo): native
+  module work (`modules/varsity-media-picker`) — requires an `eas build` +
+  App Store submission, not OTA.
+- Event-page / feed load latency: infra (API us-west2 ↔ DB us-east4), not code.
