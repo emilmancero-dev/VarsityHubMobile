@@ -516,11 +516,7 @@ function CommunityDiscoverScreen() {
   const games = useMemo(() => gamesData ?? [], [gamesData]);
   const zipDirectory = useMemo(() => buildZipDirectory(games), [games]);
 
-  const {
-    data: mapEventsData,
-    isPending: mapEventsPending,
-    refetch: refetchMapEvents,
-  } = useQuery({
+  const { data: mapEventsData, isPending: mapEventsPending } = useQuery({
     queryKey: ['discover-map-events', viewerId ?? 'guest'],
     enabled: interactionsDone && viewMode === 'map',
     queryFn: async (): Promise<EventMapData[]> => {
@@ -546,7 +542,12 @@ function CommunityDiscoverScreen() {
   // canonical event cards by the single /event-discovery?scope=following
   // endpoint (future-only, unbounded window). Replaces the former three queries
   // (followed games, followed events, managed-team games/events).
-  const { data: followingCalendarData, isPending: followingCalendarPending } = useQuery({
+  const {
+    data: followingCalendarData,
+    isPending: followingCalendarPending,
+    isError: followingCalendarIsError,
+    refetch: refetchFollowingCalendar,
+  } = useQuery({
     queryKey: ['discover-following-calendar', viewerId ?? 'guest'],
     enabled: interactionsDone && isSignedIn,
     queryFn: async () => {
@@ -571,55 +572,11 @@ function CommunityDiscoverScreen() {
     queryKey: personalizationQueryKey,
     enabled: interactionsDone,
     queryFn: async () => {
-      const snapshot: any = user ? await getAuthSnapshot(checkAuth, user).catch(() => null) : null;
-
-      // Fetch posts and people in parallel — people used to wait for posts to finish
-      const fetchPosts = async (): Promise<any[]> => {
-        try {
-          let items: any[] = [];
-          try {
-            const trending = await Post.trendingPage(undefined, 20);
-            items = Array.isArray(trending.items) ? trending.items : [];
-          } catch {
-            const postsPage = await Post.listPage(undefined, 20, '-created_date');
-            items = Array.isArray(postsPage.items) ? postsPage.items : [];
-          }
-          if (items.length === 0) {
-            try {
-              const fallback = await Post.list('-created_at', 20);
-              items = Array.isArray(fallback) ? fallback : [];
-            } catch {
-              /* empty */
-            }
-          }
-          return items;
-        } catch {
-          try {
-            const fallback = await Post.list('-created_at', 20);
-            return Array.isArray(fallback) ? fallback : [];
-          } catch {
-            return [];
-          }
-        }
-      };
-
-      const fetchPeople = async (): Promise<any[]> => {
-        try {
-          if (!snapshot?.id) return [];
-          const suggested = await User.suggested(20);
-          const arr = Array.isArray(suggested)
-            ? suggested
-            : Array.isArray((suggested as any)?.items)
-              ? (suggested as any).items
-              : [];
-          return arr.slice(0, 20);
-        } catch (peopleError) {
-          if (__DEV__) console.warn('Discover load: nearby people failed', peopleError);
-        }
-        return [];
-      };
-
-      const [items, people] = await Promise.all([fetchPosts(), fetchPeople()]);
+      // Post.trendingPage owns the one compatibility fallback for servers that
+      // explicitly report the trending endpoint as unsupported. Every other
+      // failure rejects so React Query can retain stale data and expose retry.
+      const page = await Post.trendingPage(undefined, 20);
+      const items = Array.isArray(page.items) ? page.items : [];
 
       // Split ONCE at fetch time (posts don't jump tabs when a follow toggles)
       const followingOnly = items.filter(
@@ -628,26 +585,14 @@ function CommunityDiscoverScreen() {
       const nonFollowing = items.filter(
         (p: any) => !(p && (p.is_following_author || p.is_following))
       );
-      // Filter out users whose display_name and username are both system-generated IDs
-      const filteredPeople = people.filter((u: any) => {
-        const name = u?.display_name || u?.username;
-        return name && !isInternalId(name);
-      });
-
       return {
         followingPosts: followingOnly.slice(0, 12),
         discoverPosts: (nonFollowing.length ? nonFollowing : items).slice(0, 12),
-        nearbyPeople: filteredPeople,
       };
     },
   });
   const followingPosts = personalization?.followingPosts ?? [];
   const discoverPosts = personalization?.discoverPosts ?? [];
-  const nearbyPeople = personalization?.nearbyPeople ?? [];
-  const personalizationNotice =
-    personalizationIsError && personalization === undefined
-      ? 'Personalized suggestions are temporarily unavailable. Pull to refresh to try again.'
-      : null;
 
   // Patch both cached post arrays (optimistic follow toggle, delete, edit);
   // the derived followingPosts/discoverPosts re-render from the cache.
@@ -666,24 +611,31 @@ function CommunityDiscoverScreen() {
     [queryClient, viewerId]
   );
 
-  // Suggested users load non-blocking, mirroring the old fire-and-forget .then()
+  // One viewer-scoped request feeds both people displays. The API remains the
+  // source of privacy/block filtering; local derivation only limits counts.
   const suggestedQueryKey = useMemo(
     () => ['discover-suggested-people', viewerId ?? 'guest'],
     [viewerId]
   );
-  const { data: suggestedData, refetch: refetchSuggested } = useQuery({
+  const {
+    data: suggestedData,
+    isPending: suggestedPending,
+    isError: suggestedIsError,
+    refetch: refetchSuggested,
+  } = useQuery({
     queryKey: suggestedQueryKey,
     enabled: interactionsDone && isSignedIn,
     queryFn: async () => {
-      const res: any = await User.suggested(10);
-      const items = Array.isArray(res?.items) ? res.items : [];
+      const res: any = await User.suggested(20);
+      const items = Array.isArray(res) ? res : Array.isArray(res?.items) ? res.items : [];
       return items.filter((u: any) => {
         const name = u?.display_name || u?.username;
         return name && !isInternalId(name);
       });
     },
   });
-  const suggestedPeople = suggestedData ?? [];
+  const nearbyPeople = useMemo(() => (suggestedData ?? []).slice(0, 20), [suggestedData]);
+  const suggestedPeople = useMemo(() => (suggestedData ?? []).slice(0, 10), [suggestedData]);
   const patchSuggestedPeople = useCallback(
     (mapPeople: (people: any[]) => any[]) => {
       queryClient.setQueryData(suggestedQueryKey, (old: any) => (old ? mapPeople(old) : old));
@@ -691,9 +643,9 @@ function CommunityDiscoverScreen() {
     [queryClient, suggestedQueryKey]
   );
 
-  // Full-screen skeleton until both primary queries have data (isPending only —
-  // background revalidation never re-shows it; see lib/queryClient.ts).
-  const loading = gamesPending || personalizationPending;
+  // Games are the primary list and render as soon as they are ready. Optional
+  // requests expose their own progress below instead of blocking the list.
+  const loading = gamesPending;
 
   const refreshAll = useCallback(async () => {
     // refetch() resolves (never throws); failed refreshes keep cached data.
@@ -701,15 +653,14 @@ function CommunityDiscoverScreen() {
       refetchGames(),
       refetchPersonalization(),
       ...(isSignedIn ? [refetchSuggested()] : []),
-      ...(viewMode === 'map' ? [refetchMapEvents()] : []),
+      ...(isSignedIn ? [refetchFollowingCalendar()] : []),
     ]);
   }, [
     isSignedIn,
     refetchGames,
+    refetchFollowingCalendar,
     refetchPersonalization,
     refetchSuggested,
-    refetchMapEvents,
-    viewMode,
   ]);
 
   // Debounced unified search (users, teams, organizations, games, events)
@@ -1922,7 +1873,33 @@ function CommunityDiscoverScreen() {
       {/* Calendar - Right below search */}
       {renderCalendar()}
 
-      {calendarGames.length === 0 && calendarEvents.length === 0 && !followingCalendarPending ? (
+      {isSignedIn && followingCalendarPending && followingCalendarData === undefined ? (
+        <Text style={[styles.helper, { color: Colors[colorScheme].mutedText }]}>
+          Loading calendar…
+        </Text>
+      ) : null}
+
+      {isSignedIn && followingCalendarIsError ? (
+        <View style={styles.optionalStatusRow}>
+          <Text style={[styles.helper, { color: Colors[colorScheme].mutedText, flex: 1 }]}>
+            {followingCalendarData === undefined
+              ? 'Your followed calendar is temporarily unavailable.'
+              : 'Could not refresh your calendar. Showing saved events.'}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry followed calendar"
+            onPress={() => void refetchFollowingCalendar()}
+            style={styles.inlineRetryButton}
+          >
+            <Text style={styles.inlineRetryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {calendarGames.length === 0 &&
+      calendarEvents.length === 0 &&
+      (!isSignedIn || (!followingCalendarPending && !followingCalendarIsError)) ? (
         <Text style={[styles.helper, { color: Colors[colorScheme].mutedText }]}>
           You&apos;re not following any teams yet — search above to find and follow teams, and their
           games and events show up here.
@@ -2429,16 +2406,44 @@ function CommunityDiscoverScreen() {
         </Pressable>
       </View>
 
-      {personalizationNotice ? (
-        <Text style={[styles.noticeText, { color: Colors[colorScheme].mutedText }]}>
-          {personalizationNotice}
-        </Text>
+      {personalizationIsError && personalization !== undefined ? (
+        <View style={styles.optionalStatusRow}>
+          <Text style={[styles.noticeText, { color: Colors[colorScheme].mutedText, flex: 1 }]}>
+            Could not refresh posts. Showing saved results.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry posts"
+            onPress={() => void refetchPersonalization()}
+            style={styles.inlineRetryButton}
+          >
+            <Text style={styles.inlineRetryText}>Retry</Text>
+          </Pressable>
+        </View>
       ) : null}
 
       <Text style={[styles.sectionTitle, { color: Colors[colorScheme].text }]}>
         {tab === 'following' ? 'From people you follow' : 'Discover new posts'}
       </Text>
-      {(tab === 'following' ? followingPosts : discoverPosts).length === 0 ? (
+      {personalizationPending && personalization === undefined ? (
+        <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText }]}>
+          Loading posts…
+        </Text>
+      ) : personalizationIsError && personalization === undefined ? (
+        <View style={styles.optionalStatusRow}>
+          <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText, flex: 1 }]}>
+            Posts are temporarily unavailable.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry posts"
+            onPress={() => void refetchPersonalization()}
+            style={styles.inlineRetryButton}
+          >
+            <Text style={styles.inlineRetryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : (tab === 'following' ? followingPosts : discoverPosts).length === 0 ? (
         <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText }]}>
           {tab === 'following'
             ? 'Follow people to see their posts here.'
@@ -2502,6 +2507,40 @@ function CommunityDiscoverScreen() {
         <MaterialIcons name="chevron-right" size={20} color={Colors[colorScheme].mutedText} />
       </Pressable>
 
+      {isSignedIn && suggestedPending && suggestedData === undefined ? (
+        <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText }]}>
+          Loading people suggestions…
+        </Text>
+      ) : null}
+
+      {isSignedIn && suggestedIsError ? (
+        <View style={styles.optionalStatusRow}>
+          <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText, flex: 1 }]}>
+            {suggestedData === undefined
+              ? 'People suggestions are temporarily unavailable.'
+              : 'Could not refresh people suggestions. Showing saved results.'}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry people suggestions"
+            onPress={() => void refetchSuggested()}
+            style={styles.inlineRetryButton}
+          >
+            <Text style={styles.inlineRetryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {isSignedIn &&
+      !suggestedPending &&
+      !suggestedIsError &&
+      suggestedData !== undefined &&
+      suggestedData.length === 0 ? (
+        <Text style={[styles.mutedSmall, { color: Colors[colorScheme].mutedText }]}>
+          No people suggestions right now.
+        </Text>
+      ) : null}
+
       {nearbyPeople.length > 0 ? (
         <View style={{ marginBottom: 16 }}>
           <Text style={[styles.sectionTitle, { color: Colors[colorScheme].text }]}>
@@ -2513,7 +2552,7 @@ function CommunityDiscoverScreen() {
             style={{ marginTop: 8 }}
             contentContainerStyle={{ paddingRight: 8 }}
           >
-            {nearbyPeople.map(u => (
+            {nearbyPeople.map((u: any) => (
               <Pressable
                 key={String(u.id)}
                 style={styles.personTile}
@@ -2621,8 +2660,12 @@ function CommunityDiscoverScreen() {
                           p.id === u.id ? { ...p, is_following: !p.is_following } : p
                         )
                       );
-                    } catch {
-                      // silent
+                    } catch (followError) {
+                      reportDiscoverFailure('update_suggested_follow', followError);
+                      Alert.alert(
+                        u.is_following ? 'Unable to unfollow' : 'Unable to follow',
+                        'Please try again. Your follow was not changed.'
+                      );
                     } finally {
                       setSuggestedFollowLoading(null);
                     }
@@ -2669,7 +2712,9 @@ function CommunityDiscoverScreen() {
             {error}
           </Text>
           <Pressable
-            onPress={() => void refreshAll()}
+            accessibilityRole="button"
+            accessibilityLabel="Retry games"
+            onPress={() => void refetchGames()}
             style={{
               marginTop: 12,
               paddingHorizontal: 20,
@@ -2925,6 +2970,14 @@ const styles = StyleSheet.create({
   helper: { marginBottom: 10 },
   mutedSmall: { marginBottom: 10, fontSize: 12 },
   noticeText: { fontSize: 13, marginBottom: 4 },
+  optionalStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  inlineRetryButton: {
+    borderRadius: 8,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  inlineRetryText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   sectionTitle: { fontWeight: '800', marginTop: 8 },
   browseOrgsRow: {
     flexDirection: 'row',
