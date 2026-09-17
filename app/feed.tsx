@@ -404,6 +404,11 @@ export default function FeedScreen() {
   const postsActivityOwnershipRef = useRef(0);
   const postsActivityInFlightRef = useRef(false);
   const postsActivityReturnRefreshPendingRef = useRef(false);
+  // A return focus refresh races the adjacent silent feed reload. Remember the
+  // eligible ids refreshed for that focus cycle so the reload's games effect
+  // does not immediately repeat the same request. The marker is cleared by
+  // the next poll, explicit refresh, background, or blur.
+  const postsActivityFocusRefreshKeyRef = useRef<string | null>(null);
   const postsActivityRefreshRef = useRef<(() => void) | null>(null);
   const hasFocusedActivityOnceRef = useRef(false);
   const postsActivityIdentity = user?.id == null ? 'guest' : String(user.id);
@@ -496,78 +501,96 @@ export default function FeedScreen() {
   // falls back to a standalone-event lookup for any id that isn't a Game, so
   // they can go gold on the feed the same way they already can on the map
   // (owner "commandments" parity rule, 2026-09-14).
-  const preloadPostsActivity = useCallback(async (gameList: GameItem[]) => {
-    if (
-      !postsActivityFocusedRef.current ||
-      postsActivityAppStateRef.current !== 'active' ||
-      postsActivityInFlightRef.current
-    ) {
-      return;
-    }
+  const getPostsActivityIds = useCallback((gameList: GameItem[]) => {
     const now = Date.now();
-    const ids = gameList
+    return gameList
       .filter(game => isGameLive(game, now) || isGameOver(game, now))
       .map(game => String(game.id))
       .filter(id => id)
       .slice(0, 50);
-    if (!ids.length) return;
-    const ownership = postsActivityOwnershipRef.current;
-    const identity = postsActivityIdentityRef.current;
-    postsActivityInFlightRef.current = true;
-    try {
-      const batch = await Game.postsSummaryBatch(ids);
-      if (
-        !postsActivityFocusedRef.current ||
-        postsActivityAppStateRef.current !== 'active' ||
-        postsActivityOwnershipRef.current !== ownership ||
-        postsActivityIdentityRef.current !== identity
-      ) {
-        return;
-      }
-      const responseNow = Date.now();
-      const currentIds = new Set(
-        postsActivityGamesRef.current
-          .filter(game => isGameLive(game, responseNow) || isGameOver(game, responseNow))
-          .map(game => String(game.id))
-          .filter(id => id)
-          .slice(0, 50)
-      );
-      const next = { ...postsActivityRef.current };
-      let changed = false;
-      ids.forEach(id => {
-        if (!currentIds.has(id)) return;
-        const value = Number((batch as Record<string, number>)?.[id] ?? 0);
-        if (next[id] !== value) {
-          next[id] = value;
-          changed = true;
-        }
-      });
-      if (changed) {
-        setPostsActivity(next);
-        postsActivityRef.current = next;
-      }
-    } catch (err) {
-      if (__DEV__) console.warn('Posts activity batch failed', err);
-    } finally {
-      postsActivityInFlightRef.current = false;
-      if (
-        postsActivityReturnRefreshPendingRef.current &&
-        postsActivityFocusedRef.current &&
-        postsActivityAppStateRef.current === 'active'
-      ) {
-        postsActivityReturnRefreshPendingRef.current = false;
-        postsActivityRefreshRef.current?.();
-      }
-    }
   }, []);
 
-  const refreshPostsActivity = useCallback(
-    (queueIfBusy = false) => {
+  const getPostsActivityKey = useCallback(
+    (gameList: GameItem[]) => JSON.stringify([...getPostsActivityIds(gameList)].sort()),
+    [getPostsActivityIds]
+  );
+
+  const preloadPostsActivity = useCallback(
+    async (
+      gameList: GameItem[],
+      {
+        queueIfBusy = false,
+        coalesceFocusReload = false,
+      }: { queueIfBusy?: boolean; coalesceFocusReload?: boolean } = {}
+    ) => {
+      if (!postsActivityFocusedRef.current || postsActivityAppStateRef.current !== 'active') {
+        return;
+      }
+      const ids = getPostsActivityIds(gameList);
+      const activityKey = JSON.stringify([...ids].sort());
+      if (coalesceFocusReload && postsActivityFocusRefreshKeyRef.current !== null) {
+        if (postsActivityFocusRefreshKeyRef.current === activityKey) return;
+        // The reload brought in genuinely different eligible ids. Advance the
+        // focus-cycle marker and fetch the new current set once.
+        postsActivityFocusRefreshKeyRef.current = activityKey;
+      }
+      if (!ids.length) return;
       if (postsActivityInFlightRef.current) {
         if (queueIfBusy) postsActivityReturnRefreshPendingRef.current = true;
         return;
       }
-      void preloadPostsActivity(postsActivityGamesRef.current);
+      // Starting an eligible request consumes any older queued return intent.
+      // Otherwise a request started after backgrounding can settle and launch
+      // an unnecessary third request from the stale flag.
+      postsActivityReturnRefreshPendingRef.current = false;
+      const ownership = postsActivityOwnershipRef.current;
+      const identity = postsActivityIdentityRef.current;
+      postsActivityInFlightRef.current = true;
+      try {
+        const batch = await Game.postsSummaryBatch(ids);
+        if (
+          !postsActivityFocusedRef.current ||
+          postsActivityAppStateRef.current !== 'active' ||
+          postsActivityOwnershipRef.current !== ownership ||
+          postsActivityIdentityRef.current !== identity
+        ) {
+          return;
+        }
+        const currentIds = new Set(getPostsActivityIds(postsActivityGamesRef.current));
+        const next = { ...postsActivityRef.current };
+        let changed = false;
+        ids.forEach(id => {
+          if (!currentIds.has(id)) return;
+          const value = Number((batch as Record<string, number>)?.[id] ?? 0);
+          if (next[id] !== value) {
+            next[id] = value;
+            changed = true;
+          }
+        });
+        if (changed) {
+          setPostsActivity(next);
+          postsActivityRef.current = next;
+        }
+      } catch (err) {
+        if (__DEV__) console.warn('Posts activity batch failed', err);
+      } finally {
+        postsActivityInFlightRef.current = false;
+        if (
+          postsActivityReturnRefreshPendingRef.current &&
+          postsActivityFocusedRef.current &&
+          postsActivityAppStateRef.current === 'active'
+        ) {
+          postsActivityReturnRefreshPendingRef.current = false;
+          postsActivityRefreshRef.current?.();
+        }
+      }
+    },
+    [getPostsActivityIds]
+  );
+
+  const refreshPostsActivity = useCallback(
+    (queueIfBusy = false) => {
+      void preloadPostsActivity(postsActivityGamesRef.current, { queueIfBusy });
     },
     [preloadPostsActivity]
   );
@@ -1216,7 +1239,10 @@ export default function FeedScreen() {
     const handle = InteractionManager.runAfterInteractions(() => {
       void preloadVoteSummaries(games.slice(0, 12));
       void preloadRsvpSummaries(games);
-      void preloadPostsActivity(games);
+      void preloadPostsActivity(games, {
+        queueIfBusy: true,
+        coalesceFocusReload: true,
+      });
     });
     return () => handle.cancel();
   }, [games, preloadVoteSummaries, preloadRsvpSummaries, preloadPostsActivity]);
@@ -1241,13 +1267,21 @@ export default function FeedScreen() {
       };
       const startPolling = () => {
         if (interval !== null || postsActivityAppStateRef.current !== 'active') return;
-        interval = setInterval(() => refreshPostsActivity(false), 30000);
+        interval = setInterval(() => {
+          postsActivityFocusRefreshKeyRef.current = null;
+          refreshPostsActivity(false);
+        }, 30000);
       };
 
       const isReturnFocus = hasFocusedActivityOnceRef.current;
       hasFocusedActivityOnceRef.current = true;
       if (postsActivityAppStateRef.current === 'active') {
-        if (isReturnFocus) refreshPostsActivity(true);
+        if (isReturnFocus) {
+          postsActivityFocusRefreshKeyRef.current = getPostsActivityKey(
+            postsActivityGamesRef.current
+          );
+          refreshPostsActivity(true);
+        }
         startPolling();
       }
 
@@ -1262,6 +1296,7 @@ export default function FeedScreen() {
           startPolling();
         } else {
           stopPolling();
+          postsActivityFocusRefreshKeyRef.current = null;
           postsActivityOwnershipRef.current += 1;
         }
       });
@@ -1269,11 +1304,12 @@ export default function FeedScreen() {
       return () => {
         postsActivityFocusedRef.current = false;
         postsActivityReturnRefreshPendingRef.current = false;
+        postsActivityFocusRefreshKeyRef.current = null;
         postsActivityOwnershipRef.current += 1;
         stopPolling();
         subscription.remove();
       };
-    }, [refreshPostsActivity])
+    }, [getPostsActivityKey, refreshPostsActivity])
   );
 
   // Refresh feed data + unread counts on focus, then poll every 60s while visible.
@@ -1364,6 +1400,7 @@ export default function FeedScreen() {
   }, [notificationsMenuOpen, notificationsReloadKey]);
 
   const onRefresh = useCallback(async () => {
+    postsActivityFocusRefreshKeyRef.current = null;
     setRefreshing(true);
     try {
       // force: an explicit pull-to-refresh must always hit the server, even

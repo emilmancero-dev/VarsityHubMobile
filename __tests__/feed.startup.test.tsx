@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, render, waitFor } from '@testing-library/react-native';
-import { AppState, type AppStateStatus, View } from 'react-native';
+import { AppState, type AppStateStatus, InteractionManager, View } from 'react-native';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -224,8 +224,7 @@ const emitAppState = (state: AppStateStatus) => {
 };
 
 const useFeedFakeTimers = (now: number) => {
-  jest.useFakeTimers();
-  jest.setSystemTime(now);
+  jest.useFakeTimers({ now });
 };
 
 const setMockAuthUser = (user: { id: string } | null) => {
@@ -252,6 +251,10 @@ describe('Feed startup performance', () => {
     firstGameDeferred = createDeferred<any>();
     gameDeferredQueue = [firstGameDeferred];
     jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(InteractionManager, 'runAfterInteractions').mockImplementation((callback: any) => {
+      callback();
+      return { cancel: jest.fn() } as any;
+    });
     jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
       capturedAppStateListeners.add(listener);
       return {
@@ -404,10 +407,8 @@ describe('Feed startup performance', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId('feed-game-card-live-game')).toBeTruthy();
-      expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
-    });
+    expect(screen.getByTestId('feed-game-card-live-game')).toBeTruthy();
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
     const initialActivityIds = mockPostsSummaryBatch.mock.calls[0][0];
     expect(initialActivityIds).toEqual(expect.arrayContaining(['live-game', 'past-event']));
     expect(initialActivityIds).not.toContain('future-game');
@@ -468,7 +469,7 @@ describe('Feed startup performance', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1));
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       jest.advanceTimersByTime(90_000);
@@ -515,7 +516,7 @@ describe('Feed startup performance', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1));
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
     await act(async () => {
       emitAppState('background');
       backgroundDeferred.resolve({ 'live-game': 1 });
@@ -539,6 +540,129 @@ describe('Feed startup performance', () => {
     expect(screen.getByTestId('feed-game-card-live-game')).toHaveStyle({
       borderColor: '#EF4444',
     });
+  });
+
+  it('consumes a queued return refresh when a fresh request starts', async () => {
+    useFeedFakeTimers(now);
+    const firstActivityDeferred = createDeferred<Record<string, number>>();
+    const returnActivityDeferred = createDeferred<Record<string, number>>();
+    mockPostsSummaryBatch
+      .mockImplementationOnce(() => firstActivityDeferred.promise)
+      .mockImplementationOnce(() => returnActivityDeferred.promise);
+    render(<FeedScreen />);
+    let focusCleanups: Array<void | (() => void)> = [];
+
+    await act(async () => {
+      focusCleanups = [runActivityFocusEffect()];
+      firstGameDeferred.resolve({
+        games: [
+          {
+            id: 'live-game',
+            title: 'Central vs West',
+            date: '2026-04-25T11:00:00.000Z',
+            location: 'Main Gym',
+          },
+        ],
+        nextCursor: null,
+      });
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      emitAppState('background');
+      emitAppState('active');
+      emitAppState('background');
+      firstActivityDeferred.resolve({ 'live-game': 0 });
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      emitAppState('active');
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      returnActivityDeferred.resolve({ 'live-game': 0 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(2);
+
+    cleanupFocusEffects(focusCleanups);
+  });
+
+  it('coalesces a focus reload for unchanged activity ids but fetches newly loaded ids', async () => {
+    useFeedFakeTimers(now);
+    render(<FeedScreen />);
+    let focusCleanups: Array<void | (() => void)> = [];
+    const liveGame = {
+      id: 'live-game',
+      title: 'Central vs West',
+      date: '2026-04-25T11:00:00.000Z',
+      location: 'Main Gym',
+    };
+
+    await act(async () => {
+      focusCleanups = runFocusEffects();
+      firstGameDeferred.resolve({ games: [liveGame], nextCursor: null });
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+    cleanupFocusEffects(focusCleanups);
+
+    await act(async () => {
+      jest.advanceTimersByTime(31_000);
+      await Promise.resolve();
+    });
+    const unchangedReload = createDeferred<any>();
+    gameDeferredQueue.push(unchangedReload);
+    await act(async () => {
+      focusCleanups = runFocusEffects();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      unchangedReload.resolve({ games: [liveGame], nextCursor: null });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(2);
+    cleanupFocusEffects(focusCleanups);
+
+    await act(async () => {
+      jest.advanceTimersByTime(31_000);
+      await Promise.resolve();
+    });
+    const changedReload = createDeferred<any>();
+    gameDeferredQueue.push(changedReload);
+    await act(async () => {
+      focusCleanups = runFocusEffects();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      changedReload.resolve({
+        games: [
+          liveGame,
+          {
+            id: 'new-live-game',
+            title: 'North vs South',
+            date: '2026-04-25T11:30:00.000Z',
+            location: 'North Gym',
+          },
+        ],
+        nextCursor: null,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(4);
+    expect(mockPostsSummaryBatch).toHaveBeenLastCalledWith(['live-game', 'new-live-game']);
+
+    cleanupFocusEffects(focusCleanups);
   });
 
   it('ignores a late activity response after the viewer identity changes', async () => {
@@ -565,7 +689,7 @@ describe('Feed startup performance', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1));
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('feed-game-card-live-game')).toHaveStyle({
       borderColor: '#EF4444',
     });
