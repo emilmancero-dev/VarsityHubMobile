@@ -60,7 +60,7 @@ Run against the deployed API base URL.
   - GET /posts?sort=trending
   - GET /posts/trending
   - POST /posts
-  - POST /posts/collage
+  - POST /posts/collage — disabled; expect 501 for an authorized caller, not a created post
   - POST /posts/:id/comments
 
 - Events

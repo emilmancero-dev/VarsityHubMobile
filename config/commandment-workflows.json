@@ -57,6 +57,21 @@
           "type": "automated",
           "file": "utils/__tests__/mapMarkerColor.test.ts",
           "cases": ["overrides tier with gold when the page has posts"]
+        },
+        {
+          "type": "automated",
+          "file": "__tests__/feed.startup.test.tsx",
+          "cases": [
+            "polls activity only while focused and active, then refreshes once on return",
+            "does not overlap activity requests when a polling tick beats a slow response",
+            "does not queue unchanged enrichment ids behind the initial activity request",
+            "queues changed enrichment ids behind the initial activity request",
+            "queues unchanged enrichment ids when the in-flight request belongs to an old viewer",
+            "ignores late activity responses after background and blur ownership ends",
+            "consumes a queued return refresh when a fresh request starts",
+            "coalesces a focus reload for unchanged activity ids but fetches newly loaded ids",
+            "ignores a late activity response after the viewer identity changes"
+          ]
         }
       ]
     },

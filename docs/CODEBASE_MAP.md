@@ -508,7 +508,7 @@ Server entry: `server/src/index.ts` → `server/src/app.ts`
 | POST   | /posts/:id/share               | Required            | Record share, notify author                                                              | PostCard                |
 | POST   | /posts/:id/poll                | Required            | Create poll on post                                                                      | create-post             |
 | POST   | /posts/:id/poll/vote           | Required            | Vote on poll option                                                                      | PollCard                |
-| POST   | /posts/collage                 | Required            | Create collage post                                                                      | create-collage          |
+| POST   | /posts/collage                 | Required            | Disabled (501); collage creation is not implemented                                      | No active caller        |
 
 ### Games Routes — `routes/games.ts`
 

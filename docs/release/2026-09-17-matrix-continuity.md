@@ -1,5 +1,7 @@
 # Matrix continuity audit and first repair phase
 
+Historical baseline: this report predates the ff538468 production publication and the [reliability continuation](2026-09-17-reliability-continuation.md). Its "nothing deployed" and open-defect entries describe that audit run, not the latest release status. Installed-device evidence remains separate.
+
 Result: **not approved for production release**. The canonical matrix completed
 with 17 passing gates and one blocked gate (installed-app ad-purchase evidence).
 This report covers the working tree based on `0c3bd3d7`, including the local
