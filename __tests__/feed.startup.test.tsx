@@ -75,6 +75,7 @@ jest.mock('@/api/entities', () => ({
     report: jest.fn(),
   },
   Event: {
+    filter: jest.fn(async () => []),
     rsvp: jest.fn(),
     rsvpStatus: jest.fn(async () => ({ going: false, count: 0 })),
   },

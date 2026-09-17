@@ -9,6 +9,11 @@ import {
 describe('buildFeedGameQueries', () => {
   const now = new Date('2026-07-12T20:00:00.000Z').getTime();
 
+  it('reuses the same query boundaries within a freshness window', () => {
+    expect(buildFeedGameQueries(now + 1)).toEqual(buildFeedGameQueries(now + 29_999));
+    expect(buildFeedGameQueries(now + 30_000)).not.toEqual(buildFeedGameQueries(now));
+  });
+
   it('anchors the upcoming query at now minus the live window so in-progress games stay in the rail', () => {
     const q = buildFeedGameQueries(now);
     expect(q.upcoming.sort).toBe('date');

@@ -74,6 +74,9 @@ export function buildFeedGameQueries(
   nowMs: number,
   coords?: FeedViewerCoords | null
 ): FeedGameQueryPlan {
+  // Share query identities across mounts inside the cache's 30-second freshness
+  // window. Millisecond-precise boundaries defeat React Query deduplication.
+  nowMs = Math.floor(nowMs / 30_000) * 30_000;
   const liveFrom = new Date(nowMs - FEED_LIVE_LOOKBACK_MS).toISOString();
   const upcomingTo = new Date(nowMs + FEED_UPCOMING_WINDOW_MS).toISOString();
   const nowIso = new Date(nowMs).toISOString();

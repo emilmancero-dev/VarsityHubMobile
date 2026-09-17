@@ -16,7 +16,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // @ts-ignore
-import { Event as EventApi } from '@/api/entities';
+import { User } from '@/api/entities';
+import { useAuth } from '@/context/AuthProvider';
 import { buildEventDetailRoute } from '@/utils/eventRoutes';
 
 type Item = {
@@ -28,17 +29,23 @@ type Item = {
 function RsvpHistoryScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const router = useRouter();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
-  // react-query owns the fetch: cached RSVPs render instantly on revisit.
+  // Use the same verified/contributed event-page ledger as the profile Events
+  // tab, so these two surfaces cannot disagree about attendance.
   const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ['my-rsvps'],
-    queryFn: () => EventApi.myRsvps() as Promise<Item[]>,
+    queryKey: ['profile-event-pages', user?.id],
+    enabled: !!user?.id,
+    queryFn: () => User.eventPagesForProfile(String(user?.id)),
   });
-  const items: Item[] = useMemo(() => (Array.isArray(data) ? data : []), [data]);
+  const items: Item[] = useMemo(() => {
+    const rows = Array.isArray(data) ? data : (data?.items ?? []);
+    return rows.map((event: any) => ({ id: event.id, event }));
+  }, [data]);
   const loading = isPending;
-  const error = isError ? 'Failed to load watching history. Pull down to refresh.' : null;
+  const error = isError ? 'Failed to load games attended. Pull down to refresh.' : null;
 
   // Filter items by search query and date
   const filteredItems = useMemo(() => {
@@ -114,7 +121,7 @@ function RsvpHistoryScreen() {
       edges={['top', 'bottom']}
     >
       <Stack.Screen
-        options={{ title: '📺 Watching History', headerBackTitle: 'Back', headerShown: true }}
+        options={{ title: 'Games Attended', headerBackTitle: 'Back', headerShown: true }}
       />
 
       {/* Search and Filter Controls */}
@@ -206,7 +213,7 @@ function RsvpHistoryScreen() {
       )}
       {!loading && upcoming.length === 0 && (
         <Text style={[styles.muted, { color: Colors[colorScheme].mutedText }]}>
-          Nothing marked as watching yet.
+          No games attended yet. Events you contribute to will appear here.
         </Text>
       )}
       {!loading && upcoming.length > 0 && (

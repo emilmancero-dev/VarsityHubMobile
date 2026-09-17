@@ -35,6 +35,16 @@ export type AgeSource = {
   preferences?: unknown;
 };
 
+/** Date-only cutoff for adult discovery using the same UTC birthday boundary
+ * as getUserAge. SQL comparisons against this value exclude null DOBs. */
+export function adultBirthDateCutoff(now: Date = new Date()): Date {
+  const cutoff = new Date(Date.UTC(now.getUTCFullYear() - 18, now.getUTCMonth(), now.getUTCDate()));
+  // Feb 29 in a leap year must not admit March 1 birthdays in a non-leap
+  // birth year a day early.
+  if (cutoff.getUTCMonth() !== now.getUTCMonth()) cutoff.setUTCDate(0);
+  return cutoff;
+}
+
 /**
  * Parse `YYYY-MM-DD` as a UTC-midnight Date. DOB is a date-only concept — using
  * UTC-midnight sidesteps timezone drift entirely:

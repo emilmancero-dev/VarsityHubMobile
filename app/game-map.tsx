@@ -133,23 +133,6 @@ function GameMapScreen() {
     });
   }, [dateBase, selectedLevel]);
 
-  // Sports actually present after the date+level filter — the sport filter only
-  // offers what exists (no 🏒 chip when there's no hockey in the current view).
-  const presentSports = useMemo(
-    () => Array.from(new Set(levelBase.map(e => e.sport).filter((s): s is string => !!s))),
-    [levelBase]
-  );
-
-  // Owner note (Sep 2026): selecting a league level must NOT wipe the sport
-  // filter — the two filters work together. Keep the chosen sport across level
-  // switches, and only drop it when that sport no longer exists in the new
-  // level's set (so the map never filters down to an empty, confusing result).
-  useEffect(() => {
-    if (selectedSport && !presentSports.includes(selectedSport)) {
-      setSelectedSport(null);
-    }
-  }, [presentSports, selectedSport]);
-
   const clearDate = useCallback(() => setSelectedDate(''), []);
   const selectMapDate = useCallback((picked: Date) => {
     const start = new Date(picked);
@@ -212,10 +195,12 @@ function GameMapScreen() {
         />
 
         {/* Discreet sport filter — sits on the count-badge row, right of it. */}
-        {!loading && !error && presentSports.length > 1 && (
+        {!loading && !error && (
           <View style={[styles.sportFilter, { pointerEvents: 'box-none' }]}>
             <SportFilterBar
-              sports={presentSports}
+              sports={Array.from(
+                new Set(dateBase.map(e => e.sport).filter((s): s is string => !!s))
+              )}
               selected={selectedSport}
               onSelect={setSelectedSport}
             />
@@ -247,8 +232,7 @@ function GameMapScreen() {
                     accessibilityState={{ selected: active }}
                     onPress={() => {
                       // Toggle off when re-tapping the active chip (except All).
-                      // The sport filter persists across level changes (a stale
-                      // sport is cleared by the effect above only when absent).
+                      // The sport filter persists across level changes.
                       setSelectedLevel(active ? null : level.value);
                     }}
                     style={[

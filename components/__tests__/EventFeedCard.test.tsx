@@ -26,7 +26,7 @@ describe('EventFeedCard', () => {
       />
     );
 
-    expect(screen.getByText('🏈 Cowboys at Giants')).toBeTruthy();
+    expect(screen.getByText('Cowboys at Giants')).toBeTruthy();
     expect(screen.getByText(/MetLife Stadium/)).toBeTruthy();
     expect(screen.queryByText('📝')).toBeNull();
   });

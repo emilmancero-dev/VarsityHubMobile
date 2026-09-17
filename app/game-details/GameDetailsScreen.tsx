@@ -2702,7 +2702,7 @@ const GameDetailsScreen = () => {
               </Pressable>
             </View>
           ) : null}
-          {vm && !loading ? (
+          {vm ? (
             <>
               {/* Tabs removed - keeping Overview only as default view */}
               <Text style={styles.title}>{vm.title}</Text>
@@ -2836,42 +2836,6 @@ const GameDetailsScreen = () => {
                     <Text style={styles.sectionTitle}>Posts</Text>
                     <Text style={styles.sectionSubtitle}>{postsSubtitle}</Text>
                   </View>
-                  <Pressable
-                    style={styles.addPostButton}
-                    onPress={() => {
-                      const targetId = vm?.gameId || vm?.eventId;
-                      if (!targetId) {
-                        Alert.alert('Create Post', 'Reload this event before creating a post.');
-                        return;
-                      }
-                      if (!authUser) {
-                        promptForSignIn(
-                          () => {
-                            void router.push('/sign-in');
-                          },
-                          {
-                            message: 'Sign in to post to this event.',
-                          }
-                        );
-                        return;
-                      }
-                      // The Posts action creates a normal event post. Stories
-                      // are created only through Add Story above, so a single
-                      // upload never intentionally writes to both destinations.
-                      void router.push({
-                        pathname: '/create-post',
-                        params: vm?.gameId
-                          ? {
-                              gameId: String(vm.gameId),
-                              ...(vm.eventId ? { eventId: String(vm.eventId) } : {}),
-                              type: 'post',
-                            }
-                          : { eventId: String(vm?.eventId), type: 'post' },
-                      } as any);
-                    }}
-                  >
-                    <Ionicons name="add-circle" size={28} color={Colors[colorScheme].tint} />
-                  </Pressable>
                 </View>
                 {postsCount > 0 ? (
                   <View style={styles.postsGridContainer}>

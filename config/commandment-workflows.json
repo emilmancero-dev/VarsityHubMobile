@@ -49,7 +49,7 @@
           "type": "automated",
           "file": "server/src/__tests__/commandments-invariants.test.ts",
           "cases": [
-            "documents the live and past card counter removal",
+            "documents that live and past event cards have no bottom-right counter",
             "uses gold for event pages with posts"
           ]
         },
@@ -74,7 +74,7 @@
         {
           "type": "integration",
           "file": "server/src/__tests__/users-event-pages.test.ts",
-          "cases": ["shows geofence-verified events, while hiding future and posted-only events"]
+          "cases": ["shows verified and contributed event pages while hiding future events"]
         }
       ]
     },

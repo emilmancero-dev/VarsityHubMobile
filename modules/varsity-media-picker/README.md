@@ -28,3 +28,5 @@ Before release, test a physical iPhone with Optimise iPhone Storage: local and
 cloud-only MOV/MP4, limited Photos access, mixed image/video selection, picker
 cancel, offline cloud download failure, retry, and an edited Photos video.
 Simulator compilation cannot prove iCloud/provider behavior on a real device.
+Older binaries without this native module remain in Expo's photo-library picker;
+they never redirect a photo-library action into the Files browser.

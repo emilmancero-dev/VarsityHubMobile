@@ -627,67 +627,65 @@ export default function FeedScreen() {
         feedQueryPlanRef.current = queryPlan;
         // First paint waits only for the core game pages. Pro/NCAA/event-only
         // rows are useful enrichment, but they should not hold the feed spinner.
-        const [upcomingData, pastGamesData, marqueeGamesData] = await Promise.all([
-          queryClient
-            .fetchQuery({
-              queryKey: [
-                'feed-games-upcoming',
-                queryPlan.upcoming.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
-              queryFn: () => Game.list(queryPlan.upcoming.sort, queryPlan.upcoming.options),
-            })
-            .catch((err: any) => {
-              if (__DEV__) console.error('[Feed] Failed to load games:', err);
-              // If it's a network error, show a more helpful message
-              if (err?.isNetworkError || err?.status === 0) {
-                setError('Unable to connect to server. Please check your internet connection.');
-              } else if (err?.status === 401 || err?.status === 403) {
-                setError('Unable to load games right now.');
-              } else {
-                setError('Unable to load games. Please try again.');
-              }
-              return null;
-            }),
-          queryClient
-            .fetchQuery({
-              queryKey: [
-                'feed-games-past',
-                queryPlan.past.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
-              queryFn: () => Game.list(queryPlan.past.sort, queryPlan.past.options),
-            })
-            .catch((err: any) => {
-              if (__DEV__) console.warn('[Feed] Failed to load past games:', err);
-              return null;
-            }),
-          queryClient
-            .fetchQuery({
-              queryKey: [
-                'feed-games-marquee',
-                queryPlan.marquee.options.dateFrom,
-                viewerCoords?.lat ?? null,
-                viewerCoords?.lng ?? null,
-              ],
-              queryFn: () => Game.list(queryPlan.marquee.sort, queryPlan.marquee.options),
-            })
-            .catch((err: any) => {
-              if (__DEV__) console.warn('[Feed] Failed to load marquee games:', err);
-              return null;
-            }),
-        ]);
+        const upcomingPromise = queryClient
+          .fetchQuery({
+            queryKey: [
+              'feed-games-upcoming',
+              queryPlan.upcoming.options.dateFrom,
+              viewerCoords?.lat ?? null,
+              viewerCoords?.lng ?? null,
+            ],
+            queryFn: () => Game.list(queryPlan.upcoming.sort, queryPlan.upcoming.options),
+          })
+          .catch((err: any) => {
+            if (__DEV__) console.error('[Feed] Failed to load games:', err);
+            // If it's a network error, show a more helpful message
+            if (err?.isNetworkError || err?.status === 0) {
+              setError('Unable to connect to server. Please check your internet connection.');
+            } else if (err?.status === 401 || err?.status === 403) {
+              setError('Unable to load games right now.');
+            } else {
+              setError('Unable to load games. Please try again.');
+            }
+            return null;
+          });
+        const pastGamesPromise = queryClient
+          .fetchQuery({
+            queryKey: [
+              'feed-games-past',
+              queryPlan.past.options.dateFrom,
+              viewerCoords?.lat ?? null,
+              viewerCoords?.lng ?? null,
+            ],
+            queryFn: () => Game.list(queryPlan.past.sort, queryPlan.past.options),
+          })
+          .catch((err: any) => {
+            if (__DEV__) console.warn('[Feed] Failed to load past games:', err);
+            return null;
+          });
+        const marqueeGamesPromise = queryClient
+          .fetchQuery({
+            queryKey: [
+              'feed-games-marquee',
+              queryPlan.marquee.options.dateFrom,
+              viewerCoords?.lat ?? null,
+              viewerCoords?.lng ?? null,
+            ],
+            queryFn: () => Game.list(queryPlan.marquee.sort, queryPlan.marquee.options),
+          })
+          .catch((err: any) => {
+            if (__DEV__) console.warn('[Feed] Failed to load marquee games:', err);
+            return null;
+          });
+
+        // Upcoming games are the first useful screen. Do not make them wait
+        // for recap/marquee requests—the slower secondary pages merge in just
+        // below after the spinner has already cleared.
+        const upcomingData = await upcomingPromise;
 
         const upcomingPage = normalizeGamesPage(upcomingData);
         let cursor = upcomingPage.cursor;
-        const gameRows = [
-          ...normalizeGamesPage(pastGamesData).games,
-          ...upcomingPage.games,
-          ...normalizeGamesPage(marqueeGamesData).games,
-        ];
-        let normalizedGames = dedupeFeedEntities(mergeFeedGames(gameRows));
+        let normalizedGames = dedupeFeedEntities(mergeFeedGames(upcomingPage.games));
 
         // If no games exist, seed sample games as real DB records (stories/polls work)
         if ((!normalizedGames || normalizedGames.length === 0) && upcomingData !== null) {
@@ -716,6 +714,22 @@ export default function FeedScreen() {
           setHasMoreGames(!!cursor);
           if (!silent) setLoading(false);
         }
+
+        void Promise.all([pastGamesPromise, marqueeGamesPromise]).then(
+          ([pastGamesData, marqueeGamesData]) => {
+            if (!isCurrentRequest()) return;
+            setGames(previous =>
+              dedupeFeedEntities(
+                mergeFeedGames([
+                  ...previous,
+                  ...normalizeGamesPage(pastGamesData).games,
+                  ...upcomingPage.games,
+                  ...normalizeGamesPage(marqueeGamesData).games,
+                ])
+              )
+            );
+          }
+        );
 
         void (async () => {
           try {
@@ -818,19 +832,19 @@ export default function FeedScreen() {
 
             if (!isCurrentRequest()) return;
             const proPastRows = filterProEventsAlreadyRepresentedByGames(
-              gameRows,
+              upcomingPage.games,
               normalizeFeedEvents(proPastData)
             );
             const proUpcomingRows = filterProEventsAlreadyRepresentedByGames(
-              gameRows,
+              upcomingPage.games,
               normalizeFeedEvents(proUpcomingData)
             );
             const varsityhubEventRows = filterProEventsAlreadyRepresentedByGames(
-              gameRows,
+              upcomingPage.games,
               normalizeFeedEvents(varsityhubUpcomingEventsData)
             );
             const varsityhubPastEventRows = filterProEventsAlreadyRepresentedByGames(
-              gameRows,
+              upcomingPage.games,
               normalizeFeedEvents(varsityhubPastEventsData)
             );
             const enrichmentRows = [

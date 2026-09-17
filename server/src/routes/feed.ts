@@ -201,7 +201,9 @@ async function getFollowedPostsPage(
   }
 
   const items = rows.slice(0, limit);
-  const nextCursor = rows.length > limit ? rows[limit].id : null;
+  // The next query skips the cursor itself, so point to the last delivered
+  // row, never the extra look-ahead row (which has not been delivered yet).
+  const nextCursor = rows.length > limit ? items[items.length - 1].id : null;
   const postIds: string[] = items.map((post: any) => post.id);
   const authorIds: string[] = items.map((post: any) => post.author_id).filter(Boolean);
   const pollIds: string[] = items.map((post: any) => post.poll?.id).filter(Boolean);

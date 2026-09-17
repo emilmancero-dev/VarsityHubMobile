@@ -304,6 +304,40 @@ describeDb('GET /feed/bundle', () => {
     expect(res.body?.ads?.ads.length).toBeGreaterThan(0);
   });
 
+  it('traverses every followed post exactly once across page boundaries', async () => {
+    const authorId = userIds[1];
+    for (let index = 0; index < 7; index += 1) {
+      const post = await prisma.post.create({
+        data: {
+          author_id: authorId,
+          content: `Pagination fixture ${index}`,
+          created_at: new Date(Date.now() - index * 1000),
+        },
+      });
+      postIds.push(post.id);
+    }
+    const expected = await prisma.post.findMany({
+      where: { author_id: authorId, deleted_at: null },
+      select: { id: true },
+      take: 50,
+    });
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 10; page += 1) {
+      const response = await request(app)
+        .get('/feed/bundle')
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .query({ posts_limit: 2, ...(cursor ? { posts_cursor: cursor } : {}) })
+        .expect(200);
+      seen.push(...response.body.posts.items.map((item: any) => item.id));
+      cursor = response.body.posts.nextCursor;
+      if (!cursor) break;
+    }
+    expect(cursor).toBeNull();
+    expect(seen.length).toBe(new Set(seen).size);
+    expect([...seen].sort()).toEqual(expected.map((item: any) => item.id).sort());
+  });
+
   // REGRESSION GUARD: the bundled highlights section must NOT filter on `post.type`.
   //
   // `Post.type` is nullable with no default and no backfill, and the main

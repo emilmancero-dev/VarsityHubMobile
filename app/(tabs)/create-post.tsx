@@ -70,10 +70,10 @@ import {
 import { sanitizeText } from '@/utils/formUtils';
 import { ICLOUD_ERROR_MESSAGE, ICLOUD_ERROR_TITLE, isICloudError } from '@/utils/isICloudError';
 import { materializeICloudAssetIfNeeded } from '@/utils/materializeICloudAsset';
+import { removePrimaryPhoto, selectPhotoForPreview } from '@/utils/mediaSelection';
 import { pickerAllMediaTypesProp, pickerMediaTypeFor } from '@/utils/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 
 // Media validation constants
@@ -108,26 +108,6 @@ const getFileSizeFromUri = async (uri: string): Promise<number> => {
   } catch (error) {
     if (__DEV__) console.warn('Could not determine file size:', error);
     return 0;
-  }
-};
-
-const prepareImageForPostUpload = async (uri: string, fileSize: number): Promise<string> => {
-  // Skip resize for small images (under 2MB) — already fast enough.
-  if (fileSize <= 2 * 1024 * 1024) return uri;
-
-  try {
-    const result = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1280 } }], {
-      compress: 0.8,
-      format: ImageManipulator.SaveFormat.JPEG,
-    });
-    return result.uri;
-  } catch (error: any) {
-    if (__DEV__)
-      console.warn(
-        '[CreatePost] Image manipulation failed, using original:',
-        error?.message || error
-      );
-    return uri;
   }
 };
 
@@ -636,7 +616,9 @@ function CreatePostScreen() {
             return;
           }
 
-          const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
+          // The upload boundary prepares photos once and owns the resulting
+          // MIME metadata. Keep original bytes here for previews and editing.
+          const uri = a.uri;
           prepared.push({
             uri,
             mime: mimeType,
@@ -738,7 +720,7 @@ function CreatePostScreen() {
           return;
         }
 
-        const uri = media === 'image' ? await prepareImageForPostUpload(a.uri, fileSize) : a.uri;
+        const uri = a.uri;
         setPicked({
           uri,
           type: media,
@@ -1650,8 +1632,14 @@ function CreatePostScreen() {
                   testID="create-post-remove-media-button"
                   style={styles.removeButton}
                   onPress={() => {
-                    setPicked(null);
-                    setExtraPicked([]);
+                    if (picked.type === 'image') {
+                      const next = removePrimaryPhoto(picked, extraPicked);
+                      setPicked(next.primary);
+                      setExtraPicked(next.extras);
+                    } else {
+                      setPicked(null);
+                      setExtraPicked([]);
+                    }
                   }}
                   accessibilityLabel="Remove media"
                 >
@@ -1663,7 +1651,16 @@ function CreatePostScreen() {
               {picked.type === 'image' && extraPicked.length > 0 ? (
                 <View style={styles.extraPhotoStrip} testID="create-post-extra-photo-strip">
                   {extraPicked.map((item, index) => (
-                    <View key={item.uri} style={styles.extraPhotoThumbWrap}>
+                    <Pressable
+                      key={item.uri}
+                      style={styles.extraPhotoThumbWrap}
+                      accessibilityLabel={`Preview photo ${index + 2}`}
+                      onPress={() => {
+                        const next = selectPhotoForPreview(picked, extraPicked, index);
+                        setPicked(next.primary);
+                        setExtraPicked(next.extras);
+                      }}
+                    >
                       <RNImage source={{ uri: item.uri }} style={styles.extraPhotoThumb} />
                       <Pressable
                         style={styles.extraPhotoRemove}
@@ -1672,7 +1669,7 @@ function CreatePostScreen() {
                       >
                         <Ionicons name="close" size={12} color="#FFFFFF" />
                       </Pressable>
-                    </View>
+                    </Pressable>
                   ))}
                 </View>
               ) : null}

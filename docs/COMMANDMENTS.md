@@ -23,7 +23,7 @@ spec. `OPEN` is a known unresolved difference. `ROADMAP` is future scope.
 | CMD-EVENT-003   | CURRENT | Eligible event posters receive a seven-day post grace period.                            |
 | CMD-EVENT-004   | CURRENT | A post accepts at most five media items and 4,000 text characters.                       |
 | CMD-EVENT-005   | CURRENT | Watching is a future-event action; live and past cards show no bottom-right count.       |
-| CMD-EVENT-006   | CURRENT | The profile Events tab is SHIPPED attendance history backed by verified posting unlocks. |
+| CMD-EVENT-006   | CURRENT | The profile Events tab is SHIPPED history of verified attendance or event contributions. |
 | CMD-EVENT-007   | CURRENT | Event pages with zero posts are purged after their live window closes.                   |
 | CMD-FEED-001    | CURRENT | Event activity controls gold map pins and live-card borders.                             |
 | CMD-ADS-001     | CURRENT | Weekday and weekend ad blocks cost $4.99 and $7.99.                                      |
@@ -67,20 +67,21 @@ event's end time.
   for **7 days** after the event (`REGULAR_POST_GRACE_WINDOW_MS = 7 days`).
   Viewing a past event page is permanent; only _posting_ is capped at 7 days.
 - After 7 days the event stays viewable via the calendar/map database.
-- **Media cap: up to 5 items per post** (`posts.ts` `media_urls .max(5)`, comment
-  cites this doc). Photos and videos can be mixed.
+- **Media cap: up to 5 items per post** (`posts.ts` `media_urls .max(5)`).
+  The composer supports up to five photos or one video; mixed photo/video
+  selection and individual photo cropping are not implemented.
 - **Post text cap:** currently **4000 chars** server-side (`posts.ts`
   `content .max(4000)`). _The original spec said 800 — see "Open reconciliations"._
 - Anyone can interact (like / comment / vote) regardless of location.
 - Polls: competitive games only; any VarsityHub user can vote.
 - **Watching ("TV") button:** before an event starts, users can tap the TV emoji
   to add or remove themselves from the watching count. Once the event is live,
-  and for all past events, the card replaces Watching with the event page's post
-  count.
+  and for all past events, the card shows no bottom-right counter.
 - **Profile attendance history:** the profile Events tab shows event pages where
-  the user passed the geofence and posted a post or story. It uses the same
-  `EventFeedCard` presentation as the feed and remains tied to the attendance
-  ledger even if that user's content is later deleted.
+  the user has a verified posting unlock or an existing post/story contribution.
+  Games Attended uses the same endpoint and query cache. Verified unlocks survive
+  content deletion; contribution-only history depends on that content remaining.
+  Profile and team visibility rules still apply.
 
 ### Push reminders (users who posted)
 

@@ -18,13 +18,13 @@ describe('proLeagueToSportSlug', () => {
 });
 
 describe('formatEventCardTitle', () => {
-  it('prepends the sport emoji and strips the redundant gender+sport suffix', () => {
+  it('keeps emoji out of titles and strips the redundant gender+sport suffix', () => {
     expect(
       formatEventCardTitle({
         title: 'Adelphi Panthers at Vermont Catamounts Womens Soccer',
         sport: 'soccer',
       })
-    ).toBe('⚽ Adelphi Panthers at Vermont Catamounts');
+    ).toBe('Adelphi Panthers at Vermont Catamounts');
   });
 
   it('derives the emoji from the stripped sport word when sport is absent', () => {
@@ -32,7 +32,7 @@ describe('formatEventCardTitle', () => {
       formatEventCardTitle({
         title: 'Cal State Bakersfield Roadrunners at Saint Mary’s Gaels Womens Volleyball',
       })
-    ).toBe('🏐 Cal State Bakersfield Roadrunners at Saint Mary’s Gaels');
+    ).toBe('Cal State Bakersfield Roadrunners at Saint Mary’s Gaels');
   });
 
   it('handles Mens prefix and multi-word sports', () => {
@@ -40,7 +40,7 @@ describe('formatEventCardTitle', () => {
       formatEventCardTitle({
         title: 'Bowling Green State Falcons at Milwaukee Panthers Mens Soccer',
       })
-    ).toBe('⚽ Bowling Green State Falcons at Milwaukee Panthers');
+    ).toBe('Bowling Green State Falcons at Milwaukee Panthers');
   });
 
   it('strips a doubled gender+sport suffix', () => {
@@ -49,22 +49,22 @@ describe('formatEventCardTitle', () => {
         title: "Syracuse Orange at Mercyhurst Lakers Women's Hockey Womens Hockey",
         sport: 'ice_hockey',
       })
-    ).toBe('🏒 Syracuse Orange at Mercyhurst Lakers');
+    ).toBe('Syracuse Orange at Mercyhurst Lakers');
   });
 
   it('leaves school-only NCAA titles intact (never drops a real name as a mascot)', () => {
     expect(formatEventCardTitle({ title: 'Ohio State at Union', sport: 'football' })).toBe(
-      '🏈 Ohio State at Union'
+      'Ohio State at Union'
     );
     expect(formatEventCardTitle({ title: 'Maine at Cornell', sport: 'ice_hockey' })).toBe(
-      '🏒 Maine at Cornell'
+      'Maine at Cornell'
     );
   });
 
   it('uses pro_league for the emoji and keeps single-word pro nicknames', () => {
     expect(
       formatEventCardTitle({ title: 'Cowboys at Giants', event_type: 'game', pro_league: 'nfl' })
-    ).toBe('🏈 Cowboys at Giants');
+    ).toBe('Cowboys at Giants');
   });
 
   it('strips a tournament prefix and #ranking tokens', () => {
@@ -73,7 +73,7 @@ describe('formatEventCardTitle', () => {
         title: 'Duke’s Mayo Classic: West Virginia vs #25 Virginia',
         sport: 'football',
       })
-    ).toBe('🏈 West Virginia vs Virginia');
+    ).toBe('West Virginia vs Virginia');
   });
 
   it('falls back to a non-competitive event label when there is no title', () => {
@@ -92,6 +92,6 @@ describe('formatEventCardTitle', () => {
   it('collapses whitespace introduced by stripping', () => {
     expect(
       formatEventCardTitle({ title: 'Team A at Team B   Womens   Soccer', sport: 'soccer' })
-    ).toBe('⚽ Team A at Team B');
+    ).toBe('Team A at Team B');
   });
 });

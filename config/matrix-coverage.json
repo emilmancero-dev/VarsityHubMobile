@@ -165,10 +165,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/(tabs)/create-post.tsx#action:21793f18f6df": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/(tabs)/create-post.tsx#action:3cd9552f2b76": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -3650,10 +3646,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/game-details/GameDetailsScreen.tsx#action:86669fc476e1": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/game-details/GameDetailsScreen.tsx#action:a5c6120ce962": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -3842,10 +3834,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/game-details/GameDetailsScreen.tsx#navigation:50a8e6060492": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/game-details/GameDetailsScreen.tsx#navigation:605e0f94cd6d": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -3867,10 +3855,6 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/game-details/GameDetailsScreen.tsx#navigation:ddd48303910e": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/game-details/GameDetailsScreen.tsx#navigation:dfd9507848b7": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -4130,7 +4114,7 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/game-map.tsx#action:b81607805e7e": {
+    "app/game-map.tsx#action:4e1c0f75d077": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -5999,10 +5983,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/profile.tsx#api-call:308591976a23": {
-      "status": "missing",
-      "reason": "Profile event-page post-count batching needs focused client evidence."
-    },
     "app/profile.tsx#api-call:3e2b6ab670fc": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -6297,10 +6277,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/rsvp-history.tsx#api-call:c19b2bf43616": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/rsvp-history.tsx#navigation:03a55561933d": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -6358,10 +6334,6 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/settings/_layout.tsx#registration:45f4c2e201d5": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/settings/_layout.tsx#registration:47c59d805b98": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -10908,6 +10880,22 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "utils/uploadErrorAlert.ts#navigation:fc2efddac90a": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/create-post.tsx#action:b416ee2be66f": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/(tabs)/create-post.tsx#action:dd9418ba0e3d": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/rsvp-history.tsx#api-call:83572c82766b": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/settings/_layout.tsx#registration:66d937d04571": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     }

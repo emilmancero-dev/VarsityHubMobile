@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 const mockHttpGet = jest.fn();
 const mockRouter = { push: jest.fn(), back: jest.fn() };
 let mockMapProps: any;
+let mockSportFilterProps: any;
 
 jest.mock('@/context/AuthProvider', () => ({ useAuth: () => ({ user: { id: 'viewer' } }) }));
 jest.mock('@/api/http', () => ({ httpGet: (...args: any[]) => mockHttpGet(...args) }));
@@ -29,8 +30,26 @@ jest.mock('@/components/EventMap', () => {
   };
 });
 jest.mock('@/components/SportFilterBar', () => {
-  const { View } = require('react-native');
-  return { __esModule: true, default: () => <View /> };
+  const { Pressable, Text, View } = require('react-native');
+  return {
+    __esModule: true,
+    default: (props: any) => {
+      mockSportFilterProps = props;
+      return (
+        <View testID="sport-filter">
+          {props.sports.map((sport: string) => (
+            <Pressable
+              key={sport}
+              accessibilityLabel={`Filter ${sport}`}
+              onPress={() => props.onSelect(sport)}
+            >
+              <Text>{sport}</Text>
+            </Pressable>
+          ))}
+        </View>
+      );
+    },
+  };
 });
 
 import GameMapScreen from '../game-map';
@@ -63,6 +82,7 @@ describe('Game map league-level filter', () => {
   beforeEach(() => {
     jest.useFakeTimers({ now: new Date('2026-09-05T12:00:00.000Z') });
     mockMapProps = null;
+    mockSportFilterProps = null;
     mockHttpGet.mockReset().mockResolvedValue({
       items: [
         card('NCAA game', 'football', 'college'),
@@ -162,5 +182,16 @@ describe('Game map league-level filter', () => {
     );
     fireEvent.press(screen.getByLabelText('Major leagues'));
     expect(mockMapProps.events).toHaveLength(4);
+  });
+
+  it('keeps the sport filter visible and preserves its choice across league filters', async () => {
+    await openMap();
+    expect(screen.getByTestId('sport-filter')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Filter football'));
+    expect(mockSportFilterProps.selected).toBe('football');
+
+    fireEvent.press(screen.getByLabelText('Major leagues'));
+    await waitFor(() => expect(screen.getByTestId('sport-filter')).toBeTruthy());
+    expect(mockSportFilterProps.selected).toBe('football');
   });
 });

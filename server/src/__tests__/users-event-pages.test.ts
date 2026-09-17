@@ -62,7 +62,7 @@ describe('GET /users/:id/event-pages', () => {
     return event;
   }
 
-  it('shows geofence-verified events, while hiding future and posted-only events', async () => {
+  it('shows verified and contributed event pages while hiding future events', async () => {
     const past = await createEvent(
       `Cowboys at Giants ${ts}`,
       new Date(Date.now() - 24 * 60 * 60 * 1000),
@@ -96,7 +96,7 @@ describe('GET /users/:id/event-pages', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-    expect(res.body.items.map((item: any) => item.id)).toEqual([past.id]);
+    expect(res.body.items.map((item: any) => item.id)).toEqual([past.id, postedOnly.id]);
     expect(res.body.items[0]).toMatchObject({
       title: `Cowboys at Giants ${ts}`,
       event_id: past.id,

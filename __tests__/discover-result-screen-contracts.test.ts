@@ -91,7 +91,7 @@ describe('discover result screen contracts', () => {
   it('feed and game details keep explicit sign-in entry points for gated actions', () => {
     expect(feedScreen).toContain("router.replace('/sign-in')");
     expect(feedScreen).toContain("void router.push('/sign-in')");
-    expect(gameDetailsScreen).toMatch(/promptForSignIn\(\s*\(\) => \{/);
-    expect(gameDetailsScreen).toContain("void router.push('/sign-in')");
+    expect(gameDetailsScreen).toContain("promptForSignIn(() => router.push('/sign-in')");
+    expect(gameDetailsScreen).toContain("message: 'Sign in to post a story to this event.'");
   });
 });

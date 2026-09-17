@@ -273,8 +273,12 @@ postsRouter.get(
       sort === 'trending'
         ? [{ created_at: 'desc' as const }] // Fetch by recency; we'll re-sort by score
         : hasTeamFilter
-          ? [{ is_pinned: 'desc' as const }, { created_at: 'desc' as const }] // Pinned first on team feed
-          : [{ created_at: 'desc' as const }];
+          ? [
+              { is_pinned: 'desc' as const },
+              { created_at: 'desc' as const },
+              { id: 'desc' as const },
+            ] // Pinned first on team feed
+          : [{ created_at: 'desc' as const }, { id: 'desc' as const }];
 
     const where: Record<string, any> = { deleted_at: null };
 
@@ -530,7 +534,7 @@ postsRouter.get(
         }
       }
       const items = filtered.slice(0, limit);
-      const nextRow = filtered[limit];
+      const nextRow = filtered.length > limit ? items[items.length - 1] : null;
       const nextCursor = nextRow
         ? `t:${nextRow.score}|${nextRow.createdAt.toISOString()}|${nextRow.post.id}`
         : null;
@@ -567,33 +571,49 @@ postsRouter.get(
     }
 
     let rows: any[] = [];
-    try {
-      // audit-allow unbounded: query object already includes a bounded take derived from limit
-      rows = await prisma.post.findMany(query);
-    } catch (error: any) {
-      if (!isMissingPollSchemaError(error)) {
-        console.error('[posts] Failed to fetch posts:', error);
-        return res.status(500).json({ error: 'Failed to fetch posts' });
+    let scanCursor = cursor;
+    let sourceHasMore = false;
+    // Location filtering runs after the query. Scan bounded batches to avoid
+    // treating a batch of distant posts as the end of all nearby content.
+    for (let batch = 0; batch < (userCoords ? 10 : 1); batch += 1) {
+      if (scanCursor) {
+        query.cursor = { id: scanCursor };
+        query.skip = 1;
       }
-      logPollSchemaFallback('GET /posts', error);
-      const fallbackQuery = { ...query, include: { ...query.include } };
-      delete fallbackQuery.include.poll;
-      // audit-allow unbounded: fallbackQuery preserves the same take-bound as query
-      rows = await prisma.post.findMany(fallbackQuery);
-    }
-
-    // Apply location filter: keep posts without coords + posts within radius
-    if (userCoords) {
-      rows = rows.filter((post: any) => {
-        if (post.lat == null || post.lng == null) return true; // no location → always show
-        return (
-          haversineDistance(userCoords!.lat, userCoords!.lon, post.lat, post.lng) <= feedRadius
-        );
-      });
+      let rawRows: any[];
+      try {
+        // audit-allow unbounded: query object already includes a bounded take derived from limit
+        rawRows = await prisma.post.findMany(query);
+      } catch (error: any) {
+        if (!isMissingPollSchemaError(error)) {
+          console.error('[posts] Failed to fetch posts:', error);
+          return res.status(500).json({ error: 'Failed to fetch posts' });
+        }
+        logPollSchemaFallback('GET /posts', error);
+        const fallbackQuery = { ...query, include: { ...query.include } };
+        delete fallbackQuery.include.poll;
+        // audit-allow unbounded: fallbackQuery preserves the same take-bound as query
+        rawRows = await prisma.post.findMany(fallbackQuery);
+      }
+      sourceHasMore = rawRows.length === query.take;
+      if (rawRows.length) scanCursor = rawRows[rawRows.length - 1].id;
+      const visibleRows = userCoords
+        ? rawRows.filter((post: any) => {
+            if (post.lat == null || post.lng == null) return true; // no location → always show
+            return (
+              haversineDistance(userCoords!.lat, userCoords!.lon, post.lat, post.lng) <= feedRadius
+            );
+          })
+        : rawRows;
+      rows.push(...visibleRows);
+      if (rows.length > limit || !sourceHasMore) break;
     }
 
     const items = rows.slice(0, limit);
-    const nextCursor = rows.length > limit ? rows[limit].id : null;
+    // Preserve continuation even if the bounded scan ended with no nearby
+    // matches. A non-null cursor means more source rows, not a full page.
+    const nextCursor =
+      rows.length > limit ? items[items.length - 1].id : sourceHasMore ? scanCursor : null;
 
     const postIds: string[] = items.map((p: any) => p.id);
     const authorIds: string[] = items.map((p: any) => p.author_id).filter(Boolean);
@@ -1560,7 +1580,7 @@ postsRouter.get(
     // audit-allow unbounded: comment query object already includes take: limit + 1
     const rows = await prisma.comment.findMany(query);
     const items = rows.slice(0, limit);
-    const nextCursor = rows.length > limit ? rows[limit].id : null;
+    const nextCursor = rows.length > limit ? items[items.length - 1].id : null;
     res.json({ items, nextCursor });
   })
 );

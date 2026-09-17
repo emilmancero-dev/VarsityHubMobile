@@ -1,6 +1,5 @@
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { launchMediaLibraryAsync, launchMediaCameraAsync } from '../pickMedia';
 
@@ -12,7 +11,6 @@ jest.mock('expo-image-picker', () => ({
   UIImagePickerControllerQualityType: { High: 0, Low: 2 },
   VideoExportPreset: { Passthrough: 0, H264_1920x1080: 6 },
 }));
-jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
 const launchLibrary = jest.fn();
 beforeEach(() => {
   jest.clearAllMocks();
@@ -40,37 +38,11 @@ test('surfaces acquisition errors unchanged', async () => {
   launchLibrary.mockRejectedValueOnce(new Error('offline'));
   await expect(launchMediaLibraryAsync({ mediaTypes: ['videos'] })).rejects.toThrow('offline');
 });
-test('uses an app-owned document copy on older iOS binaries', async () => {
+test('keeps older iOS binaries in the photo library when the native module is unavailable', async () => {
   (requireOptionalNativeModule as jest.Mock).mockReturnValue(null);
-  (DocumentPicker.getDocumentAsync as jest.Mock).mockResolvedValue({
-    canceled: false,
-    assets: [
-      {
-        uri: 'file:///cache/cloud-video.mov',
-        name: 'cloud-video.mov',
-        size: 1234,
-        mimeType: 'video/quicktime',
-      },
-    ],
-  });
-  await expect(launchMediaLibraryAsync({ mediaTypes: ['videos'] })).resolves.toEqual({
-    canceled: false,
-    assets: [
-      expect.objectContaining({
-        uri: 'file:///cache/cloud-video.mov',
-        fileName: 'cloud-video.mov',
-        fileSize: 1234,
-        mimeType: 'video/quicktime',
-        type: 'video',
-      }),
-    ],
-  });
-  expect(DocumentPicker.getDocumentAsync).toHaveBeenCalledWith({
-    type: ['video/*'],
-    multiple: false,
-    copyToCacheDirectory: true,
-  });
-  expect(ImagePicker.launchImageLibraryAsync).not.toHaveBeenCalled();
+  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['videos'] };
+  await launchMediaLibraryAsync(options);
+  expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith(options);
 });
 test.each(['android', 'web'])('retains Expo selection on %s', async os => {
   Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
@@ -106,16 +78,4 @@ test('retains image-only camera controls without changing capture mode', async (
   const options: ImagePicker.ImagePickerOptions = { allowsEditing: false, quality: 1 };
   await launchMediaCameraAsync(options);
   expect(ImagePicker.launchCameraAsync).toHaveBeenCalledWith(options);
-});
-
-test('maps cancellation from the legacy document picker', async () => {
-  (requireOptionalNativeModule as jest.Mock).mockReturnValue(null);
-  (DocumentPicker.getDocumentAsync as jest.Mock).mockResolvedValue({
-    canceled: true,
-    assets: null,
-  });
-  await expect(launchMediaLibraryAsync({ mediaTypes: ['videos'] })).resolves.toEqual({
-    canceled: true,
-    assets: null,
-  });
 });

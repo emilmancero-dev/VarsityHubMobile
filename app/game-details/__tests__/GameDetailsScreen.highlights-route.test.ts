@@ -8,26 +8,9 @@ const source = readFileSync(
 );
 
 describe('GameDetailsScreen post route contract', () => {
-  it('creates normal event posts from the game details Posts action', () => {
-    expect(source).toContain("pathname: '/create-post'");
-    expect(source).toContain('gameId: String(vm.gameId)');
-    expect(source).toContain('eventId: String(vm.eventId)');
-    expect(source).toContain("{ eventId: String(vm?.eventId), type: 'post' }");
-    expect(source).not.toContain("{ eventId: String(vm?.eventId), type: 'highlight' }");
-    expect(source).not.toContain("params: { gameId: String(targetGameId), type: 'highlight' },");
-  });
-
-  it('keeps story writes out of the Posts action', () => {
-    const postActionStart = source.indexOf("Alert.alert('Create Post'");
-    const postActionEnd = source.indexOf('</Pressable>', postActionStart);
-    const postActionSource = source.slice(postActionStart, postActionEnd);
-
-    expect(postActionStart).toBeGreaterThan(-1);
-    expect(postActionEnd).toBeGreaterThan(postActionStart);
-    expect(postActionSource).toContain("pathname: '/create-post'");
-    expect(postActionSource).toContain("type: 'post'");
-    expect(postActionSource).not.toContain('Game.addStory');
-    expect(postActionSource).not.toContain("type: 'highlight'");
+  it('omits the removed corner post action while retaining the story action', () => {
+    expect(source.includes('style={styles.addPostButton}')).toBe(false);
+    expect(source.includes('onPress={handleAddStory}')).toBe(true);
   });
 
   it('does not render standalone event posts as stories', () => {

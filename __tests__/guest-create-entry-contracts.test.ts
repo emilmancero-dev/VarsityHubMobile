@@ -43,8 +43,8 @@ describe('guest create-entry contracts', () => {
   it('keeps event-scoped create paths on /create-post with sign-in prompts and game context', () => {
     expect(publicEvent).toContain("pathname: '/create-post'");
     expect(publicEvent).toContain("message: 'Sign in to post to this event.'");
-    expect(gameDetails).toContain("pathname: '/create-post'");
-    expect(gameDetails).toContain("message: 'Sign in to post to this event.'");
+    expect(gameDetails).toContain("message: 'Sign in to post a story to this event.'");
+    expect(gameDetails).not.toContain('style={styles.addPostButton}');
   });
 
   it('keeps sign-in limited to auth actions instead of adding an extra guest CTA', () => {

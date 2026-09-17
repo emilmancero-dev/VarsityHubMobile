@@ -19,7 +19,7 @@ module.exports = ({ config }) => {
   const packageVersion = require('./package.json').version;
   const appVersion = process.env.APP_VERSION_OVERRIDE || packageVersion;
   const runtimeVersion = process.env.RUNTIME_VERSION_OVERRIDE || appVersion;
-  // The library-video path uses expo-document-picker's app-owned cache copy when
+  // The library-video path uses Expo's photo-library picker when
   // VarsityMediaPicker is absent (see utils/pickMedia.ts), so this bundle is safe
   // to run on the previous runtime's binary. appVersion must still
   // match package.json, and an intentional legacy-runtime OTA must set

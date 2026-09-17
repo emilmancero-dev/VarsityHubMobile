@@ -1,4 +1,4 @@
-import { normalizeSportSlug, sportEmoji } from '@/constants/sports';
+import { normalizeSportSlug } from '@/constants/sports';
 
 // A Game row is only a competitive matchup when its event_type is unset or
 // literally 'game' — this mirrors the server's canonical rule exactly
@@ -88,7 +88,7 @@ const GENDER_TAIL = new Set([
 ]);
 
 /**
- * A compact, card-ready title: sport emoji + the matchup, with the redundant
+ * A compact, card-ready title: the matchup without emoji, with the redundant
  * "Womens Soccer" sport suffix, tournament prefixes, and #rankings removed.
  *
  * We intentionally do NOT try to reduce team names to bare schools — the stored
@@ -131,7 +131,6 @@ export function formatEventCardTitle(item: {
   // sport word when a gender word precedes it or it matches the known sport,
   // so a mascot that happens to be a sport-like word is never dropped.
   const knownSlug = normalizeSportSlug(item.sport);
-  let detectedSlug: string | null = null;
   for (let guard = 0; guard < 4; guard += 1) {
     const lower = base.toLowerCase();
     const match = SPORT_TAIL_PHRASES.find(
@@ -144,17 +143,11 @@ export function formatEventCardTitle(item: {
     const matchesKnown = knownSlug != null && knownSlug === match.slug;
     const isMultiWord = match.phrase.includes(' ');
     if (!genderPrecedes && !matchesKnown && !isMultiWord) break;
-    if (!detectedSlug) detectedSlug = match.slug;
     base = genderPrecedes ? before.split(' ').slice(0, -1).join(' ').trim() : before;
   }
 
-  const emoji =
-    sportEmoji(item.sport) ??
-    (detectedSlug ? sportEmoji(detectedSlug) : null) ??
-    sportEmoji(proLeagueToSportSlug(item.pro_league));
-
   const title = base.replace(/\s+/g, ' ').trim();
-  return emoji ? `${emoji} ${title}` : title;
+  return title;
 }
 
 function eventTypeLabel(t?: string | null): string {

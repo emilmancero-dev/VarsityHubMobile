@@ -1,38 +1,6 @@
 import { Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-
-async function launchLegacyIOSLibrary(
-  includeImages: boolean,
-  allowsMultipleSelection: boolean
-): Promise<ImagePicker.ImagePickerResult> {
-  // Builds before 1.0.6 do not contain VarsityMediaPicker. expo-image-picker's
-  // iOS video export can fail for an otherwise valid iCloud asset with
-  // PHPhotosErrorDomain 3164 before JS receives a URI. DocumentPicker asks iOS
-  // to download and copy the selected item into our cache, which gives the
-  // existing upload pipeline an app-readable file:// URI without weakening any
-  // event posting permission.
-  const result = await DocumentPicker.getDocumentAsync({
-    type: includeImages ? ['image/*', 'video/*'] : ['video/*'],
-    multiple: allowsMultipleSelection,
-    copyToCacheDirectory: true,
-  });
-  if (result.canceled || !result.assets?.length) return { canceled: true, assets: null };
-  return {
-    canceled: false,
-    assets: result.assets.map(asset => ({
-      assetId: null,
-      uri: asset.uri,
-      width: 0,
-      height: 0,
-      fileName: asset.name,
-      fileSize: asset.size,
-      mimeType: asset.mimeType,
-      type: asset.mimeType?.startsWith('video/') ? 'video' : 'image',
-    })),
-  };
-}
 
 /** iOS provider acquisition downloads cloud assets without a full-video export. */
 export async function launchMediaLibraryAsync(
@@ -55,7 +23,11 @@ export async function launchMediaLibraryAsync(
     ): Promise<ImagePicker.ImagePickerResult>;
   }>('VarsityMediaPicker');
   if (!native) {
-    return launchLegacyIOSLibrary(includeImages, Boolean(options.allowsMultipleSelection));
+    // Older binaries do not include VarsityMediaPicker. Keep the action true
+    // to its "Photo Library" label instead of sending users to the Files app.
+    // Cloud-only videos may still surface expo-image-picker's iCloud error on
+    // those builds; create-post already explains that failure to the user.
+    return ImagePicker.launchImageLibraryAsync(options);
   }
   return native.launchLibrary(
     includeImages,
