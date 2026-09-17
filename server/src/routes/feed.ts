@@ -9,6 +9,11 @@ import { loadPostInteractionSets, serializeFeedPost } from '../lib/feedPostSeria
 import { ensureOAuthUserVerified } from '../lib/oauthVerification.js';
 import { prisma } from '../lib/prisma.js';
 import {
+  decodePostPageCursor,
+  encodePostPageCursor,
+  postPageBoundary,
+} from '../lib/postPageCursor.js';
+import {
   buildPrivateTeamPostVisibilityWhere,
   getBlockedUserIds,
   getExcludedPrivateAuthorIds,
@@ -172,6 +177,8 @@ async function getFollowedPostsPage(
     mergeAndWhere(where, buildPrivateTeamPostVisibilityWhere(excludedTeamIds));
   }
 
+  const pageAnchor = decodePostPageCursor(cursor, 'p1');
+  if (pageAnchor) mergeAndWhere(where, postPageBoundary(pageAnchor));
   const query: any = {
     where,
     orderBy: [{ created_at: 'desc' as const }, { id: 'desc' as const }],
@@ -183,7 +190,7 @@ async function getFollowedPostsPage(
     },
     take: limit + 1,
   };
-  if (cursor) {
+  if (cursor && !pageAnchor) {
     query.cursor = { id: cursor };
     query.skip = 1;
   }
@@ -201,9 +208,9 @@ async function getFollowedPostsPage(
   }
 
   const items = rows.slice(0, limit);
-  // The next query skips the cursor itself, so point to the last delivered
-  // row, never the extra look-ahead row (which has not been delivered yet).
-  const nextCursor = rows.length > limit ? items[items.length - 1].id : null;
+  // Carry the last delivered ordering boundary even if its row is later deleted.
+  const nextCursor =
+    rows.length > limit ? encodePostPageCursor('p1', items[items.length - 1]) : null;
   const postIds: string[] = items.map((post: any) => post.id);
   const authorIds: string[] = items.map((post: any) => post.author_id).filter(Boolean);
   const pollIds: string[] = items.map((post: any) => post.poll?.id).filter(Boolean);

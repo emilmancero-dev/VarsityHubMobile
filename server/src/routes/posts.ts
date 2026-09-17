@@ -41,6 +41,11 @@ import { requireOnboarded } from '../middleware/requireOnboarded.js';
 import { requireVerified } from '../middleware/requireVerified.js';
 import { registerIdValidation } from '../middleware/validateParams.js';
 import { sendError } from '../lib/http/sendError.js';
+import {
+  decodePostPageCursor,
+  encodePostPageCursor,
+  postPageBoundary,
+} from '../lib/postPageCursor.js';
 
 export const postsRouter = Router();
 registerIdValidation(postsRouter);
@@ -553,6 +558,12 @@ postsRouter.get(
       return res.json(response);
     }
 
+    let pageAnchor;
+    try {
+      pageAnchor = decodePostPageCursor(cursor, 'p1', hasTeamFilter);
+    } catch {
+      return sendError(res, 400, 'Invalid pagination cursor', { code: 'INVALID_CURSOR' });
+    }
     const query: any = {
       where,
       orderBy,
@@ -565,20 +576,22 @@ postsRouter.get(
       // Over-fetch when location filtering is active to compensate for filtered-out posts
       take: userCoords ? Math.min((limit + 1) * 3, 150) : limit + 1,
     };
-    if (cursor) {
+    if (cursor && !pageAnchor) {
       query.cursor = { id: cursor };
       query.skip = 1;
     }
 
     let rows: any[] = [];
     let scanCursor = cursor;
+    let boundary = pageAnchor ? postPageBoundary(pageAnchor) : null;
     let sourceHasMore = false;
     // Location filtering runs after the query. Scan bounded batches to avoid
     // treating a batch of distant posts as the end of all nearby content.
     for (let batch = 0; batch < (userCoords ? 10 : 1); batch += 1) {
-      if (scanCursor) {
-        query.cursor = { id: scanCursor };
-        query.skip = 1;
+      if (boundary) {
+        query.where = { AND: [where, boundary] };
+        delete query.cursor;
+        delete query.skip;
       }
       let rawRows: any[];
       try {
@@ -596,7 +609,15 @@ postsRouter.get(
         rawRows = await prisma.post.findMany(fallbackQuery);
       }
       sourceHasMore = rawRows.length === query.take;
-      if (rawRows.length) scanCursor = rawRows[rawRows.length - 1].id;
+      if (rawRows.length) {
+        const last = rawRows[rawRows.length - 1];
+        scanCursor = encodePostPageCursor('p1', last, hasTeamFilter);
+        boundary = postPageBoundary({
+          id: last.id,
+          created_at: last.created_at,
+          is_pinned: hasTeamFilter ? last.is_pinned : null,
+        });
+      }
       const visibleRows = userCoords
         ? rawRows.filter((post: any) => {
             if (post.lat == null || post.lng == null) return true; // no location → always show
@@ -613,7 +634,11 @@ postsRouter.get(
     // Preserve continuation even if the bounded scan ended with no nearby
     // matches. A non-null cursor means more source rows, not a full page.
     const nextCursor =
-      rows.length > limit ? items[items.length - 1].id : sourceHasMore ? scanCursor : null;
+      rows.length > limit
+        ? encodePostPageCursor('p1', items[items.length - 1], hasTeamFilter)
+        : sourceHasMore
+          ? scanCursor
+          : null;
 
     const postIds: string[] = items.map((p: any) => p.id);
     const authorIds: string[] = items.map((p: any) => p.author_id).filter(Boolean);
@@ -1565,6 +1590,13 @@ postsRouter.get(
     if (blockedIds.length) {
       commentWhere.author_id = { notIn: blockedIds };
     }
+    let commentAnchor;
+    try {
+      commentAnchor = decodePostPageCursor(cursor, 'c1');
+    } catch {
+      return sendError(res, 400, 'Invalid pagination cursor', { code: 'INVALID_CURSOR' });
+    }
+    if (commentAnchor) mergeAndWhere(commentWhere, postPageBoundary(commentAnchor));
     const query: any = {
       where: commentWhere,
       orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
@@ -1573,14 +1605,15 @@ postsRouter.get(
       },
       take: limit + 1,
     };
-    if (cursor) {
+    if (cursor && !commentAnchor) {
       query.cursor = { id: cursor };
       query.skip = 1;
     }
     // audit-allow unbounded: comment query object already includes take: limit + 1
     const rows = await prisma.comment.findMany(query);
     const items = rows.slice(0, limit);
-    const nextCursor = rows.length > limit ? items[items.length - 1].id : null;
+    const nextCursor =
+      rows.length > limit ? encodePostPageCursor('c1', items[items.length - 1]) : null;
     res.json({ items, nextCursor });
   })
 );
