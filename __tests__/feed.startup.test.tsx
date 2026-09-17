@@ -490,6 +490,139 @@ describe('Feed startup performance', () => {
     cleanupFocusEffects(focusCleanups);
   });
 
+  it('does not queue unchanged enrichment ids behind the initial activity request', async () => {
+    useFeedFakeTimers(now);
+    const activityDeferred = createDeferred<Record<string, number>>();
+    const pastGamesDeferred = createDeferred<any>();
+    const marqueeGamesDeferred = createDeferred<any>();
+    gameDeferredQueue = [firstGameDeferred, pastGamesDeferred, marqueeGamesDeferred];
+    mockPostsSummaryBatch.mockImplementationOnce(() => activityDeferred.promise);
+    render(<FeedScreen />);
+    let focusCleanups: Array<void | (() => void)> = [];
+    const liveGame = {
+      id: 'live-game',
+      title: 'Central vs West',
+      date: '2026-04-25T11:00:00.000Z',
+      location: 'Main Gym',
+    };
+
+    await act(async () => {
+      focusCleanups = [runActivityFocusEffect()];
+      firstGameDeferred.resolve({ games: [liveGame], nextCursor: null });
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pastGamesDeferred.resolve({ games: [liveGame], nextCursor: null });
+      marqueeGamesDeferred.resolve(EMPTY_GAMES_PAGE);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      activityDeferred.resolve({ 'live-game': 0 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    cleanupFocusEffects(focusCleanups);
+  });
+
+  it('queues changed enrichment ids behind the initial activity request', async () => {
+    useFeedFakeTimers(now);
+    const activityDeferred = createDeferred<Record<string, number>>();
+    const pastGamesDeferred = createDeferred<any>();
+    const marqueeGamesDeferred = createDeferred<any>();
+    gameDeferredQueue = [firstGameDeferred, pastGamesDeferred, marqueeGamesDeferred];
+    mockPostsSummaryBatch.mockImplementationOnce(() => activityDeferred.promise);
+    render(<FeedScreen />);
+    let focusCleanups: Array<void | (() => void)> = [];
+    const liveGame = {
+      id: 'live-game',
+      title: 'Central vs West',
+      date: '2026-04-25T11:00:00.000Z',
+      location: 'Main Gym',
+    };
+    const newLiveGame = {
+      id: 'new-live-game',
+      title: 'North vs South',
+      date: '2026-04-25T11:30:00.000Z',
+      location: 'North Gym',
+    };
+
+    await act(async () => {
+      focusCleanups = [runActivityFocusEffect()];
+      firstGameDeferred.resolve({ games: [liveGame], nextCursor: null });
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pastGamesDeferred.resolve({ games: [newLiveGame], nextCursor: null });
+      marqueeGamesDeferred.resolve(EMPTY_GAMES_PAGE);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      activityDeferred.resolve({ 'live-game': 0 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(2);
+    expect(mockPostsSummaryBatch).toHaveBeenLastCalledWith(['live-game', 'new-live-game']);
+
+    cleanupFocusEffects(focusCleanups);
+  });
+
+  it('queues unchanged enrichment ids when the in-flight request belongs to an old viewer', async () => {
+    useFeedFakeTimers(now);
+    mockAuthUser = { id: 'viewer-a' };
+    const activityDeferred = createDeferred<Record<string, number>>();
+    const pastGamesDeferred = createDeferred<any>();
+    const marqueeGamesDeferred = createDeferred<any>();
+    gameDeferredQueue = [firstGameDeferred, pastGamesDeferred, marqueeGamesDeferred];
+    mockPostsSummaryBatch.mockImplementationOnce(() => activityDeferred.promise);
+    render(<FeedScreen />);
+    let focusCleanups: Array<void | (() => void)> = [];
+    const liveGame = {
+      id: 'live-game',
+      title: 'Central vs West',
+      date: '2026-04-25T11:00:00.000Z',
+      location: 'Main Gym',
+    };
+
+    await act(async () => {
+      focusCleanups = [runActivityFocusEffect()];
+      firstGameDeferred.resolve({ games: [liveGame], nextCursor: null });
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      setMockAuthUser({ id: 'viewer-b' });
+      pastGamesDeferred.resolve({ games: [liveGame], nextCursor: null });
+      marqueeGamesDeferred.resolve(EMPTY_GAMES_PAGE);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      activityDeferred.resolve({ 'live-game': 1 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPostsSummaryBatch).toHaveBeenCalledTimes(2);
+    expect(mockPostsSummaryBatch).toHaveBeenLastCalledWith(['live-game']);
+
+    cleanupFocusEffects(focusCleanups);
+  });
+
   it('ignores late activity responses after background and blur ownership ends', async () => {
     useFeedFakeTimers(now);
     const backgroundDeferred = createDeferred<Record<string, number>>();

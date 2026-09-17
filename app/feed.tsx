@@ -403,6 +403,11 @@ export default function FeedScreen() {
   const postsActivityAppStateRef = useRef<AppStateStatus>(AppState.currentState ?? 'inactive');
   const postsActivityOwnershipRef = useRef(0);
   const postsActivityInFlightRef = useRef(false);
+  const postsActivityActiveRequestRef = useRef<{
+    key: string;
+    ownership: number;
+    identity: string;
+  } | null>(null);
   const postsActivityReturnRefreshPendingRef = useRef(false);
   // A return focus refresh races the adjacent silent feed reload. Remember the
   // eligible ids refreshed for that focus cycle so the reload's games effect
@@ -520,15 +525,15 @@ export default function FeedScreen() {
       gameList: GameItem[],
       {
         queueIfBusy = false,
-        coalesceFocusReload = false,
-      }: { queueIfBusy?: boolean; coalesceFocusReload?: boolean } = {}
+        coalesceGamesChange = false,
+      }: { queueIfBusy?: boolean; coalesceGamesChange?: boolean } = {}
     ) => {
       if (!postsActivityFocusedRef.current || postsActivityAppStateRef.current !== 'active') {
         return;
       }
       const ids = getPostsActivityIds(gameList);
       const activityKey = JSON.stringify([...ids].sort());
-      if (coalesceFocusReload && postsActivityFocusRefreshKeyRef.current !== null) {
+      if (coalesceGamesChange && postsActivityFocusRefreshKeyRef.current !== null) {
         if (postsActivityFocusRefreshKeyRef.current === activityKey) return;
         // The reload brought in genuinely different eligible ids. Advance the
         // focus-cycle marker and fetch the new current set once.
@@ -536,7 +541,14 @@ export default function FeedScreen() {
       }
       if (!ids.length) return;
       if (postsActivityInFlightRef.current) {
-        if (queueIfBusy) postsActivityReturnRefreshPendingRef.current = true;
+        const activeRequest = postsActivityActiveRequestRef.current;
+        const matchesCurrentRequest =
+          activeRequest?.key === activityKey &&
+          activeRequest.ownership === postsActivityOwnershipRef.current &&
+          activeRequest.identity === postsActivityIdentityRef.current;
+        if (queueIfBusy && (!coalesceGamesChange || !matchesCurrentRequest)) {
+          postsActivityReturnRefreshPendingRef.current = true;
+        }
         return;
       }
       // Starting an eligible request consumes any older queued return intent.
@@ -546,6 +558,7 @@ export default function FeedScreen() {
       const ownership = postsActivityOwnershipRef.current;
       const identity = postsActivityIdentityRef.current;
       postsActivityInFlightRef.current = true;
+      postsActivityActiveRequestRef.current = { key: activityKey, ownership, identity };
       try {
         const batch = await Game.postsSummaryBatch(ids);
         if (
@@ -575,6 +588,7 @@ export default function FeedScreen() {
         if (__DEV__) console.warn('Posts activity batch failed', err);
       } finally {
         postsActivityInFlightRef.current = false;
+        postsActivityActiveRequestRef.current = null;
         if (
           postsActivityReturnRefreshPendingRef.current &&
           postsActivityFocusedRef.current &&
@@ -1241,7 +1255,7 @@ export default function FeedScreen() {
       void preloadRsvpSummaries(games);
       void preloadPostsActivity(games, {
         queueIfBusy: true,
-        coalesceFocusReload: true,
+        coalesceGamesChange: true,
       });
     });
     return () => handle.cancel();
