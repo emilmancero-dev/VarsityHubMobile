@@ -1,20 +1,76 @@
 {
   "version": 1,
   "claims": [
-    { "id": "CMD-EVENT-001", "status": "CURRENT", "workflows": ["FLOW-EVENT-POSTING"] },
-    { "id": "CMD-EVENT-002", "status": "POLICY", "workflows": ["FLOW-EVENT-POSTING"] },
-    { "id": "CMD-EVENT-003", "status": "CURRENT", "workflows": ["FLOW-EVENT-POSTING"] },
-    { "id": "CMD-EVENT-004", "status": "CURRENT", "workflows": ["FLOW-EVENT-POSTING"] },
-    { "id": "CMD-EVENT-005", "status": "CURRENT", "workflows": ["FLOW-EVENT-CARD"] },
-    { "id": "CMD-EVENT-006", "status": "CURRENT", "workflows": ["FLOW-PROFILE-ATTENDANCE"] },
-    { "id": "CMD-EVENT-007", "status": "CURRENT", "workflows": ["FLOW-EVENT-RETENTION"] },
-    { "id": "CMD-FEED-001", "status": "CURRENT", "workflows": ["FLOW-EVENT-CARD"] },
-    { "id": "CMD-ADS-001", "status": "CURRENT", "workflows": ["FLOW-AD-PURCHASE"] },
-    { "id": "CMD-ADS-002", "status": "POLICY", "workflows": ["FLOW-AD-PURCHASE"] },
-    { "id": "CMD-INGEST-001", "status": "POLICY", "workflows": ["FLOW-SCHEDULE-INGEST"] },
-    { "id": "CMD-INGEST-002", "status": "ROADMAP", "workflows": [] },
-    { "id": "CMD-MEDIA-001", "status": "POLICY", "workflows": ["FLOW-MEDIA-UPLOAD"] },
-    { "id": "CMD-CONTENT-001", "status": "OPEN", "workflows": [] }
+    {
+      "id": "CMD-EVENT-001",
+      "status": "CURRENT",
+      "workflows": ["FLOW-EVENT-POSTING"]
+    },
+    {
+      "id": "CMD-EVENT-002",
+      "status": "POLICY",
+      "workflows": ["FLOW-EVENT-POSTING"]
+    },
+    {
+      "id": "CMD-EVENT-003",
+      "status": "CURRENT",
+      "workflows": ["FLOW-EVENT-POSTING"]
+    },
+    {
+      "id": "CMD-EVENT-004",
+      "status": "CURRENT",
+      "workflows": ["FLOW-EVENT-POSTING"]
+    },
+    {
+      "id": "CMD-EVENT-005",
+      "status": "CURRENT",
+      "workflows": ["FLOW-EVENT-CARD"]
+    },
+    {
+      "id": "CMD-EVENT-006",
+      "status": "CURRENT",
+      "workflows": ["FLOW-PROFILE-ATTENDANCE"]
+    },
+    {
+      "id": "CMD-EVENT-007",
+      "status": "CURRENT",
+      "workflows": ["FLOW-EVENT-RETENTION"]
+    },
+    {
+      "id": "CMD-FEED-001",
+      "status": "CURRENT",
+      "workflows": ["FLOW-EVENT-CARD"]
+    },
+    {
+      "id": "CMD-ADS-001",
+      "status": "CURRENT",
+      "workflows": ["FLOW-AD-PURCHASE"]
+    },
+    {
+      "id": "CMD-ADS-002",
+      "status": "POLICY",
+      "workflows": ["FLOW-AD-PURCHASE"]
+    },
+    {
+      "id": "CMD-INGEST-001",
+      "status": "POLICY",
+      "workflows": ["FLOW-SCHEDULE-INGEST"]
+    },
+    {
+      "id": "CMD-INGEST-002",
+      "status": "ROADMAP",
+      "workflows": []
+    },
+    {
+      "id": "CMD-MEDIA-001",
+      "status": "POLICY",
+      "workflows": ["FLOW-MEDIA-UPLOAD"]
+    },
+    {
+      "id": "CMD-CONTENT-001",
+      "status": "OPEN",
+      "workflows": []
+    }
   ],
   "workflows": [
     {
@@ -116,7 +172,7 @@
       "title": "Price, purchase, verify, and activate an advertisement",
       "risk": "critical",
       "status": "blocked",
-      "blockedBy": "Installed-app purchase journey has not been recorded",
+      "blockedBy": "Device purchase run not yet recorded — see docs/release/device-evidence/FLOW-AD-PURCHASE.md (mark EVIDENCE-STATUS: COMPLETE and flip status to verified after a real sandbox run)",
       "evidence": [
         {
           "type": "automated",
@@ -130,6 +186,16 @@
           "type": "integration",
           "file": "server/src/__tests__/stripe-webhook-signature.test.ts",
           "cases": ["returns 400 when stripe-signature header is missing"]
+        },
+        {
+          "type": "device",
+          "file": "docs/release/device-evidence/FLOW-AD-PURCHASE.md",
+          "cases": [
+            "iOS sandbox: MOND_THURS ($4.99) purchase verified and ad activated",
+            "iOS sandbox: FRI_SUN ($7.99) purchase verified and ad activated",
+            "Android/web: Stripe PaymentSheet purchase verified and ad activated",
+            "Replay of the same receipt does not double-charge or double-activate"
+          ]
         }
       ]
     },

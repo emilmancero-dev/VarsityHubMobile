@@ -206,10 +206,21 @@ function evaluateWorkflowRegistry(registry, io = {}) {
         errors.push(`${workflow.id} evidence file missing: ${item.file || '(none)'}`);
         continue;
       }
+      const source = read(item.file);
       if (item.cases?.length) {
-        const source = read(item.file);
         for (const name of item.cases)
           if (!source.includes(name)) errors.push(`${workflow.id} evidence case missing: ${name}`);
+      }
+      // Device evidence is a human-recorded artifact, not an executable test.
+      // It only counts once a real run is signed off. The status sentinel lives
+      // on line 1 (so the how-to text lower in the file can mention both tokens
+      // without tripping this); it must read COMPLETE, not the template's PENDING.
+      if (item.type === 'device') {
+        const firstLine = source.split('\n', 1)[0] || '';
+        if (!/EVIDENCE-STATUS:\s*COMPLETE/.test(firstLine))
+          errors.push(
+            `${workflow.id} device evidence pending (set line 1 to EVIDENCE-STATUS: COMPLETE after a real run)`
+          );
       }
     }
   }
