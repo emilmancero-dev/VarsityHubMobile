@@ -40,37 +40,24 @@ test('surfaces acquisition errors unchanged', async () => {
   launchLibrary.mockRejectedValueOnce(new Error('offline'));
   await expect(launchMediaLibraryAsync({ mediaTypes: ['videos'] })).rejects.toThrow('offline');
 });
-test('uses an app-owned document copy on older iOS binaries', async () => {
+test('falls back to the photo library, not Files, on older iOS binaries', async () => {
   (requireOptionalNativeModule as jest.Mock).mockReturnValue(null);
-  (DocumentPicker.getDocumentAsync as jest.Mock).mockResolvedValue({
+  (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
     canceled: false,
-    assets: [
-      {
-        uri: 'file:///cache/cloud-video.mov',
-        name: 'cloud-video.mov',
-        size: 1234,
-        mimeType: 'video/quicktime',
-      },
-    ],
+    assets: [{ uri: 'file:///cache/cloud-video.mov', type: 'video' }],
   });
   await expect(launchMediaLibraryAsync({ mediaTypes: ['videos'] })).resolves.toEqual({
     canceled: false,
-    assets: [
-      expect.objectContaining({
-        uri: 'file:///cache/cloud-video.mov',
-        fileName: 'cloud-video.mov',
-        fileSize: 1234,
-        mimeType: 'video/quicktime',
-        type: 'video',
-      }),
-    ],
+    assets: [expect.objectContaining({ uri: 'file:///cache/cloud-video.mov', type: 'video' })],
   });
-  expect(DocumentPicker.getDocumentAsync).toHaveBeenCalledWith({
-    type: ['video/*'],
-    multiple: false,
-    copyToCacheDirectory: true,
-  });
-  expect(ImagePicker.launchImageLibraryAsync).not.toHaveBeenCalled();
+  // The real photo library — never the Files document browser.
+  expect(DocumentPicker.getDocumentAsync).not.toHaveBeenCalled();
+  expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith(
+    expect.objectContaining({
+      mediaTypes: ['videos'],
+      videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
+    })
+  );
 });
 test.each(['android', 'web'])('retains Expo selection on %s', async os => {
   Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
@@ -108,9 +95,9 @@ test('retains image-only camera controls without changing capture mode', async (
   expect(ImagePicker.launchCameraAsync).toHaveBeenCalledWith(options);
 });
 
-test('maps cancellation from the legacy document picker', async () => {
+test('maps cancellation from the photo library fallback', async () => {
   (requireOptionalNativeModule as jest.Mock).mockReturnValue(null);
-  (DocumentPicker.getDocumentAsync as jest.Mock).mockResolvedValue({
+  (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
     canceled: true,
     assets: null,
   });
