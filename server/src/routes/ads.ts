@@ -909,6 +909,11 @@ adsRouter.get(
     const from = req.query.from ? new Date(String(req.query.from)) : undefined;
     const to = req.query.to ? new Date(String(req.query.to)) : undefined;
     const adId = req.query.ad_id ? String(req.query.ad_id) : undefined;
+    // Grouped mode: return the caller's own reservations keyed by ad in ONE
+    // query, so my-ads doesn't fan out a request per ad. Ignored when a
+    // specific ad_id is given.
+    const groupByAd =
+      !adId && (req.query.group_by_ad === '1' || req.query.group_by_ad === 'true');
 
     // IDOR fix: when ad_id provided, verify ownership (or admin)
     if (adId) {
@@ -946,7 +951,17 @@ adsRouter.get(
       where,
       orderBy: { date: 'asc' },
       take: 1000,
+      ...(groupByAd ? { select: { ad_id: true, date: true } } : {}),
     });
+
+    if (groupByAd) {
+      const byAd: Record<string, string[]> = {};
+      for (const r of list as Array<{ ad_id: string; date: Date }>) {
+        (byAd[r.ad_id] ||= []).push(r.date.toISOString().slice(0, 10));
+      }
+      return res.json({ by_ad: byAd });
+    }
+
     const dates = list.map(r => r.date.toISOString().slice(0, 10));
 
     debugLog('[ads] Found reservations:', {

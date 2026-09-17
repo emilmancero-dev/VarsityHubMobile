@@ -1113,6 +1113,9 @@ export const Advertisement = {
   },
   reservationsForAd: (ad_id: string) =>
     httpGet('/ads/reservations?ad_id=' + encodeURIComponent(ad_id)),
+  // All of the caller's reservations keyed by ad id, in one request (replaces a
+  // per-ad fan-out on the My Ads screen). Returns { by_ad: { [adId]: string[] } }.
+  reservationsGroupedByAd: () => httpGet('/ads/reservations?group_by_ad=1'),
   reserve: (ad_id: string, dates: string[]) => httpPost('/ads/reservations', { ad_id, dates }),
   create: (data: CreateAdPayload) => httpPostWithOptions('/ads', data, 15000, 0),
   listMine: () => httpGet('/ads?mine=1'),

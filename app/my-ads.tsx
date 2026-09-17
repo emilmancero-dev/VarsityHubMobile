@@ -118,18 +118,18 @@ function MyAdsScreen() {
         localAds.forEach(add);
         setAds(combined);
 
-        const entries = await Promise.all(
-          combined.map(async ad => {
-            try {
-              const r: any = await AdsApi.reservationsForAd(ad.id);
-              return [ad.id, Array.isArray(r?.dates) ? r.dates : []] as const;
-            } catch {
-              return [ad.id, []] as const;
-            }
-          })
-        );
+        // One request for every ad's reserved dates (was a fan-out of one
+        // request per ad). The server scopes the result to the caller's ads.
         const map: Record<string, string[]> = {};
-        for (const [id, dates] of entries) map[id] = dates;
+        try {
+          const r: any = await AdsApi.reservationsGroupedByAd();
+          const byAd = r?.by_ad && typeof r.by_ad === 'object' ? r.by_ad : {};
+          for (const ad of combined) {
+            map[ad.id] = Array.isArray(byAd[ad.id]) ? byAd[ad.id] : [];
+          }
+        } catch {
+          for (const ad of combined) map[ad.id] = [];
+        }
         setDatesByAd(map);
         hasLoadedOnceRef.current = true;
         setLoadError(null);
