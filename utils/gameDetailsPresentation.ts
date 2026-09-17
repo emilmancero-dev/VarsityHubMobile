@@ -24,11 +24,15 @@ export type TeamInfo = {
 // darken it for the second stop so the gradient reads as a surface, not a flat
 // color swatch. Falls back to the neutral placeholder when no team color exists.
 export function buildTeamColorGradient(
-  color: string | null | undefined
+  color: string | null | undefined,
+  // When the team has no valid color, use this instead of the flat dark
+  // placeholder (e.g. a vibrant per-event gradient) so a photo-less banner
+  // reads as an intentional color gradient, not a black box.
+  fallback?: readonly [ColorValue, ColorValue]
 ): readonly [ColorValue, ColorValue] {
   const hex = typeof color === 'string' ? color.trim() : '';
   const match = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!match) return [PLACEHOLDER_GRADIENT[0], PLACEHOLDER_GRADIENT[1]];
+  if (!match) return fallback ?? [PLACEHOLDER_GRADIENT[0], PLACEHOLDER_GRADIENT[1]];
   const num = parseInt(match[1], 16);
   const r = (num >> 16) & 0xff;
   const g = (num >> 8) & 0xff;

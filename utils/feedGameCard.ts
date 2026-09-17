@@ -1,6 +1,16 @@
+// A no-photo card/banner shows a RANDOM COLOR gradient with the sport emoji
+// centered (owner rule). These must read as an actual, vibrant gradient — the
+// old pair was two near-identical dark navies, so it looked like a flat box.
+// Mid-tone, distinct-hue pairs keep the white shade overlay + emoji legible.
 const GAME_CARD_GRADIENTS: [string, string][] = [
-  ['#1e293b', '#0f172a'],
-  ['#0f172a', '#1e293b'],
+  ['#4F46E5', '#9333EA'], // indigo → purple
+  ['#2563EB', '#06B6D4'], // blue → cyan
+  ['#0D9488', '#22C55E'], // teal → green
+  ['#F97316', '#E11D48'], // orange → rose
+  ['#C026D3', '#7C3AED'], // fuchsia → violet
+  ['#0EA5E9', '#4F46E5'], // sky → indigo
+  ['#F43F5E', '#FB923C'], // rose → amber
+  ['#059669', '#0EA5E9'], // emerald → sky
 ];
 
 function hashSeed(seed: string): number {

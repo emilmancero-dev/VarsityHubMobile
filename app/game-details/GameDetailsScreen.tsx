@@ -63,6 +63,7 @@ import {
 } from '@/utils/gameDetailsPresentation';
 import { sportEmoji } from '@/constants/sports';
 import { proLeagueToSportSlug } from '@/utils/eventTitle';
+import { getDeterministicGameCardGradient } from '@/utils/feedGameCard';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
@@ -2220,7 +2221,10 @@ const GameDetailsScreen = () => {
       ) : (
         <View style={styles.bannerImage}>
           <LinearGradient
-            colors={buildTeamColorGradient((homeTeamObj as any)?.color)}
+            colors={buildTeamColorGradient(
+              (homeTeamObj as any)?.color,
+              getDeterministicGameCardGradient(vm?.gameId || vm?.eventId || vm?.id, vm?.title)
+            )}
             style={StyleSheet.absoluteFillObject}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
