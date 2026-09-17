@@ -5,6 +5,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  type AppStateStatus,
   FlatList,
   Image as RNImage,
   InteractionManager,
@@ -396,6 +398,18 @@ export default function FeedScreen() {
   // that replaces "Watching closed".
   const postsActivityRef = useRef<Record<string, number>>({});
   const [postsActivity, setPostsActivity] = useState<Record<string, number>>({});
+  const postsActivityGamesRef = useRef<GameItem[]>([]);
+  const postsActivityFocusedRef = useRef(false);
+  const postsActivityAppStateRef = useRef<AppStateStatus>(AppState.currentState ?? 'inactive');
+  const postsActivityOwnershipRef = useRef(0);
+  const postsActivityInFlightRef = useRef(false);
+  const postsActivityReturnRefreshPendingRef = useRef(false);
+  const postsActivityRefreshRef = useRef<(() => void) | null>(null);
+  const hasFocusedActivityOnceRef = useRef(false);
+  const postsActivityIdentity = user?.id == null ? 'guest' : String(user.id);
+  const postsActivityIdentityRef = useRef(postsActivityIdentity);
+  postsActivityGamesRef.current = games;
+  postsActivityIdentityRef.current = postsActivityIdentity;
   const rsvpSummariesRef = useRef<Record<string, { going: boolean; count: number }>>({});
   const [rsvpSummaries, setRsvpSummaries] = useState<
     Record<string, { going: boolean; count: number }>
@@ -434,6 +448,10 @@ export default function FeedScreen() {
       loadInFlightRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    postsActivityOwnershipRef.current += 1;
+  }, [postsActivityIdentity]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -479,6 +497,13 @@ export default function FeedScreen() {
   // they can go gold on the feed the same way they already can on the map
   // (owner "commandments" parity rule, 2026-09-14).
   const preloadPostsActivity = useCallback(async (gameList: GameItem[]) => {
+    if (
+      !postsActivityFocusedRef.current ||
+      postsActivityAppStateRef.current !== 'active' ||
+      postsActivityInFlightRef.current
+    ) {
+      return;
+    }
     const now = Date.now();
     const ids = gameList
       .filter(game => isGameLive(game, now) || isGameOver(game, now))
@@ -486,11 +511,31 @@ export default function FeedScreen() {
       .filter(id => id)
       .slice(0, 50);
     if (!ids.length) return;
+    const ownership = postsActivityOwnershipRef.current;
+    const identity = postsActivityIdentityRef.current;
+    postsActivityInFlightRef.current = true;
     try {
       const batch = await Game.postsSummaryBatch(ids);
+      if (
+        !postsActivityFocusedRef.current ||
+        postsActivityAppStateRef.current !== 'active' ||
+        postsActivityOwnershipRef.current !== ownership ||
+        postsActivityIdentityRef.current !== identity
+      ) {
+        return;
+      }
+      const responseNow = Date.now();
+      const currentIds = new Set(
+        postsActivityGamesRef.current
+          .filter(game => isGameLive(game, responseNow) || isGameOver(game, responseNow))
+          .map(game => String(game.id))
+          .filter(id => id)
+          .slice(0, 50)
+      );
       const next = { ...postsActivityRef.current };
       let changed = false;
       ids.forEach(id => {
+        if (!currentIds.has(id)) return;
         const value = Number((batch as Record<string, number>)?.[id] ?? 0);
         if (next[id] !== value) {
           next[id] = value;
@@ -503,8 +548,30 @@ export default function FeedScreen() {
       }
     } catch (err) {
       if (__DEV__) console.warn('Posts activity batch failed', err);
+    } finally {
+      postsActivityInFlightRef.current = false;
+      if (
+        postsActivityReturnRefreshPendingRef.current &&
+        postsActivityFocusedRef.current &&
+        postsActivityAppStateRef.current === 'active'
+      ) {
+        postsActivityReturnRefreshPendingRef.current = false;
+        postsActivityRefreshRef.current?.();
+      }
     }
   }, []);
+
+  const refreshPostsActivity = useCallback(
+    (queueIfBusy = false) => {
+      if (postsActivityInFlightRef.current) {
+        if (queueIfBusy) postsActivityReturnRefreshPendingRef.current = true;
+        return;
+      }
+      void preloadPostsActivity(postsActivityGamesRef.current);
+    },
+    [preloadPostsActivity]
+  );
+  postsActivityRefreshRef.current = refreshPostsActivity;
 
   const preloadRsvpSummaries = useCallback(async (gameList: GameItem[]) => {
     const now = Date.now();
@@ -1155,17 +1222,59 @@ export default function FeedScreen() {
   }, [games, preloadVoteSummaries, preloadRsvpSummaries, preloadPostsActivity]);
 
   // A live game can get its first post at any moment, and that's exactly what
-  // should promote it — polling only on full feed reloads would miss it for
-  // however long the fan stays on the screen. Re-check just the live games
-  // periodically while the feed is focused; cheap since preloadPostsActivity
-  // already scopes to isGameLive and caps at 50 ids.
-  useEffect(() => {
-    if (!games.length) return;
-    const interval = setInterval(() => {
-      void preloadPostsActivity(games);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [games, preloadPostsActivity]);
+  // should promote it. The polling owner is the focused, foreground feed only:
+  // blur/background invalidates late responses and stops the timer. The first
+  // focus relies on the deferred badge preload above, so it does not duplicate
+  // the entry-time request; later focus/foreground returns refresh once.
+  useFocusEffect(
+    useCallback(() => {
+      let interval: ReturnType<typeof setInterval> | null = null;
+      postsActivityFocusedRef.current = true;
+      postsActivityAppStateRef.current = AppState.currentState ?? 'inactive';
+      postsActivityOwnershipRef.current += 1;
+
+      const stopPolling = () => {
+        if (interval !== null) {
+          clearInterval(interval);
+          interval = null;
+        }
+      };
+      const startPolling = () => {
+        if (interval !== null || postsActivityAppStateRef.current !== 'active') return;
+        interval = setInterval(() => refreshPostsActivity(false), 30000);
+      };
+
+      const isReturnFocus = hasFocusedActivityOnceRef.current;
+      hasFocusedActivityOnceRef.current = true;
+      if (postsActivityAppStateRef.current === 'active') {
+        if (isReturnFocus) refreshPostsActivity(true);
+        startPolling();
+      }
+
+      const subscription = AppState.addEventListener('change', nextState => {
+        const wasActive = postsActivityAppStateRef.current === 'active';
+        postsActivityAppStateRef.current = nextState;
+        if (nextState === 'active') {
+          if (!wasActive) {
+            postsActivityOwnershipRef.current += 1;
+            refreshPostsActivity(true);
+          }
+          startPolling();
+        } else {
+          stopPolling();
+          postsActivityOwnershipRef.current += 1;
+        }
+      });
+
+      return () => {
+        postsActivityFocusedRef.current = false;
+        postsActivityReturnRefreshPendingRef.current = false;
+        postsActivityOwnershipRef.current += 1;
+        stopPolling();
+        subscription.remove();
+      };
+    }, [refreshPostsActivity])
+  );
 
   // Refresh feed data + unread counts on focus, then poll every 60s while visible.
   // Single hook replaces two separate useFocusEffects that both fetched unread counts.
