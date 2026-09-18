@@ -7,6 +7,13 @@ const source = readFileSync(
   'utf8'
 );
 
+// StyleSheet definitions were extracted to a co-located styles module (kept out
+// of the app/ router tree). Style-invariant assertions read from there.
+const styleSource = readFileSync(
+  join(process.cwd(), 'styles', 'game-details', 'GameVerticalFeedScreen.styles.ts'),
+  'utf8'
+);
+
 describe('GameVerticalFeedScreen rail actions', () => {
   it('removes the rail nav toggle and standalone share button', () => {
     expect(source).not.toContain('highlights-nav-up');
@@ -50,9 +57,9 @@ describe('GameVerticalFeedScreen rail actions', () => {
   });
 
   it('keeps interactive overlays above the full-screen media press target', () => {
-    expect(source).toMatch(/captionOverlay:\s*\{[\s\S]*zIndex:\s*20/);
-    expect(source).toMatch(/rail:\s*\{[\s\S]*zIndex:\s*20/);
-    expect(source).toMatch(/titleOverlay:\s*\{[\s\S]*zIndex:\s*30/);
+    expect(styleSource).toMatch(/captionOverlay:\s*\{[\s\S]*zIndex:\s*20/);
+    expect(styleSource).toMatch(/rail:\s*\{[\s\S]*zIndex:\s*20/);
+    expect(styleSource).toMatch(/titleOverlay:\s*\{[\s\S]*zIndex:\s*30/);
     expect(source).toContain("pointerEvents: 'box-none'");
   });
 
