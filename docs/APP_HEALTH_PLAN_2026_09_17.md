@@ -24,13 +24,17 @@ create-post 3379 · mobile-community 3308. Reduce incrementally, each step
 verified by tsc + existing tests (no behavior change).
 
 - `[~]` **P-4 GameDetailsScreen slim-down.**
-  - P-4a extract `createStyles` (~1,150 lines) → `GameDetailsScreen.styles.ts`.
-    Pure function of colorScheme, zero behavior risk. **(this phase)**
-  - P-4b extract the data fetch (`vmPayload` build + Game.get/summary) into a
-    `useGameDetails` hook — also moves it toward the react-query pattern.
-  - P-4c split banner / posts / stories sections into child components.
-- `[ ]` **P-5 feed.tsx slim-down** — same treatment (styles, then sections).
-- `[ ]` **P-6 create-post / team-contacts / mobile-community** — same.
+  - `[x]` P-4a extract `createStyles` (~1,150 lines) → `GameDetailsScreen.styles.ts`
+    (4788 → 3640). commit 80330459.
+  - `[ ]` P-4b extract the data fetch (`vmPayload` build + Game.get/summary) into
+    a `useGameDetails` hook — also moves it toward react-query. **RISKIER — needs
+    running-app verification; do at a checkpoint, not blind.**
+  - `[ ]` P-4c split banner / posts / stories sections into child components.
+- `[x]` **P-5 feed.tsx styles** → `feed.styles.ts` (3651 → 2876). Sections split = later.
+- `[x]` **P-6 styles** for create-post (3379→2466), team-contacts (3569→2689),
+  mobile-community (3308→2967). Section/logic splits = later. commit after 80330459.
+  - ~4,050 style lines total relocated across the 5 screens; all verified by
+    tsc + eslint + smoke/detail tests, zero behavior change.
 
 ## Smarter (architecture)
 
