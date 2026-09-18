@@ -1,7 +1,7 @@
 // server/src/__tests__/program-billing-count.test.ts
 import { describe, expect, it, beforeAll, afterAll } from '@jest/globals';
 import { prisma } from '../lib/prisma.js';
-import { countBillableProgramsForContext } from '../routes/teams.js';
+import { countBillableProgramsForContext } from '../lib/teamCreate.js';
 
 const ts = Date.now();
 let orgId = '';

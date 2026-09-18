@@ -12,6 +12,8 @@ const FILES = {
   teams: read('routes/teams.ts'),
   payments: read('routes/payments.ts'),
   teamAuthorization: read('lib/teamAuthorization.ts'),
+  // Team-create org-access validation was extracted here (thin routes).
+  teamCreate: read('lib/teamCreate.ts'),
 };
 
 function snippets(source: string, pattern: RegExp): string[] {
@@ -26,6 +28,7 @@ describe('organization data-access invariants', () => {
       expect(source.includes('prisma.organizationMembership.findFirst({')).toBe(
         name === 'teamAuthorization' ||
           name === 'teams' ||
+          name === 'teamCreate' ||
           name === 'approvalService' ||
           name === 'organizations'
       );
@@ -34,7 +37,7 @@ describe('organization data-access invariants', () => {
 
   it('runtime ownership checks route through getOrganizationMembership()', () => {
     expect(FILES.organizations.includes('getOrganizationMembership(')).toBe(true);
-    expect(FILES.teams.includes('getOrganizationMembership(')).toBe(true);
+    expect(FILES.teamCreate.includes('getOrganizationMembership(')).toBe(true);
     expect(FILES.payments.includes('getOrganizationMembership(')).toBe(true);
   });
 
