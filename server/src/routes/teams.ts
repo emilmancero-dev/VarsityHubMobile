@@ -26,6 +26,13 @@ import { buildTeamSerializeSelect, serializeTeam } from '../lib/serializeTeam.js
 import { customSportSlug, normalizeSportToSlug } from '../lib/sportsTaxonomy.js';
 import { getTeamScheduleFeed } from '../lib/teamScheduleFeed.js';
 import {
+  buildTeamCreateOrganizationError,
+  encodeManagedTeamCursor,
+  parseManagedTeamCursor,
+  serializeTeamMember,
+  type ManagedTeamCursor,
+} from '../lib/teamRouteHelpers.js';
+import {
   canAdministerTeam as canAdministerTeamScoped,
   canAssignTeamRole as canAssignTeamRoleScoped,
   canArchiveTeam as canArchiveTeamScoped,
@@ -94,40 +101,6 @@ function resolveCreateTimeInvites(
 }
 registerIdValidation(teamsRouter);
 const teamGroupChatLocks = new Map<string, Promise<any>>();
-
-type ManagedTeamCursor = {
-  orgName: string;
-  teamName: string;
-  teamId: string;
-};
-
-const encodeManagedTeamCursor = (cursor: ManagedTeamCursor) =>
-  Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
-
-const parseManagedTeamCursor = (raw: string): ManagedTeamCursor | null => {
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(raw, 'base64url').toString('utf8')
-    ) as Partial<ManagedTeamCursor>;
-    if (
-      typeof parsed.orgName !== 'string' ||
-      typeof parsed.teamName !== 'string' ||
-      typeof parsed.teamId !== 'string' ||
-      parsed.orgName.length === 0 ||
-      parsed.teamName.length === 0 ||
-      parsed.teamId.length === 0
-    ) {
-      return null;
-    }
-    return {
-      orgName: parsed.orgName,
-      teamName: parsed.teamName,
-      teamId: parsed.teamId,
-    };
-  } catch {
-    return null;
-  }
-};
 
 /**
  * Remove a user from every group chat belonging to a team. Called when a member
@@ -263,35 +236,6 @@ async function loadTeamViewerAccess(teamId: string, viewerId: string | null) {
     isAdmin,
     isOrgAdmin,
     isOrgOwner,
-  };
-}
-
-function serializeTeamMember(member: any, includeEmail: boolean) {
-  const prefs = (member?.user?.preferences || {}) as any;
-  return {
-    id: member.id,
-    role: member.role,
-    status: member.status,
-    position: member.custom_position || null,
-    jersey_number: prefs?.jersey_number || null,
-    user: {
-      id: member.user_id,
-      display_name: member?.user?.display_name || null,
-      avatar_url: member?.user?.avatar_url || null,
-      username: member?.user?.username || null,
-      ...(includeEmail ? { email: member?.user?.email || null } : {}),
-    },
-  };
-}
-
-function buildTeamCreateOrganizationError(status: number, error: string, message: string) {
-  return {
-    status,
-    body: {
-      error,
-      message,
-      code: error,
-    },
   };
 }
 
