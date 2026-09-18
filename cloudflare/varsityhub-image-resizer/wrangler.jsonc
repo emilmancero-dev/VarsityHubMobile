@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "varsityhub-image-resizer",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  // Cloudflare Images binding — no zone-level toggle needed; transforms run in
+  // the Worker. Requires the Workers Paid plan (Images transformations quota).
+  "images": {
+    "binding": "IMAGES"
+  },
+  // R2 bucket that already holds the media. Set bucket_name to the REAL bucket
+  // (the key path in prod URLs is `varsityhub/production/...`, so the bucket is
+  // whatever R2_BUCKET points at on the server — confirm in the R2 dashboard).
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "REPLACE_WITH_R2_BUCKET_NAME"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+  // After `wrangler deploy`, attach a custom domain so the app can point at it:
+  //   wrangler deploy
+  //   (dashboard) Workers & Pages → varsityhub-image-resizer → Settings →
+  //     Domains & Routes → Add Custom Domain → media.varsityhub.app
+  // or add a "routes" block here once the DNS/zone is ready.
+}
