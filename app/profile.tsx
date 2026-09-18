@@ -39,7 +39,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import GameVerticalFeedScreen, { FeedPost } from './game-details/GameVerticalFeedScreen';
-import { styles } from './profile.styles';
+import { styles } from '@/styles/profile.styles';
 
 type ProfilePreferences = {
   role?: string | null;

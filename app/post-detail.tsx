@@ -50,7 +50,7 @@ import { getAuthSnapshot } from '@/utils/authState';
 import { sanitizeText } from '@/utils/formUtils';
 import { MAX_CONTENT_WIDTH } from '@/constants/layout';
 import { Ionicons } from '@expo/vector-icons';
-import { styles } from './post-detail.styles';
+import { styles } from '@/styles/post-detail.styles';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SKELETON_3 = Array.from({ length: 3 });

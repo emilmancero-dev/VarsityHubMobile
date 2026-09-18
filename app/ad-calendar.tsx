@@ -31,7 +31,7 @@ import { Advertisement, Payments } from '@/api/entities';
 import { getConfig } from '@/config/env';
 import { captureBreadcrumb } from '@/utils/sentry';
 import { usePaymentSheet } from '@/utils/stripe';
-import { styles } from './ad-calendar.styles';
+import { styles } from '@/styles/ad-calendar.styles';
 
 const weekdayRate = 4.99; // Per week (Mon-Thu slot)
 const weekendRate = 7.99; // Per week (Fri-Sun slot)

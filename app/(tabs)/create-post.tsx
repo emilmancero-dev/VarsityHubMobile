@@ -99,7 +99,7 @@ const validateMediaType = (mimeType: string | undefined, mediaType: 'image' | 'v
 };
 
 import * as LegacyFileSystem from 'expo-file-system/legacy';
-import { styles } from './create-post.styles';
+import { styles } from '@/styles/tabs/create-post.styles';
 
 const getFileSizeFromUri = async (uri: string): Promise<number> => {
   try {

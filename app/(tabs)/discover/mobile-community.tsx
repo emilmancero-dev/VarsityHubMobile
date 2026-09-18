@@ -45,7 +45,7 @@ import { resolveMediaType } from '@/utils/media';
 import { getCoachAccessState, getCoachFinishSetupRoute } from '@/utils/roleChecks';
 import { captureBreadcrumb, captureException } from '@/utils/sentry';
 import GameVerticalFeedScreen, { type FeedPost } from '../../game-details/GameVerticalFeedScreen';
-import { styles } from './mobile-community.styles';
+import { styles } from '@/styles/tabs/discover/mobile-community.styles';
 
 // Guard against internal IDs (cuid / UUID) being leaked as display text
 const isInternalId = (s: string) =>

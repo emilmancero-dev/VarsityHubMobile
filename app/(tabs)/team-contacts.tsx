@@ -55,7 +55,7 @@ import { formatFileSize, uploadDocument, uploadImage, UploadResponse } from '@/u
 import type { UploadOptions } from '@/api/upload';
 import { safeGoBack } from '@/utils/navigation';
 import { pickerAllMediaTypesProp, pickerMediaTypesProp } from '@/utils/picker';
-import { styles } from './team-contacts.styles';
+import { styles } from '@/styles/tabs/team-contacts.styles';
 
 // Pre-generated waveform bar heights — avoids Array allocation + Math.random() on every render
 const VOICE_WAVE_HEIGHTS = Array.from({ length: 20 }, (_, i) => {

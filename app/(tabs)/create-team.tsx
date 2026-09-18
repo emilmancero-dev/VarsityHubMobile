@@ -48,7 +48,7 @@ import { getCanonicalBillingState } from '@/utils/billingState';
 import { handleCoachAccessError } from '@/utils/coachAccess';
 import { sanitizeText } from '@/utils/formUtils';
 import { getCoachRecoveryRoute } from '@/utils/roleChecks';
-import { styles } from './create-team.styles';
+import { styles } from '@/styles/tabs/create-team.styles';
 
 type TeamLimitSummary = {
   owned_teams: number;

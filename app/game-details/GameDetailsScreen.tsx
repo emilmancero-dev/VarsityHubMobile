@@ -7,7 +7,7 @@ import {
 } from '@/utils/postRecovery';
 import { launchMediaLibraryAsync, launchMediaCameraAsync } from '@/utils/pickMedia';
 import { Colors } from '@/constants/Colors';
-import { createStyles } from './GameDetailsScreen.styles';
+import { createStyles } from '@/styles/game-details/GameDetailsScreen.styles';
 import ExpandableText from '@/components/ExpandableText';
 import {
   isNativeVideoTrimSupported,

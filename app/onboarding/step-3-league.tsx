@@ -39,7 +39,7 @@ import { getFreshPostAuthState } from '@/utils/postMutationAuth';
 import { showUploadErrorAlert } from '@/utils/uploadErrorAlert';
 import { captureBreadcrumb, captureException } from '@/utils/sentry';
 import OnboardingLayout from './components/OnboardingLayout';
-import { createStyles } from './step-3-league.styles';
+import { createStyles } from '@/styles/onboarding/step-3-league.styles';
 
 const COACH_ORG_TYPES = [
   'school',

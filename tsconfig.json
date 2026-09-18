@@ -16,6 +16,7 @@
       "@/config/*": ["config/*"],
       "@/data/*": ["data/*"],
       "@/ui/*": ["components/ui/*"],
+      "@/styles/*": ["styles/*"],
       "@/features/*": ["app/features/*"],
       "@/shared/*": ["shared/*"],
       "@/lib/*": ["lib/*"],

@@ -71,7 +71,7 @@ import {
   isSystemNotification,
 } from '@/utils/notificationPresentation';
 import GameVerticalFeedScreen from './game-details/GameVerticalFeedScreen';
-import { styles } from './feed.styles';
+import { styles } from '@/styles/feed.styles';
 
 const VARSITYHUB_LOGO = require('../assets/images/logo.png');
 
