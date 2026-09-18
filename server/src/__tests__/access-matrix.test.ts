@@ -372,7 +372,15 @@ async function hitAll(
     if (body && ['post', 'patch', 'put'].includes(method)) return req.send(body);
     return req;
   };
-  const [fan, rookie, veteran] = await Promise.all([r(fanToken), r(rookieToken), r(veteranToken)]);
+  // Sequential, NOT Promise.all: the three role requests each open an ephemeral
+  // supertest server and hit the real Prisma client, which runs at
+  // connection_limit=1 in test mode. Firing them concurrently makes them contend
+  // for that single connection, which flakes ("socket hang up") under the full
+  // matrix run's system load. Per-role assertions are independent, so running
+  // them one at a time loses no coverage.
+  const fan = await r(fanToken);
+  const rookie = await r(rookieToken);
+  const veteran = await r(veteranToken);
   return { fan, rookie, veteran };
 }
 
@@ -519,11 +527,10 @@ describe('Access Matrix — Full Feature Scan', () => {
             name: `AccessTest Org ${ts} ${suffix}`,
             org_type: 'club',
           });
-      const [fan, rookie, veteran] = await Promise.all([
-        createOrg(tempFan.token, 'fan'),
-        createOrg(tempRookie.token, 'rookie'),
-        createOrg(tempVeteran.token, 'veteran'),
-      ]);
+      // Sequential (see hitAll): avoid concurrent writes on the 1-connection test pool.
+      const fan = await createOrg(tempFan.token, 'fan');
+      const rookie = await createOrg(tempRookie.token, 'rookie');
+      const veteran = await createOrg(tempVeteran.token, 'veteran');
       record('Create organization', 'POST /organizations', fan, rookie, veteran);
       // Cleanup any orgs created
       for (const res of [fan, rookie, veteran]) {
@@ -579,11 +586,10 @@ describe('Access Matrix — Full Feature Scan', () => {
             organization_id: orgId,
             message: 'Test join request',
           });
-      const [fan, rookie, veteran] = await Promise.all([
-        requestJoin(tempFan.token),
-        requestJoin(tempRookie.token),
-        requestJoin(tempVeteran.token),
-      ]);
+      // Sequential (see hitAll): avoid concurrent writes on the 1-connection test pool.
+      const fan = await requestJoin(tempFan.token);
+      const rookie = await requestJoin(tempRookie.token);
+      const veteran = await requestJoin(tempVeteran.token);
       record('Join request', 'POST /organizations/join-requests', fan, rookie, veteran);
       // Cleanup join requests
       await prisma.organizationJoinRequest
@@ -613,37 +619,36 @@ describe('Access Matrix — Full Feature Scan', () => {
 
     it('POST /events — create event', async () => {
       const futureDate = new Date(Date.now() + 21 * 24 * 3600 * 1000).toISOString();
-      const [fan, rookie, veteran] = await Promise.all([
-        request(fullApp)
-          .post('/events')
-          .set('Authorization', `Bearer ${fanToken}`)
-          .send({
-            title: `AccessTest Fan Event ${ts}`,
-            date: futureDate,
-            location: 'Test Stadium',
-            event_type: 'other',
-          }),
-        request(fullApp)
-          .post('/events')
-          .set('Authorization', `Bearer ${rookieToken}`)
-          .send({
-            title: `AccessTest Rookie Event ${ts}`,
-            date: futureDate,
-            location: 'Test Stadium',
-            event_type: 'other',
-            home_team_id: rookieTeamId,
-          }),
-        request(fullApp)
-          .post('/events')
-          .set('Authorization', `Bearer ${veteranToken}`)
-          .send({
-            title: `AccessTest Veteran Event ${ts}`,
-            date: futureDate,
-            location: 'Test Stadium',
-            event_type: 'other',
-            home_team_id: veteranTeamId,
-          }),
-      ]);
+      // Sequential (see hitAll): avoid concurrent writes on the 1-connection test pool.
+      const fan = await request(fullApp)
+        .post('/events')
+        .set('Authorization', `Bearer ${fanToken}`)
+        .send({
+          title: `AccessTest Fan Event ${ts}`,
+          date: futureDate,
+          location: 'Test Stadium',
+          event_type: 'other',
+        });
+      const rookie = await request(fullApp)
+        .post('/events')
+        .set('Authorization', `Bearer ${rookieToken}`)
+        .send({
+          title: `AccessTest Rookie Event ${ts}`,
+          date: futureDate,
+          location: 'Test Stadium',
+          event_type: 'other',
+          home_team_id: rookieTeamId,
+        });
+      const veteran = await request(fullApp)
+        .post('/events')
+        .set('Authorization', `Bearer ${veteranToken}`)
+        .send({
+          title: `AccessTest Veteran Event ${ts}`,
+          date: futureDate,
+          location: 'Test Stadium',
+          event_type: 'other',
+          home_team_id: veteranTeamId,
+        });
       record('Create event', 'POST /events', fan, rookie, veteran);
       // All roles should be able to create events (fans get pending status)
       expect(fan.status).toBe(201);
