@@ -106,125 +106,6 @@ const SOCIAL_POSTS_PAGE_SIZE = 20;
 // today, so upcoming games exist on the map but never in the feed.
 // See utils/feedGameQueries.ts.
 
-// RSVP Badge Component
-const RSVPBadge = ({
-  gameItem,
-  initialRsvp,
-  onRSVPChange,
-  isLive = false,
-}: {
-  gameItem: any;
-  initialRsvp?: { going: boolean; count: number };
-  onRSVPChange?: () => void;
-  isLive?: boolean;
-}) => {
-  const colorScheme = useColorScheme();
-  const router = useRouter();
-  const { user } = useAuth();
-  const [isRsvped, setIsRsvped] = useState(false);
-  const [rsvpCount, setRsvpCount] = useState((gameItem as any).rsvpCount || 0);
-  const [isLoading, setIsLoading] = useState(false);
-  const isEventPast = useMemo(() => {
-    const iso = gameItem?.date;
-    if (!iso) return false;
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return false;
-    return date.getTime() < Date.now();
-  }, [gameItem?.date]);
-
-  // Status comes from the parent's batched /events/rsvp-summary fetch — one
-  // request for the whole list instead of one per badge.
-  useEffect(() => {
-    if (initialRsvp) {
-      setIsRsvped(initialRsvp.going);
-      setRsvpCount(initialRsvp.count);
-    }
-  }, [initialRsvp]);
-
-  const handleRSVP = async () => {
-    if (isLoading || !gameItem.event_id) return;
-    if (!user) {
-      void router.push('/sign-in');
-      return;
-    }
-    if (isEventPast) {
-      Alert.alert('Watching closed', 'You cannot mark events as watching once they have occurred.');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const newRsvpState = !isRsvped;
-      const response: any = await Event.rsvp(gameItem.event_id, newRsvpState);
-      const entityLabel = gameItem.source_type === 'event' ? 'event' : 'game';
-
-      setIsRsvped(response.going || response.attending || false);
-      setRsvpCount(response.count || 0);
-
-      Alert.alert(
-        newRsvpState ? "You're Watching" : 'Removed',
-        newRsvpState
-          ? `You're now marked as watching this ${entityLabel}!`
-          : `You're no longer marked as watching this ${entityLabel}.`
-      );
-
-      onRSVPChange?.();
-    } catch (error: any) {
-      const status = error?.status;
-      const message = String(error?.message || error?.data?.error || '');
-      if (status === 400 && /event has passed/i.test(message)) {
-        Alert.alert(
-          'Watching closed',
-          'You cannot mark events as watching once they have occurred.'
-        );
-      } else {
-        if (__DEV__) console.error('Watching toggle error:', error);
-        Alert.alert('Error', 'Failed to update watching status. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Watching is a pre-event action. Live and past cards intentionally have no
-  // bottom-right count/control (owner note, September 15, 2026).
-  if (isLive || isEventPast) return null;
-
-  const badgeText = isRsvped || rsvpCount > 0 ? `📺 ${rsvpCount}` : '📺';
-  const badgeA11yLabel = isRsvped
-    ? `${rsvpCount} watching - Tap to undo`
-    : rsvpCount > 0
-      ? `${rsvpCount} watching - Tap to mark as watching`
-      : 'Tap to mark as watching';
-
-  return (
-    <Pressable
-      testID="feed-rsvp-button"
-      onPress={handleRSVP}
-      disabled={isLoading}
-      style={{
-        position: 'absolute',
-        right: 14,
-        bottom: 14,
-        backgroundColor: isRsvped
-          ? 'rgba(34, 197, 94, 0.9)'
-          : colorScheme === 'dark'
-            ? 'rgba(30,41,59,0.85)'
-            : 'rgba(0,0,0,0.75)',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 20,
-        zIndex: 1000,
-        opacity: isLoading ? 0.6 : 1,
-      }}
-      accessibilityRole={Platform.OS === 'web' ? undefined : 'button'}
-      accessibilityLabel={badgeA11yLabel}
-    >
-      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{badgeText}</Text>
-    </Pressable>
-  );
-};
-
 const deriveTeamLabels = (game: GameItem): { teamA: string; teamB: string } => {
   const title = typeof game.title === 'string' ? game.title : '';
   if (title) {
@@ -292,27 +173,23 @@ type FeedGameCardProps = {
   hasPosts?: boolean;
   testIDPrefix: string;
   voteSummary: VotePreviewEntry | null;
-  rsvp: { going: boolean; count: number } | undefined;
   colorScheme: 'light' | 'dark';
   onPress: (item: GameItem) => void;
-  onRSVPChange: () => void;
 };
 
 // Memoized so a card only re-renders when ITS OWN data changes. Previously the
-// card was inline JSX that read the whole voteSummaries/rsvpSummaries maps, so
-// any single game's summary loading (or any of the screen's ~34 state updates)
-// re-rendered every visible card. The maps are built with {...prev}, so an
-// unchanged game keeps the same voteSummary/rsvp reference and memo skips it.
+// card was inline JSX that read the whole voteSummaries map, so any single
+// game's summary loading (or any of the screen's ~34 state updates)
+// re-rendered every visible card. The map is built with {...prev}, so an
+// unchanged game keeps the same voteSummary reference and memo skips it.
 const FeedGameCard = memo(function FeedGameCard({
   gameItem,
   isLive,
   hasPosts,
   testIDPrefix,
   voteSummary,
-  rsvp,
   colorScheme,
   onPress,
-  onRSVPChange,
 }: FeedGameCardProps) {
   const isEventOnly = gameItem.source_type === 'event';
   const voteText = voteSummary
@@ -331,14 +208,6 @@ const FeedGameCard = memo(function FeedGameCard({
         if (!isEventOnly) prefetchGameSummary(String(gameItem.id));
       }}
       onPress={() => onPress(gameItem)}
-      badge={
-        <RSVPBadge
-          gameItem={gameItem}
-          initialRsvp={rsvp}
-          onRSVPChange={onRSVPChange}
-          isLive={isLive}
-        />
-      }
     />
   );
 });
@@ -420,10 +289,6 @@ export default function FeedScreen() {
   const postsActivityIdentityRef = useRef(postsActivityIdentity);
   postsActivityGamesRef.current = games;
   postsActivityIdentityRef.current = postsActivityIdentity;
-  const rsvpSummariesRef = useRef<Record<string, { going: boolean; count: number }>>({});
-  const [rsvpSummaries, setRsvpSummaries] = useState<
-    Record<string, { going: boolean; count: number }>
-  >({});
   const [showSeedBanner, setShowSeedBanner] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
@@ -609,32 +474,6 @@ export default function FeedScreen() {
     [preloadPostsActivity]
   );
   postsActivityRefreshRef.current = refreshPostsActivity;
-
-  const preloadRsvpSummaries = useCallback(async (gameList: GameItem[]) => {
-    const now = Date.now();
-    const ids = gameList
-      .map(game => String((game as any).event_id || ''))
-      .filter(id => id && !rsvpSummariesRef.current[id])
-      .filter((id, i, arr) => arr.indexOf(id) === i)
-      .slice(0, 50);
-    // Past events never show a live badge state, so don't fetch for them
-    const upcoming = gameList.filter(g => {
-      const id = String((g as any).event_id || '');
-      if (!ids.includes(id)) return false;
-      const d = new Date((g as any).date || 0).getTime();
-      return !Number.isFinite(d) || d >= now;
-    });
-    const wanted = upcoming.map(g => String((g as any).event_id));
-    if (!wanted.length) return;
-    try {
-      const batch = await Event.rsvpSummaryBatch(wanted);
-      const next = { ...rsvpSummariesRef.current, ...(batch || {}) };
-      rsvpSummariesRef.current = next;
-      setRsvpSummaries(next);
-    } catch (err) {
-      if (__DEV__) console.warn('[feed] RSVP summary batch failed:', err);
-    }
-  }, []);
 
   const submitAdReport = useCallback(async (adId: string, reason: string) => {
     try {
@@ -1252,14 +1091,13 @@ export default function FeedScreen() {
     // GameDetailsScreen/profile.
     const handle = InteractionManager.runAfterInteractions(() => {
       void preloadVoteSummaries(games.slice(0, 12));
-      void preloadRsvpSummaries(games);
       void preloadPostsActivity(games, {
         queueIfBusy: true,
         coalesceGamesChange: true,
       });
     });
     return () => handle.cancel();
-  }, [games, preloadVoteSummaries, preloadRsvpSummaries, preloadPostsActivity]);
+  }, [games, preloadVoteSummaries, preloadPostsActivity]);
 
   // A live game can get its first post at any moment, and that's exactly what
   // should promote it. The polling owner is the focused, foreground feed only:
@@ -1916,14 +1754,12 @@ export default function FeedScreen() {
           hasPosts={(postsActivity[String(gameItem.id)] || 0) > 0}
           testIDPrefix={testIDPrefix}
           voteSummary={voteSummaries[String(gameItem.id)] || null}
-          rsvp={rsvpSummaries[String((gameItem as any).event_id || '')]}
           colorScheme={colorScheme}
           onPress={handleGamePress}
-          onRSVPChange={onRefresh}
         />
       );
     },
-    [colorScheme, voteSummaries, rsvpSummaries, postsActivity, handleGamePress, onRefresh]
+    [colorScheme, voteSummaries, postsActivity, handleGamePress]
   );
 
   const renderFeedItem = useCallback(
