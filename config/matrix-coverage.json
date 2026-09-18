@@ -3213,10 +3213,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/feed.tsx#action:08cdc907b504": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/feed.tsx#action:10da182b4da1": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -3325,10 +3321,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/feed.tsx#api-call:0f58f68e48dc": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/feed.tsx#api-call:2123ff32a7c9": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -3397,10 +3389,6 @@
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
-    "app/feed.tsx#api-call:a1852d894c10": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
     "app/feed.tsx#api-call:b2d0074a124e": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
@@ -3418,10 +3406,6 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/feed.tsx#navigation:2088fff0d491": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/feed.tsx#navigation:29fae9a842e7": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -4839,10 +4823,6 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/my-ads.tsx#action:c785ba7afe83": {
-      "status": "missing",
-      "reason": "Needs reviewed feature mapping and executable evidence."
-    },
-    "app/my-ads.tsx#api-call:314b4a02f699": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
@@ -10896,6 +10876,10 @@
       "reason": "Needs reviewed feature mapping and executable evidence."
     },
     "app/settings/_layout.tsx#registration:66d937d04571": {
+      "status": "missing",
+      "reason": "Needs reviewed feature mapping and executable evidence."
+    },
+    "app/my-ads.tsx#api-call:0938ea022e9f": {
       "status": "missing",
       "reason": "Needs reviewed feature mapping and executable evidence."
     }
